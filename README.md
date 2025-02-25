@@ -27,7 +27,7 @@ Awesome Iguanas Vulnerability Detection Tool
   > This tool is for testing and academic purposes all responses from IguanaGPT should NOT be considered axioms.
   > LLM scores can vary in quality even on a session to session basis. Using this tool 
   > as your only benchmark for software quality can have serious consequences. It is the
-  > end users responsibility to ensure that their programs are adequantely tested for quality assurance.
+  > end users responsibility to ensure that their programs are adequately tested for quality assurance.
   > Developers assume no liability and are not responsible for any damage caused by this tool and software.
 
 ## CREDIT
