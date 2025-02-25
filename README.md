@@ -32,7 +32,11 @@ Awesome Iguanas Vulnerability Detection Tool
 
 ## CREDIT
 
+Project Lead: [MattjTrev](https://github.com/MattjTrev)
 
+Front End Developers: [JonathonDavis](https://github.com/JonathanDavis), [Yesmin301](https://github.com/Yesmin301), [Erosssore](https://github.com/Erosssore)
+
+Back End Developers: [Joshua-Ludolf](https://github.com/Joshua-Ludolf), [Pacificocean1912](https://github.com/Pacificocean1912), [MattjTrev](https://github.com/MattjTrev)
 
 ## LICENSE
 This project is licensed under the Apache License Version 2.0 - see the [LICENSE](LICENSE) file for details.
