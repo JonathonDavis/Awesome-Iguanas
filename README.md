@@ -1,6 +1,6 @@
 <h1 align="center">
 <br>
-<img src=/files/awesome-iguanas.png height="375" border="2px solid #000000">
+<img src=/files/awesome-iguanas.jpg height="375" border="2px solid #000000">
 <br>
 Awesome Iguanas Vulnerability Detection Tool
 </h1>
