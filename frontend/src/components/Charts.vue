@@ -12,13 +12,19 @@
           <p>{{ statistics.uniqueLabels || 'Loading...' }}</p>
         </div>
       </div>
+      <div class="distribution-grid">
       <div class="distribution-section">
-        <h3>Node Distribution</h3>
+        <h3>Nodes Distribution</h3>
         <div v-for="(item, index) in nodeDistribution" :key="index" class="distribution-item">
           <span>{{ item.label }}:</span>
           <span>{{ item.count }}</span>
         </div>
       </div>
+      <div class="distribution-chart">
+        <h3>Pie Chart</h3>
+        <PieChart />
+      </div>
+    </div>
     </div>
     <div class="text-section">
       <h3>Information</h3>
@@ -30,6 +36,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import neo4jService from '../services/neo4jService'
+import PieChart from './PieChart.vue';
 
 const statistics = ref({})
 const nodeDistribution = ref([])
@@ -70,7 +77,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
-  margin-bottom: 1rem;
+  /* margin-bottom: 1rem; */
 }
 
 .stat-box {
@@ -80,7 +87,21 @@ onMounted(() => {
   text-align: center;
 }
 
+.distribution-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .distribution-section {
+  background-color: #259a67;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-top: 1rem;
+}
+
+.distribution-chart {
   background-color: #259a67;
   padding: 1rem;
   border-radius: 4px;
