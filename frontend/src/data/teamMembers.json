@@ -1,0 +1,40 @@
+{
+  "teamMembers": [
+    {
+      "id": 1,
+      "name": "Matthew Trevino",
+      "role": "Team Lead || Backend Developer",
+      "imageUrl": "https://boingboing.net/wp-content/uploads/2025/02/Shrek-5-in-all-its-glory.-Image-via-Universal-Pi.jpg"
+    },
+    {
+      "id": 2,
+      "name": "Jonathon Davis",
+      "role": "Frontend Developer",
+      "imageUrl": "https://boingboing.net/wp-content/uploads/2025/02/Shrek-5-in-all-its-glory.-Image-via-Universal-Pi.jpg"
+    },
+    {
+      "id": 3,
+      "name": "Joshua Ludolf",
+      "role": "Backend Developer",
+      "imageUrl": "https://boingboing.net/wp-content/uploads/2025/02/Shrek-5-in-all-its-glory.-Image-via-Universal-Pi.jpg"
+    },
+    {
+      "id": 4,
+      "name": "Samantha Jackson",
+      "role": "Frontend Developer",
+      "imageUrl": "https://boingboing.net/wp-content/uploads/2025/02/Shrek-5-in-all-its-glory.-Image-via-Universal-Pi.jpg"
+    },
+    {
+      "id": 5,
+      "name": "Alexandar James",
+      "role": "Backend Developer",
+      "imageUrl": "https://boingboing.net/wp-content/uploads/2025/02/Shrek-5-in-all-its-glory.-Image-via-Universal-Pi.jpg"
+    },
+    {
+      "id": 6,
+      "name": "Yesmin Hernandez",
+      "role": "Frontend Developer",
+      "imageUrl": "https://boingboing.net/wp-content/uploads/2025/02/Shrek-5-in-all-its-glory.-Image-via-Universal-Pi.jpg"
+    }
+  ]
+} 

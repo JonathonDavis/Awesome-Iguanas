@@ -1,33 +1,31 @@
 <script setup>
-import HelloWorld from './components/HelloWorld.vue'
-import Charts from './components/Charts.vue'
+import Header from './components/Header.vue'
 </script>
 
 <template>
-  <!-- <div>
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo" alt="Vite logo" />
-    </a>
-    <a href="https://vuejs.org/" target="_blank">
-      <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-    </a>
-  </div> -->
-  <!-- <HelloWorld msg="Vite + Vue" /> -->
-  <Charts /> 
+  <div class="app">
+    <Header />
+    <main class="main-content">
+      <router-view></router-view>
+    </main>
+  </div>
 </template>
 
-<style scoped>
-/* .logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
+<style>
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
 }
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #42b883aa);
-} */
+
+.main-content {
+  flex: 1;
+  padding: 2rem;
+}
 </style>
-<!--  -->

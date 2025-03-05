@@ -36,7 +36,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import neo4jService from '../services/neo4jService'
-import PieChart from './PieChart.vue';
+import PieChart from '../components/PieChart.vue';
 
 const statistics = ref({})
 const nodeDistribution = ref([])
