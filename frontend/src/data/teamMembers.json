@@ -4,37 +4,37 @@
       "id": 1,
       "name": "Matthew Trevino",
       "role": "Team Lead || Backend Developer",
-      "imageUrl": "/src/assets/matt.jpg"
+      "imageUrl": "https://i.imgur.com/8NrmrVX.jpeg"
     },
     {
       "id": 2,
       "name": "Jonathon Davis",
       "role": "Frontend Developer",
-      "imageUrl": "/src/assets/jon.jpg"
+      "imageUrl": "https://i.imgur.com/shL1k0z.jpeg"
     },
     {
       "id": 3,
       "name": "Joshua Ludolf",
       "role": "Backend Developer",
-      "imageUrl": "/src/assets/joshing.jpg"
+      "imageUrl": "https://i.imgur.com/KcSN1Gz.jpeg"
     },
     {
       "id": 4,
       "name": "Samantha Jackson",
       "role": "Frontend Developer",
-      "imageUrl": "/src/assets/sam.jpg"
+      "imageUrl": "https://i.imgur.com/bX2xhUP.jpeg"
     },
     {
       "id": 5,
       "name": "Alexandar James",
       "role": "Backend Developer",
-      "imageUrl": "/src/assets/aj.jpg"
+      "imageUrl": "https://i.imgur.com/vDIfNyL.jpeg"
     },
     {
       "id": 6,
       "name": "Yesmin Hernandez",
       "role": "Frontend Developer",
-      "imageUrl": "/src/assets/yesmin.jpg"
+      "imageUrl": "https://i.imgur.com/AzVw0Bc.jpeg"
     }
   ]
 } 
