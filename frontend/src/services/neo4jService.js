@@ -1,6 +1,6 @@
 import neo4j from 'neo4j-driver'
 
-/* Only Remove When Neo4j is ready to be used
+/* Only Remove When Neo4j is ready to be used */
 class Neo4jService {
   constructor() {
     this.uri = import.meta.env.VITE_NEO4J_URI
@@ -58,12 +58,8 @@ class Neo4jService {
 
 export default new Neo4jService()
 
-*/
-
-
-//UNCOMMENT the above WHEN NEO4J IS READY. USE MOCK DATA BELOW FOR NOW
-
 // Mock data for development
+/*
 const mockStatistics = {
   get: (key) => ({
     low: key === 'totalNodes' ? 150 : 5
@@ -94,4 +90,4 @@ const neo4jService = {
 };
 
 export default neo4jService;
-
+*/
