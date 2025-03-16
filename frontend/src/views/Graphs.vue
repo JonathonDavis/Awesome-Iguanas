@@ -20,7 +20,11 @@
     <!-- Graph Visualization Section -->
     <div class="graph-section">
       <h2>Network Graph</h2>
-      <div class="graph-container" ref="graphContainer"></div>
+      <div class="graph-container" ref="graphContainer">
+        <div class="graph-controls">
+          <button @click="loadASTGraph">Show AST Graph</button>
+        </div>
+      </div>
     </div>
 
     <!-- OSV Files Section -->
@@ -83,6 +87,7 @@
 import { ref, onMounted } from 'vue'
 import * as d3 from 'd3'
 import neo4jService from '../services/neo4jService'
+import { Network, DataSet } from 'vis-network/standalone'
 
 export default {
   name: 'Graphs',
@@ -92,6 +97,9 @@ export default {
     const osvFiles = ref([])
     const selectedOSV = ref(null)
     const graphData = ref(null)
+    const network = ref(null)
+    const nodes = ref(new DataSet([]))
+    const edges = ref(new DataSet([]))
 
     const initializeGraph = (data) => {
       const width = graphContainer.value.clientWidth
@@ -183,6 +191,72 @@ export default {
       selectedOSV.value = osv
     }
 
+    const loadASTGraph = async () => {
+      try {
+        const astData = await neo4jService.getASTGraph()
+        
+        // Clear existing graph
+        nodes.value.clear()
+        edges.value.clear()
+
+        // Transform nodes for visualization
+        const visNodes = astData.nodes.map(node => ({
+          id: node.id,
+          label: `${node.type}\n${node.value || ''}`,
+          title: JSON.stringify(node.properties, null, 2),
+          group: node.type // For different colors based on AST node type
+        }))
+
+        // Transform relationships for visualization
+        const visEdges = astData.relationships.map(rel => ({
+          id: rel.id,
+          from: rel.source,
+          to: rel.target,
+          arrows: 'to', // Add arrows to show direction
+          label: rel.type
+        }))
+
+        // Add the new nodes and edges
+        nodes.value.add(visNodes)
+        edges.value.add(visEdges)
+
+        // If network doesn't exist, create it
+        if (!network.value) {
+          const container = graphContainer.value
+          const data = {
+            nodes: nodes.value,
+            edges: edges.value
+          }
+          const options = {
+            nodes: {
+              shape: 'box',
+              font: {
+                size: 12,
+                multi: true
+              }
+            },
+            edges: {
+              font: {
+                size: 12
+              }
+            },
+            layout: {
+              hierarchical: {
+                direction: 'UD', // Up to Down layout
+                sortMethod: 'directed',
+                levelSeparation: 100
+              }
+            },
+            physics: false // Disable physics for AST visualization
+          }
+          network.value = new Network(container, data, options)
+        }
+      } catch (error) {
+        console.error('Error loading AST graph:', error)
+        // Handle error (show notification, etc.)
+      }
+    }
+
     onMounted(async () => {
       try {
         // Fetch all data in parallel
@@ -209,7 +283,8 @@ export default {
       statistics,
       osvFiles,
       selectedOSV,
-      showOSVDetails
+      showOSVDetails,
+      loadASTGraph
     }
   }
 }
@@ -376,5 +451,9 @@ button {
 
 button:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.graph-controls {
+  margin-bottom: 1rem;
 }
 </style> 

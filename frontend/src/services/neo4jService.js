@@ -134,6 +134,39 @@ class Neo4jService {
       await session.close()
     }
   }
+
+  async getASTGraph() {
+    const session = this.driver.session()
+    try {
+      const result = await session.run(`
+        MATCH (n:AST)
+        OPTIONAL MATCH (n)-[r:AST_EDGE]->(m:AST)
+        WITH collect(DISTINCT {
+          id: id(n),
+          labels: labels(n),
+          type: n.type,
+          value: n.value,
+          properties: properties(n)
+        }) as nodes,
+        collect(DISTINCT {
+          id: id(r),
+          type: type(r),
+          properties: properties(r),
+          source: id(startNode(r)),
+          target: id(endNode(r))
+        }) as relationships
+        WHERE r IS NOT NULL
+        RETURN {nodes: nodes, relationships: relationships} as astGraph
+      `)
+      
+      return result.records[0]?.get('astGraph') || { nodes: [], relationships: [] }
+    } catch (error) {
+      console.error('Error fetching AST graph:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
 }
 
 export default new Neo4jService()
