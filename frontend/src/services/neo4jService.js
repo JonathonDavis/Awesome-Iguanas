@@ -54,6 +54,86 @@ class Neo4jService {
       await session.close()
     }
   }
+
+  async getOSVFiles() {
+    const session = this.driver.session()
+    try {
+      const result = await session.run(`
+        MATCH (o:OSV)
+        RETURN o {
+          .*,
+          id: o.id,
+          modified: o.modified,
+          published: o.published,
+          withdrawn: o.withdrawn,
+          aliases: o.aliases,
+          related: o.related,
+          summary: o.summary,
+          details: o.details,
+          severity: o.severity,
+          affected: o.affected,
+          references: o.references,
+          credits: o.credits
+        } as osvData
+        ORDER BY o.published DESC
+      `)
+      return result.records.map(record => record.get('osvData'))
+    } catch (error) {
+      console.error('Error fetching OSV files:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
+
+  async getGraphData() {
+    const session = this.driver.session()
+    try {
+      // Get nodes and relationships for graph visualization
+      const result = await session.run(`
+        MATCH (n)
+        OPTIONAL MATCH (n)-[r]->(m)
+        WITH collect(DISTINCT {
+          id: id(n),
+          labels: labels(n),
+          properties: properties(n)
+        }) as nodes,
+        collect(DISTINCT {
+          id: id(r),
+          type: type(r),
+          properties: properties(r),
+          source: id(startNode(r)),
+          target: id(endNode(r))
+        }) as relationships
+        WHERE r IS NOT NULL
+        RETURN {nodes: nodes, relationships: relationships} as graphData
+      `)
+      
+      return result.records[0].get('graphData')
+    } catch (error) {
+      console.error('Error fetching graph data:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
+
+  async getOSVById(osvId) {
+    const session = this.driver.session()
+    try {
+      const result = await session.run(`
+        MATCH (o:OSV {id: $osvId})
+        RETURN o {.*} as osvData
+      `, { osvId })
+      
+      return result.records[0]?.get('osvData') || null
+    } catch (error) {
+      console.error('Error fetching OSV by ID:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
 }
 
 export default new Neo4jService()
