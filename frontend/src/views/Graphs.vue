@@ -5,7 +5,13 @@
     <!-- Statistics Section -->
     <div class="statistics-section">
       <h2>Overview Statistics</h2>
-      <div class="stats-grid" v-if="statistics">
+      <div v-if="error" class="error-message">
+        Error: {{ error }}
+      </div>
+      <div v-else-if="!statistics" class="no-data-message">
+        No statistics available
+      </div>
+      <div class="stats-grid" v-else>
         <div class="stat-box">
           <h3>Total Nodes</h3>
           <p>{{ statistics.get('totalNodes').low }}</p>
@@ -20,9 +26,14 @@
     <!-- Graph Visualization Section -->
     <div class="graph-section">
       <h2>Network Graph</h2>
-      <div class="graph-container" ref="graphContainer">
+      <div v-if="error" class="error-message">
+        Error: {{ error }}
+      </div>
+      <div v-else-if="!graphData && !network" class="no-data-message">
+        No graph data available
+      </div>
+      <div class="graph-container" ref="graphContainer" v-else>
         <div class="graph-controls">
-          <button @click="loadASTGraph" style="background-color: #ff7f0e; color: white; padding: 10px 20px; border: none; border-radius: 20px; cursor: pointer;">Show AST Graph</button>
         </div>
       </div>
     </div>
@@ -30,6 +41,12 @@
     <!-- OSV Files Section -->
     <div class="osv-section">
       <h2>OSV Vulnerabilities</h2>
+      <div v-if="error" class="error-message">
+        Error: {{ error }}
+      </div>
+      <div v-else-if="!osvFiles || osvFiles.length === 0" class="no-data-message">
+        No OSV vulnerabilities found
+      </div>
       <div class="osv-grid">
         <div v-for="osv in osvFiles" :key="osv.id" class="osv-card">
           <h3>{{ osv.id }}</h3>
@@ -100,6 +117,7 @@ export default {
     const network = ref(null)
     const nodes = ref(new DataSet([]))
     const edges = ref(new DataSet([]))
+    const error = ref(null)
 
     const initializeGraph = (data) => {
       const width = graphContainer.value.clientWidth
@@ -191,90 +209,88 @@ export default {
       selectedOSV.value = osv
     }
 
-    const loadASTGraph = async () => {
-      try {
-        const astData = await neo4jService.getASTGraph()
-        
-        // Clear existing graph
-        nodes.value.clear()
-        edges.value.clear()
-
-        // Transform nodes for visualization
-        const visNodes = astData.nodes.map(node => ({
-          id: node.id,
-          label: `${node.type}\n${node.value || ''}`,
-          title: JSON.stringify(node.properties, null, 2),
-          group: node.type // For different colors based on AST node type
-        }))
-
-        // Transform relationships for visualization
-        const visEdges = astData.relationships.map(rel => ({
-          id: rel.id,
-          from: rel.source,
-          to: rel.target,
-          arrows: 'to', // Add arrows to show direction
-          label: rel.type
-        }))
-
-        // Add the new nodes and edges
-        nodes.value.add(visNodes)
-        edges.value.add(visEdges)
-
-        // If network doesn't exist, create it
-        if (!network.value) {
-          const container = graphContainer.value
-          const data = {
-            nodes: nodes.value,
-            edges: edges.value
-          }
-          const options = {
-            nodes: {
-              shape: 'box',
-              font: {
-                size: 12,
-                multi: true
-              }
-            },
-            edges: {
-              font: {
-                size: 12
-              }
-            },
-            layout: {
-              hierarchical: {
-                direction: 'UD', // Up to Down layout
-                sortMethod: 'directed',
-                levelSeparation: 100
-              }
-            },
-            physics: false // Disable physics for AST visualization
-          }
-          network.value = new Network(container, data, options)
-        }
-      } catch (error) {
-        console.error('Error loading AST graph:', error)
-        // Handle error (show notification, etc.)
-      }
-    }
-
     onMounted(async () => {
       try {
+        error.value = null
         // Fetch all data in parallel
-        const [statsData, graphResult, osvData] = await Promise.all([
+        const [statsData, graphResult, osvData, astData] = await Promise.all([
           neo4jService.getStatistics(),
           neo4jService.getGraphData(),
-          neo4jService.getOSVFiles()
+          neo4jService.getOSVFiles(),
+          neo4jService.getASTGraph()
         ])
 
         statistics.value = statsData
         graphData.value = graphResult
         osvFiles.value = osvData
 
+        // Initialize both graphs
         if (graphData.value) {
           initializeGraph(graphData.value)
         }
+
+        // Initialize AST graph
+        if (astData) {
+          // Clear existing graph
+          nodes.value.clear()
+          edges.value.clear()
+
+          // Transform nodes for visualization
+          const visNodes = astData.nodes.map(node => ({
+            id: node.id,
+            label: `${node.type}\n${node.value || ''}`,
+            title: JSON.stringify(node.properties, null, 2),
+            group: node.type // For different colors based on AST node type
+          }))
+
+          // Transform relationships for visualization
+          const visEdges = astData.relationships.map(rel => ({
+            id: rel.id,
+            from: rel.source,
+            to: rel.target,
+            arrows: 'to', // Add arrows to show direction
+            label: rel.type
+          }))
+
+          // Add the new nodes and edges
+          nodes.value.add(visNodes)
+          edges.value.add(visEdges)
+
+          // Create network if it doesn't exist
+          if (!network.value) {
+            const container = graphContainer.value
+            const data = {
+              nodes: nodes.value,
+              edges: edges.value
+            }
+            const options = {
+              nodes: {
+                shape: 'box',
+                font: {
+                  size: 12,
+                  multi: true
+                }
+              },
+              edges: {
+                font: {
+                  size: 12
+                }
+              },
+              layout: {
+                hierarchical: {
+                  direction: 'UD', // Up to Down layout
+                  sortMethod: 'directed',
+                  levelSeparation: 100
+                }
+              },
+              physics: false // Disable physics for AST visualization
+            }
+            network.value = new Network(container, data, options)
+          }
+        }
       } catch (error) {
         console.error('Error loading data:', error)
+        error.value = 'Failed to load data. Please try again later.'
       }
     })
 
@@ -284,7 +300,7 @@ export default {
       osvFiles,
       selectedOSV,
       showOSVDetails,
-      loadASTGraph
+      error
     }
   }
 }
@@ -455,5 +471,24 @@ button:hover {
 
 .graph-controls {
   margin-bottom: 1rem;
+}
+
+.error-message {
+  background-color: #dc3545;
+  color: white;
+  padding: 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  text-align: center;
+}
+
+.no-data-message {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  text-align: center;
+  font-style: italic;
 }
 </style> 
