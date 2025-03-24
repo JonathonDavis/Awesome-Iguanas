@@ -22,7 +22,7 @@
       <h2>Network Graph</h2>
       <div class="graph-container" ref="graphContainer">
         <div class="graph-controls">
-          <button @click="loadASTGraph">Show AST Graph</button>
+          <button @click="loadASTGraph" style="background-color: #ff7f0e; color: white; padding: 10px 20px; border: none; border-radius: 20px; cursor: pointer;">Show AST Graph</button>
         </div>
       </div>
     </div>
