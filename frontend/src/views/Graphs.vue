@@ -47,7 +47,7 @@
       <div v-else-if="!osvFiles || osvFiles.length === 0" class="no-data-message">
         No OSV vulnerabilities found
       </div>
-      <div class="osv-grid">
+      <div v-else class="osv-grid">
         <div v-for="osv in osvFiles" :key="osv.id" class="osv-card">
           <h3>{{ osv.id }}</h3>
           <p class="summary">{{ osv.summary }}</p>
@@ -212,6 +212,8 @@ export default {
     onMounted(async () => {
       try {
         error.value = null
+        console.log('Starting data fetch...')
+        
         // Fetch all data in parallel
         const [statsData, graphResult, osvData, astData] = await Promise.all([
           neo4jService.getStatistics(),
@@ -220,17 +222,52 @@ export default {
           neo4jService.getASTGraph()
         ])
 
-        statistics.value = statsData
-        graphData.value = graphResult
-        osvFiles.value = osvData
+        console.log('Data fetched:', {
+          hasStats: !!statsData,
+          hasGraphData: !!graphResult,
+          hasOSVData: !!osvData,
+          hasASTData: !!astData
+        })
 
-        // Initialize both graphs
-        if (graphData.value) {
-          initializeGraph(graphData.value)
+        // Handle statistics
+        if (statsData) {
+          statistics.value = statsData
+          console.log('Statistics loaded:', {
+            totalNodes: statistics.value.get('totalNodes'),
+            uniqueLabels: statistics.value.get('uniqueLabels')
+          })
+        } else {
+          console.warn('No statistics data available')
         }
 
-        // Initialize AST graph
-        if (astData) {
+        // Handle graph data
+        if (graphResult && graphResult.nodes && graphResult.nodes.length > 0) {
+          console.log('Initializing main graph with:', {
+            nodes: graphResult.nodes.length,
+            relationships: graphResult.relationships.length
+          })
+          graphData.value = graphResult
+          initializeGraph(graphResult)
+        } else {
+          console.warn('No main graph data available')
+        }
+
+        // Handle OSV data
+        if (osvData && Array.isArray(osvData)) {
+          osvFiles.value = osvData
+          console.log('OSV files loaded:', osvFiles.value.length)
+        } else {
+          console.warn('No OSV data available')
+          osvFiles.value = []
+        }
+
+        // Handle AST data
+        if (astData && astData.nodes && astData.nodes.length > 0) {
+          console.log('Initializing AST graph with:', {
+            nodes: astData.nodes.length,
+            relationships: astData.relationships.length
+          })
+          
           // Clear existing graph
           nodes.value.clear()
           edges.value.clear()
@@ -240,7 +277,7 @@ export default {
             id: node.id,
             label: `${node.type}\n${node.value || ''}`,
             title: JSON.stringify(node.properties, null, 2),
-            group: node.type // For different colors based on AST node type
+            group: node.type
           }))
 
           // Transform relationships for visualization
@@ -248,7 +285,7 @@ export default {
             id: rel.id,
             from: rel.source,
             to: rel.target,
-            arrows: 'to', // Add arrows to show direction
+            arrows: 'to',
             label: rel.type
           }))
 
@@ -257,7 +294,7 @@ export default {
           edges.value.add(visEdges)
 
           // Create network if it doesn't exist
-          if (!network.value) {
+          if (!network.value && graphContainer.value) {
             const container = graphContainer.value
             const data = {
               nodes: nodes.value,
@@ -278,19 +315,24 @@ export default {
               },
               layout: {
                 hierarchical: {
-                  direction: 'UD', // Up to Down layout
+                  direction: 'UD',
                   sortMethod: 'directed',
                   levelSeparation: 100
                 }
               },
-              physics: false // Disable physics for AST visualization
+              physics: false
             }
             network.value = new Network(container, data, options)
+          } else if (!graphContainer.value) {
+            console.error('Graph container not found')
           }
+        } else {
+          console.warn('No AST graph data available')
         }
+
       } catch (error) {
         console.error('Error loading data:', error)
-        error.value = 'Failed to load data. Please try again later.'
+        error.value = `Failed to load data: ${error.message}`
       }
     })
 
