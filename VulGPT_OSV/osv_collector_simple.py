@@ -10,6 +10,9 @@ import time
 import sys
 from neo4j import GraphDatabase
 import datetime
+import os
+import xml.etree.ElementTree as ET
+from apscheduler.schedulers.background import BackgroundScheduler
 
 def print_status(message):
     """Print status message with timestamp"""
@@ -485,5 +488,40 @@ def main():
     finally:
         collector.close()
 
+def schedule_daily_updates(collector):
+    """Schedule daily updates for OSV, NVD, and ExploitDB"""
+    scheduler = BackgroundScheduler()
+
+    def daily_update():
+        print_status("Starting daily update...")
+        # Fetch and store data from OSV
+        updated = collector.update_vulnerabilities()
+        print_status(f"Updated {updated} vulnerabilities from OSV.")
+
+        # Fetch and store data from NVD
+        nvd_vulnerabilities = fetch_nvd_data()
+        for vuln in nvd_vulnerabilities:
+            collector.store_vulnerability(vuln)
+
+        # Fetch and store data from ExploitDB
+        exploitdb_vulnerabilities = fetch_exploitdb_data()
+        for vuln in exploitdb_vulnerabilities:
+            collector.store_vulnerability(vuln)
+
+        print_status("Daily update completed.")
+
+    scheduler.add_job(daily_update, 'interval', days=1)
+    scheduler.start()
+    print_status("Daily updates scheduled.")
+
 if __name__ == "__main__":
-    main()
+    collector = OSVCollector()
+    try:
+        schedule_daily_updates(collector)
+        print_status("Collector is running. Press Ctrl+C to exit.")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print_status("Shutting down collector.")
+    finally:
+        collector.close()
