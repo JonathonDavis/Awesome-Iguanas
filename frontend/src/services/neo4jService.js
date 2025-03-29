@@ -18,11 +18,16 @@ class Neo4jService {
     )
     console.log('Neo4j connection established')
     
-    // Used to track the timer for daily updates
+    // Used to track the timers for updates
     this.updateTimer = null;
+    this.continuousUpdateTimer = null;
+    this.continuousUpdateInterval = 3600000; // 1 hour in milliseconds
     
-    // Schedule daily updates when the service initializes
-    this.scheduleDailyUpdates();
+    // We'll keep the daily updates functionality but remove the console log
+    this.scheduleDailyUpdatesQuietly();
+    
+    // Start continuous OSV updates
+    this.startContinuousOSVUpdates();
   }
 
   async getStatistics() {
@@ -180,114 +185,169 @@ class Neo4jService {
       console.error('Error during daily update:', error);
     }
   }
-
-  async fetchOSVData() {
-    try {
-      // Fetch the list of ecosystems
-      const ecosystemsResponse = await axios.get('https://osv-vulnerabilities.storage.googleapis.com/ecosystems.txt');
-      const ecosystems = ecosystemsResponse.data.split('\n').filter(Boolean); // Split by newline and remove empty lines
-      
-      const vulnerabilities = [];
-      
-      // For each ecosystem, fetch popular packages and their vulnerabilities
-      for (const ecosystem of ecosystems) {
-        console.log(`Processing ecosystem: ${ecosystem}`);
-        
-        // For each ecosystem, we'll define popular packages or use an empty name to get all ecosystem vulnerabilities
-        const popularPackages = await this.getPopularPackagesForEcosystem(ecosystem);
-        
-        // If no specific packages, add an empty string to get ecosystem-wide vulnerabilities
-        if (popularPackages.length === 0) {
-          popularPackages.push("");
-        }
-        
-        // Process each package individually to get detailed vulnerability data
-        for (const packageName of popularPackages) {
-          try {
-            const response = await axios.post('https://api.osv.dev/v1/query', {
-              package: {
-                name: packageName,
-                ecosystem: ecosystem
-              }
-            });
-            
-            if (response.data && response.data.vulns) {
-              console.log(`Found ${response.data.vulns.length} vulnerabilities for ${packageName || 'all packages'} in ${ecosystem}`);
-              
-              // For each vulnerability ID, get the full details
-              for (const vuln of response.data.vulns) {
-                try {
-                  const detailsResponse = await axios.get(`https://api.osv.dev/v1/vulns/${vuln.id}`);
-                  if (detailsResponse.data) {
-                    const processedVuln = this.processVulnerability(detailsResponse.data);
-                    vulnerabilities.push(processedVuln);
-                    
-                    // Store vulnerability in Neo4j
-                    await this.storeVulnerability(processedVuln);
-                  }
-                } catch (detailsError) {
-                  console.error(`Error fetching details for vulnerability ${vuln.id}:`, detailsError);
-                }
-                
-                // Delay to respect API rate limits
-                await new Promise(resolve => setTimeout(resolve, 200));
-              }
-            }
-            
-            // Delay between package queries to respect API rate limits
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          } catch (packageError) {
-            console.error(`Error querying vulnerabilities for ${packageName} in ${ecosystem}:`, packageError);
-          }
-        }
-      }
-      
-      return vulnerabilities;
-    } catch (error) {
-      console.error('Error fetching OSV data:', error);
-      return [];
+  
+  /**
+   * Starts continuous updates from OSV with throttled fetching
+   */
+  startContinuousOSVUpdates() {
+    // Clear any existing timer
+    if (this.continuousUpdateTimer) {
+      clearInterval(this.continuousUpdateTimer);
+    }
+    
+    console.log(`Starting continuous OSV updates every ${this.continuousUpdateInterval/60000} minutes`);
+    
+    // Do an initial update
+    this.fetchLatestOSVUpdates();
+    
+    // Set up recurring updates
+    this.continuousUpdateTimer = setInterval(() => {
+      this.fetchLatestOSVUpdates();
+    }, this.continuousUpdateInterval);
+  }
+  
+  /**
+   * Stops the continuous OSV updates
+   */
+  stopContinuousOSVUpdates() {
+    if (this.continuousUpdateTimer) {
+      clearInterval(this.continuousUpdateTimer);
+      this.continuousUpdateTimer = null;
+      console.log('Continuous OSV updates stopped');
     }
   }
   
-  async getPopularPackagesForEcosystem(ecosystem) {
-    // Return predefined popular packages for common ecosystems
-    const popularPackagesByEcosystem = {
-      'AlmaLinux': ['kernel', 'glibc', 'openssl'],
-      'Alpine': ['apk-tools', 'musl', 'busybox'],
-      'Android': ['androidx.appcompat', 'com.google.android.material', 'androidx.core'],
-      'Bitnami': ['apache', 'nginx', 'mysql'],
-      'CRAN': ['ggplot2', 'dplyr', 'tidyverse'],
-      'Chainguard': ['gvisor', 'distroless'],
-      'Debian': ['linux-image', 'glibc', 'openssl'],
-      'GHC': ['base', 'containers', 'bytestring'],
-      'GIT': ['git', 'git-lfs'],
-      'GSD': ['python', 'ruby', 'nodejs'],
-      'GitHub Actions': ['actions/checkout', 'actions/setup-node', 'actions/setup-python', 'actions/cache'],
-      'Go': ['github.com/gorilla/mux', 'github.com/gin-gonic/gin', 'github.com/stretchr/testify','github.com/kubernetes/kubernetes', 'github.com/golang/go', 'github.com/docker/docker'],
-      'Hackage': ['base', 'containers', 'bytestring'],
-      'Hex': ['phoenix', 'ecto', 'plug'],
-      'Linux': ['linux', 'glibc', 'openssl'],
-      'Mageia': ['kernel', 'glibc', 'openssl'],
-      'NUGet': ['Newtonsoft.Json', 'Microsoft.AspNetCore.Mvc', 'System.Text.Json'],
-      'OSS-Fuzz': ['libxml2', 'libpng', 'openssl'],
-      'Packagist': ['symfony/symfony', 'laravel/framework', 'guzzlehttp/guzzle'],
-      'Pub': ['http', 'json_serializable', 'provider'],
-      'PyPI': ['django', 'flask', 'requests', 'numpy', 'pandas', 'tensorflow'],
-      'npm': ['react', 'express', 'axios', 'lodash', 'moment', 'angular'],
-      'Maven': ['org.apache.maven.plugins', 'org.apache.maven', 'org.apache.commons','org.springframework', 'com.fasterxml.jackson.core', 'log4j', 'apache.tomcat'],
-      'Red Hat': ['kernel', 'glibc', 'openssl'],
-      'Rocky Linux': ['kernel', 'glibc', 'openssl'],
-      'RubyGems': ['rails', 'nokogiri', 'rack', 'activerecord'],
-      'SUSE': ['kernel', 'glibc', 'openssl'],
-      'SwiftURL': ['swift', 'foundation', 'dispatch'],
-      'UVI': ['kernel', 'glibc', 'openssl'],
-      'Ubuntu': ['linux-image', 'glibc', 'openssl'],
-      'Wolfi': ['apk-tools', 'musl', 'busybox'],
-      'crates.io': ['serde', 'tokio', 'actix-web', 'reqwest', 'rocket'],
-      'openSUSE': ['kernel', 'glibc', 'openssl'],
-    };
+  /**
+   * Fetch only the latest updates from OSV to minimize API usage
+   */
+  async fetchLatestOSVUpdates() {
+    try {
+      console.log('Fetching latest OSV vulnerability updates...');
+      
+      // Get the most recent update timestamp from our database
+      const latestTimestamp = await this.getLatestVulnerabilityTimestamp();
+      const since = latestTimestamp || new Date(Date.now() - 86400000).toISOString(); // Default to 24 hours ago
+      
+      // Fetch the list of ecosystems (limit to popular ones for continuous updates)
+      const popularEcosystems = [
+        'PyPI', 'npm', 'Maven', 'Go', 'NuGet', 'crates.io', 'Debian', 
+        'Ubuntu', 'Alpine', 'GitHub Actions', 'Ruby', 'Packagist'
+      ];
+      
+      let updatedVulnerabilities = 0;
+      
+      // Process each ecosystem
+      for (const ecosystem of popularEcosystems) {
+        try {
+          // Get the most active packages for this ecosystem
+          const activePackages = await this.getActivePackagesForEcosystem(ecosystem);
+          
+          // For each package, look for vulnerabilities modified since our last check
+          for (const packageName of activePackages) {
+            try {
+              const response = await axios.post('https://api.osv.dev/v1/query', {
+                package: {
+                  name: packageName,
+                  ecosystem: ecosystem
+                },
+                modified_since: since
+              });
+              
+              if (response.data && response.data.vulns && response.data.vulns.length > 0) {
+                console.log(`Found ${response.data.vulns.length} updated vulnerabilities for ${packageName} in ${ecosystem}`);
+                
+                // Process each vulnerability
+                for (const vuln of response.data.vulns) {
+                  try {
+                    const detailsResponse = await axios.get(`https://api.osv.dev/v1/vulns/${vuln.id}`);
+                    if (detailsResponse.data) {
+                      const processedVuln = this.processVulnerability(detailsResponse.data);
+                      await this.storeVulnerability(processedVuln);
+                      updatedVulnerabilities++;
+                    }
+                  } catch (detailsError) {
+                    console.error(`Error fetching details for vulnerability ${vuln.id}:`, detailsError);
+                  }
+                  
+                  // Rate limiting
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                }
+              }
+              
+              // Rate limiting between package queries
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (packageError) {
+              console.error(`Error querying vulnerabilities for ${packageName} in ${ecosystem}:`, packageError);
+            }
+          }
+        } catch (ecosystemError) {
+          console.error(`Error processing ecosystem ${ecosystem}:`, ecosystemError);
+        }
+      }
+      
+      if (updatedVulnerabilities > 0) {
+        console.log(`Added or updated ${updatedVulnerabilities} vulnerabilities in continuous update`);
+      } else {
+        console.log('No new vulnerability updates found');
+      }
+      
+      return updatedVulnerabilities;
+    } catch (error) {
+      console.error('Error during continuous OSV update:', error);
+      return 0;
+    }
+  }
+  
+  /**
+   * Get the timestamp of the most recently modified vulnerability in our database
+   */
+  async getLatestVulnerabilityTimestamp() {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (v:Vulnerability)
+        RETURN max(v.modified) as latestModified
+      `);
+      
+      if (result.records[0].get('latestModified')) {
+        // Convert Neo4j datetime to ISO string
+        const neo4jDate = result.records[0].get('latestModified');
+        return neo4jDate.toString(); // This should return an ISO string
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting latest vulnerability timestamp:', error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+  
+  /**
+   * Get the most active packages for an ecosystem based on vulnerability frequency
+   */
+  async getActivePackagesForEcosystem(ecosystem) {
+    // First check if we have packages for this ecosystem in our database
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (p:Package {ecosystem: $ecosystem})<-[:AFFECTS]-(v:Vulnerability)
+        RETURN p.name AS packageName, count(v) AS vulnCount
+        ORDER BY vulnCount DESC
+        LIMIT 5
+      `, { ecosystem });
+      
+      if (result.records.length > 0) {
+        return result.records.map(record => record.get('packageName'));
+      }
+    } catch (error) {
+      console.error(`Error getting active packages for ${ecosystem}:`, error);
+    } finally {
+      await session.close();
+    }
     
-    return popularPackagesByEcosystem[ecosystem] || [];
+    // Fall back to predefined popular packages
+    return this.getPopularPackagesForEcosystem(ecosystem).slice(0, 3);
   }
   
   processVulnerability(vuln) {
@@ -379,7 +439,7 @@ class Neo4jService {
     }
   }
 
-  scheduleDailyUpdates() {
+  scheduleDailyUpdatesQuietly() {
     // Cancel any existing timer
     if (this.updateTimer) {
       clearTimeout(this.updateTimer);
@@ -393,15 +453,13 @@ class Neo4jService {
     
     const timeUntilMidnight = tomorrow.getTime() - now.getTime();
     
-    // Schedule the update
+    // Schedule the update without logging
     this.updateTimer = setTimeout(() => {
       this.updateVulnerabilities();
       
       // Set up the next day's update (recursive)
-      this.scheduleDailyUpdates();
+      this.scheduleDailyUpdatesQuietly();
     }, timeUntilMidnight);
-    
-    console.log(`Scheduled next vulnerability update for ${tomorrow.toLocaleString()}, in ${Math.floor(timeUntilMidnight/1000/60)} minutes`);
   }
 }
 
