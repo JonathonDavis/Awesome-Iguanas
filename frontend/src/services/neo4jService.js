@@ -1,6 +1,35 @@
 import neo4j from 'neo4j-driver'
 import axios from 'axios';
 
+// Create an axios instance with increased timeout and retry configuration
+const apiClient = axios.create({
+  timeout: 60000, // Increased to 60 seconds (from 30s)
+});
+
+// Add a retry interceptor
+apiClient.interceptors.response.use(null, async (error) => {
+  const { config } = error;
+  
+  // If config doesn't exist or we've already retried 3 times, reject
+  if (!config || config.__retryCount >= 3) {
+    return Promise.reject(error);
+  }
+  
+  // Set retry count
+  config.__retryCount = config.__retryCount || 0;
+  config.__retryCount++;
+  
+  // Calculate backoff delay - 2^retry * 1000 milliseconds
+  const backoff = Math.pow(2, config.__retryCount) * 1000;
+  console.log(`Request failed, retrying in ${backoff}ms... (Attempt ${config.__retryCount}/3)`);
+  
+  // Wait for the backoff period
+  await new Promise(resolve => setTimeout(resolve, backoff));
+  
+  // Return the promise for the retry
+  return apiClient(config);
+});
+
 class Neo4jService {
   constructor() {
     this.uri = import.meta.env.VITE_NEO4J_URI
@@ -227,7 +256,6 @@ class Neo4jService {
       // Get the most recent update timestamp from our database
       const latestTimestamp = await this.getLatestVulnerabilityTimestamp();
       const since = latestTimestamp || new Date(Date.now() - 86400000).toISOString(); // Default to 24 hours ago
-      
       // Fetch the list of ecosystems (limit to popular ones for continuous updates)
       const popularEcosystems = [
         'PyPI', 'npm', 'Maven', 'Go', 'NuGet', 'crates.io', 'Debian', 
@@ -245,7 +273,10 @@ class Neo4jService {
           // For each package, look for vulnerabilities modified since our last check
           for (const packageName of activePackages) {
             try {
-              const response = await axios.post('https://api.osv.dev/v1/query', {
+              console.log(`Checking for vulnerabilities in ${packageName} (${ecosystem})...`);
+              
+              // Use our enhanced axios client with retry capability
+              const response = await apiClient.post('https://api.osv.dev/v1/query', {
                 package: {
                   name: packageName,
                   ecosystem: ecosystem
@@ -256,32 +287,42 @@ class Neo4jService {
               if (response.data && response.data.vulns && response.data.vulns.length > 0) {
                 console.log(`Found ${response.data.vulns.length} updated vulnerabilities for ${packageName} in ${ecosystem}`);
                 
-                // Process each vulnerability
-                for (const vuln of response.data.vulns) {
+                // Process each vulnerability with a limit to avoid overloading
+                const vulnsToProcess = response.data.vulns.slice(0, 10); // Process max 10 per package to avoid timeouts
+                for (const vuln of vulnsToProcess) {
                   try {
-                    const detailsResponse = await axios.get(`https://api.osv.dev/v1/vulns/${vuln.id}`);
+                    // Use our enhanced axios client for details too
+                    const detailsResponse = await apiClient.get(`https://api.osv.dev/v1/vulns/${vuln.id}`);
                     if (detailsResponse.data) {
                       const processedVuln = this.processVulnerability(detailsResponse.data);
                       await this.storeVulnerability(processedVuln);
                       updatedVulnerabilities++;
                     }
                   } catch (detailsError) {
-                    console.error(`Error fetching details for vulnerability ${vuln.id}:`, detailsError);
+                    if (detailsError.response && detailsError.response.status === 504) {
+                      console.warn(`Timeout getting details for vulnerability ${vuln.id} - will try again next cycle`);
+                    } else {
+                      console.error(`Error fetching details for vulnerability ${vuln.id}:`, detailsError.message);
+                    }
                   }
                   
-                  // Rate limiting
-                  await new Promise(resolve => setTimeout(resolve, 200));
+                  // Rate limiting - increase for more stability
+                  await new Promise(resolve => setTimeout(resolve, 500));
                 }
               }
               
-              // Rate limiting between package queries
-              await new Promise(resolve => setTimeout(resolve, 500));
+              // Rate limiting between package queries - increase for stability
+              await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (packageError) {
-              console.error(`Error querying vulnerabilities for ${packageName} in ${ecosystem}:`, packageError);
+              if (packageError.response && packageError.response.status === 504) {
+                console.warn(`Timeout querying vulnerabilities for ${packageName} in ${ecosystem} - will try again next cycle`);
+              } else {
+                console.error(`Error querying vulnerabilities for ${packageName} in ${ecosystem}:`, packageError.message);
+              }
             }
           }
         } catch (ecosystemError) {
-          console.error(`Error processing ecosystem ${ecosystem}:`, ecosystemError);
+          console.error(`Error processing ecosystem ${ecosystem}:`, ecosystemError.message);
         }
       }
       
@@ -293,11 +334,96 @@ class Neo4jService {
       
       return updatedVulnerabilities;
     } catch (error) {
-      console.error('Error during continuous OSV update:', error);
+      console.error('Error during continuous OSV update:', error.message);
       return 0;
     }
   }
-  
+
+  async fetchOSVData() {
+    try {
+      // Fetch the list of ecosystems
+      const ecosystemsResponse = await apiClient.get('https://osv-vulnerabilities.storage.googleapis.com/ecosystems.txt');
+      const ecosystems = ecosystemsResponse.data.split('\n').filter(Boolean); // Split by newline and remove empty lines
+      const vulnerabilities = [];
+      
+      // Limit to 5 ecosystems per run to avoid timeouts
+      const limitedEcosystems = ecosystems.slice(0, 5);
+      console.log(`Processing ${limitedEcosystems.length} ecosystems out of ${ecosystems.length} total`);
+      
+      // For each ecosystem, fetch popular packages and their vulnerabilities
+      for (const ecosystem of limitedEcosystems) {
+        console.log(`Processing ecosystem: ${ecosystem}`);
+        
+        // For each ecosystem, we'll define popular packages or use an empty name to get all ecosystem vulnerabilities
+        const popularPackages = await this.getPopularPackagesForEcosystem(ecosystem);
+        
+        // If no specific packages, add an empty string to get ecosystem-wide vulnerabilities
+        if (popularPackages.length === 0) {
+          popularPackages.push("");
+        }
+        
+        // Limit packages to 3 per ecosystem to avoid timeouts
+        const limitedPackages = popularPackages.slice(0, 3);
+        
+        // Process each package individually to get detailed vulnerability data
+        for (const packageName of limitedPackages) {
+          try {
+            const response = await apiClient.post('https://api.osv.dev/v1/query', {
+              package: {
+                name: packageName,
+                ecosystem: ecosystem
+              }
+            });
+            
+            if (response.data && response.data.vulns) {
+              console.log(`Found ${response.data.vulns.length} vulnerabilities for ${packageName || 'all packages'} in ${ecosystem}`);
+              
+              // Limit to 5 vulnerabilities per package to avoid timeouts
+              const limitedVulns = response.data.vulns.slice(0, 5);
+              
+              // For each vulnerability ID, get the full details
+              for (const vuln of limitedVulns) {
+                try {
+                  const detailsResponse = await apiClient.get(`https://api.osv.dev/v1/vulns/${vuln.id}`);
+                  if (detailsResponse.data) {
+                    const processedVuln = this.processVulnerability(detailsResponse.data);
+                    vulnerabilities.push(processedVuln);
+                    
+                    // Store vulnerability in Neo4j
+                    await this.storeVulnerability(processedVuln);
+                  }
+                } catch (detailsError) {
+                  if (detailsError.response && detailsError.response.status === 504) {
+                    console.warn(`Timeout getting details for vulnerability ${vuln.id} - skipping`);
+                  } else {
+                    console.error(`Error fetching details for vulnerability ${vuln.id}:`, detailsError.message);
+                  }
+                }
+                
+                // Delay to respect API rate limits - increase for stability
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            }
+            
+            // Delay between package queries to respect API rate limits - increase for stability
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } catch (packageError) {
+            if (packageError.response && packageError.response.status === 504) {
+              console.warn(`Timeout querying vulnerabilities for ${packageName} in ${ecosystem} - skipping`);
+            } else {
+              console.error(`Error querying vulnerabilities for ${packageName} in ${ecosystem}:`, packageError.message);
+            }
+          }
+        }
+      }
+      
+      return vulnerabilities;
+    } catch (error) {
+      console.error('Error fetching OSV data:', error.message);
+      return [];
+    }
+  }
+
   /**
    * Get the timestamp of the most recently modified vulnerability in our database
    */
