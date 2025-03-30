@@ -74,7 +74,7 @@ h1, h2 {
 }
 
 p, ul {
-  color: #f5f5f5; /* Light text color for paragraphs and lists */
+  color: #82b1ff; /* Light text color for paragraphs and lists */
 }
 
 ul {
@@ -96,13 +96,8 @@ li::before {
   margin-right: 0.5rem;
 }
 
-li:hover {
-  color: #82b1ff; /* Light blue text on hover */
-  transition: color 0.3s ease;
-}
-
 a {
-  color: #82b1ff; /* Light blue for links */
+  color: #05398d; 
   text-decoration: none;
 }
 
