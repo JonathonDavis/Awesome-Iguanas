@@ -18,9 +18,9 @@ const routes = [
     component: () => import('../views/About.vue')
   },
   {
-    path: '/upload',
-    name: 'Upload',
-    component: () => import('../views/Upload.vue')
+    path: '/graphs',
+    name: 'Graphs',
+    component: () => import('../views/Graphs.vue')
   }
 ]
 
