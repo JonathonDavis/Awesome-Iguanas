@@ -29,5 +29,5 @@ dist-ssr
 .env.*.local
 
 # package-lock.json
-package-lock.json
-frontend/package-lock.json
+*package-lock.json
+*package.json
