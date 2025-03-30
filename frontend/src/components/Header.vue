@@ -13,7 +13,6 @@
         <router-link to="/" class="nav-link">Home</router-link>
         <router-link to="/charts" class="nav-link">Charts</router-link>
         <router-link to="/graphs" class="nav-link">Graphs</router-link>
-        <router-link to="/upload" class="nav-link">Upload</router-link>
         <router-link to="/about" class="nav-link">About</router-link>
       </div>
     </nav>
