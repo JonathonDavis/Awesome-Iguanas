@@ -53,6 +53,10 @@ const fetchData = async () => {
     const distributionResult = await neo4jService.getNodeDistribution()
     nodeDistribution.value = distributionResult
     
+    // Call our new method to print detailed information about all labels
+    console.log('Fetching detailed information about all labels...')
+    await neo4jService.getAllLabelsSampleData()
+    
     chartDescription.value = `Database contains ${statistics.value.totalNodes} nodes across ${statistics.value.uniqueLabels} different types.`
   } catch (error) {
     console.error('Error fetching data:', error)
