@@ -118,6 +118,156 @@ class Neo4jService {
       await session.close()
     }
   }
+  
+  async getOSVFiles() {
+    const session = this.driver.session()
+    try {
+      const result = await session.run(`
+        MATCH (o:OSV)
+        RETURN o {
+          .*,
+          id: o.id,
+          modified: o.modified,
+          published: o.published,
+          withdrawn: o.withdrawn,
+          aliases: o.aliases,
+          related: o.related,
+          summary: o.summary,
+          details: o.details,
+          severity: o.severity,
+          affected: o.affected,
+          references: o.references,
+          credits: o.credits
+        } as osvData
+        ORDER BY o.published DESC
+      `)
+      return result.records.map(record => record.get('osvData'))
+    } catch (error) {
+      console.error('Error fetching OSV files:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
+
+  async getGraphData() {
+    const session = this.driver.session()
+    try {
+      // Get nodes and relationships for graph visualization
+      const result = await session.run(`
+        MATCH (n)
+        OPTIONAL MATCH (n)-[r]->(m)
+        WITH DISTINCT n, r, m
+        WITH 
+          collect(DISTINCT {
+            id: id(n),
+            labels: labels(n),
+            properties: properties(n)
+          }) as nodes,
+          collect(DISTINCT CASE WHEN r IS NOT NULL THEN {
+            id: id(r),
+            type: type(r),
+            properties: properties(r),
+            source: id(startNode(r)),
+            target: id(endNode(r))
+          } END) as rels
+        RETURN {
+          nodes: nodes,
+          relationships: [rel in rels WHERE rel IS NOT NULL]
+        } as graphData
+      `)
+      
+      if (!result.records || result.records.length === 0) {
+        console.warn('No graph data found in database')
+        return null
+      }
+
+      const graphData = result.records[0].get('graphData')
+      console.log('Retrieved graph data:', {
+        nodeCount: graphData.nodes.length,
+        relationshipCount: graphData.relationships.length
+      })
+      return graphData
+    } catch (error) {
+      console.error('Error fetching graph data:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
+
+  async getOSVById(osvId) {
+    const session = this.driver.session()
+    try {
+      const result = await session.run(`
+        MATCH (o:OSV {id: $osvId})
+        RETURN o {.*} as osvData
+      `, { osvId })
+      
+      return result.records[0]?.get('osvData') || null
+    } catch (error) {
+      console.error('Error fetching OSV by ID:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
+
+  async getASTGraph() {
+    const session = this.driver.session()
+    try {
+      const result = await session.run(`
+        MATCH (n:Vulnerability)
+        OPTIONAL MATCH (n)-[r:AFFECTS]->(m:Package)
+        WITH DISTINCT n, r, m
+        WITH 
+          collect(DISTINCT {
+            id: n.id,
+            labels: labels(n),
+            type: 'Vulnerability',
+            summary: n.summary,
+            severity: n.severity,
+            details: n.details,
+            properties: properties(n)
+          }) as vulnNodes,
+          collect(DISTINCT CASE WHEN m IS NOT NULL THEN {
+            id: m.name,
+            labels: labels(m),
+            type: 'Package',
+            ecosystem: m.ecosystem,
+            properties: properties(m)
+          } END) as pkgNodes,
+          collect(DISTINCT CASE WHEN r IS NOT NULL THEN {
+            id: id(r),
+            type: type(r),
+            properties: properties(r),
+            source: n.id,
+            target: m.name
+          } END) as rels
+        RETURN {
+          nodes: vulnNodes + [node in pkgNodes WHERE node IS NOT NULL],
+          relationships: [rel in rels WHERE rel IS NOT NULL]
+        } as astGraph
+      `)
+      
+      if (!result.records || result.records.length === 0) {
+        console.warn('No AST graph data found in database')
+        return null
+      }
+
+      const astData = result.records[0].get('astGraph')
+      console.log('Retrieved AST data:', {
+        nodeCount: astData.nodes.length,
+        relationshipCount: astData.relationships.length
+      })
+      return astData
+    } catch (error) {
+      console.error('Error fetching AST graph:', error)
+      throw error
+    } finally {
+      await session.close()
+    }
+  }
 
   async getAllLabelsSampleData() {
     const session = this.driver.session()
@@ -215,9 +365,6 @@ class Neo4jService {
     }
   }
   
-  /**
-   * Starts continuous updates from OSV with throttled fetching
-   */
   startContinuousOSVUpdates() {
     // Clear any existing timer
     if (this.continuousUpdateTimer) {
@@ -235,9 +382,6 @@ class Neo4jService {
     }, this.continuousUpdateInterval);
   }
   
-  /**
-   * Stops the continuous OSV updates
-   */
   stopContinuousOSVUpdates() {
     if (this.continuousUpdateTimer) {
       clearInterval(this.continuousUpdateTimer);
@@ -246,9 +390,6 @@ class Neo4jService {
     }
   }
   
-  /**
-   * Fetch only the latest updates from OSV to minimize API usage
-   */
   async fetchLatestOSVUpdates() {
     try {
       console.log('Fetching latest OSV vulnerability updates...');
@@ -424,9 +565,6 @@ class Neo4jService {
     }
   }
 
-  /**
-   * Get the timestamp of the most recently modified vulnerability in our database
-   */
   async getLatestVulnerabilityTimestamp() {
     const session = this.driver.session();
     try {
@@ -449,9 +587,6 @@ class Neo4jService {
     }
   }
   
-  /**
-   * Get the most active packages for an ecosystem based on vulnerability frequency
-   */
   async getActivePackagesForEcosystem(ecosystem) {
     // First check if we have packages for this ecosystem in our database
     const session = this.driver.session();

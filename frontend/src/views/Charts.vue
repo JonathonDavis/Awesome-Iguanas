@@ -103,6 +103,8 @@ onMounted(() => {
   padding: 1rem;
   border-radius: 4px;
   margin-top: 1rem;
+  max-height: 500px;
+  overflow-y: auto;
 }
 
 .distribution-chart {
