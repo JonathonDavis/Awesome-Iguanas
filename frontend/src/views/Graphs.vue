@@ -4,7 +4,7 @@
     
     <!-- Graph Visualization Section -->
     <div class="graph-section">
-      <h2>Network Graph</h2>
+      <h2>AST Network Graph</h2>
       <div v-if="error" class="error-message">
         Error: {{ error }}
       </div>
@@ -108,6 +108,11 @@ export default {
     const network = ref(null)
     const nodes = ref(new DataSet([]))
     const edges = ref(new DataSet([]))
+    const astContainer = ref(null)
+    const astData = ref(null)
+    const astNetwork = ref(null)
+    const astNodes = ref(new DataSet([]))
+    const astEdges = ref(new DataSet([]))
     const error = ref(null)
     const nodeSize = ref(12)
     const nodeDistance = ref(150)
@@ -157,18 +162,30 @@ export default {
       // Create a group for the graph elements
       const g = svg.value.append('g')
 
+      // Create unique IDs for nodes and links
+      const nodes = data.nodes.map(node => ({
+        ...node,
+        id: `node-${node.id}` // Ensure unique IDs
+      }))
+
+      const links = data.relationships.map(link => ({
+        ...link,
+        source: `node-${link.source}`,
+        target: `node-${link.target}`
+      }))
+
       // Initialize force simulation
-      simulation.value = d3.forceSimulation(data.nodes)
-        .force('link', d3.forceLink(data.relationships)
+      simulation.value = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links)
           .id(d => d.id)
           .distance(nodeDistance.value))
         .force('charge', d3.forceManyBody().strength(-400))
         .force('center', d3.forceCenter(width / 2, height / 2))
 
       // Create links with updated color
-      const links = g.append('g')
+      const linkElements = g.append('g')
         .selectAll('line')
-        .data(data.relationships)
+        .data(links)
         .enter()
         .append('line')
         .attr('stroke', '#4a4a4a')
@@ -176,22 +193,22 @@ export default {
         .attr('stroke-width', 2)
 
       // Create nodes
-      const nodes = g.append('g')
+      const nodeElements = g.append('g')
         .selectAll('g')
-        .data(data.nodes)
+        .data(nodes)
         .enter()
         .append('g')
         .call(drag(simulation.value))
 
       // Add circles for nodes
-      nodes.append('circle')
+      nodeElements.append('circle')
         .attr('r', d => getNodeSize(d.type))
         .attr('fill', d => getNodeColor(d.type))
         .attr('stroke', '#fff')
         .attr('stroke-width', 2)
 
       // Add labels for nodes
-      nodes.append('text')
+      nodeElements.append('text')
         .text(d => {
           if (d.type === 'Vulnerability') {
             return d.id.substring(0, 12) + '...'
@@ -204,23 +221,55 @@ export default {
         .attr('fill', '#fff')
 
       // Add tooltips
-      nodes.append('title')
+      nodeElements.append('title')
         .text(d => {
+          const info = []
+          
+          // Basic info
+          info.push(`ID: ${d.id}`)
+          info.push(`Type: ${d.type}`)
+          
+          // Vulnerability specific info
           if (d.type === 'Vulnerability') {
-            return `${d.id}\nSeverity: ${d.severity}\n${d.summary}`
+            if (d.severity) info.push(`Severity: ${d.severity}`)
+            if (d.summary) info.push(`Summary: ${d.summary}`)
+            if (d.details) info.push(`Details: ${d.details}`)
+            if (d.published) info.push(`Published: ${new Date(d.published).toLocaleDateString()}`)
+            if (d.modified) info.push(`Modified: ${new Date(d.modified).toLocaleDateString()}`)
+            if (d.withdrawn) info.push(`Withdrawn: ${new Date(d.withdrawn).toLocaleDateString()}`)
           }
-          return `${d.id}\nEcosystem: ${d.ecosystem}`
+          
+          // Package specific info
+          if (d.type === 'Package') {
+            if (d.ecosystem) info.push(`Ecosystem: ${d.ecosystem}`)
+            if (d.name) info.push(`Name: ${d.name}`)
+            if (d.version) info.push(`Version: ${d.version}`)
+            if (d.purl) info.push(`PURL: ${d.purl}`)
+          }
+          
+          // Additional properties
+          if (d.properties) {
+            Object.entries(d.properties).forEach(([key, value]) => {
+              if (typeof value === 'object') {
+                info.push(`${key}: ${JSON.stringify(value)}`)
+              } else {
+                info.push(`${key}: ${value}`)
+              }
+            })
+          }
+          
+          return info.join('\n')
         })
 
       // Update positions on each tick
       simulation.value.on('tick', () => {
-        links
+        linkElements
           .attr('x1', d => d.source.x)
           .attr('y1', d => d.source.y)
           .attr('x2', d => d.target.x)
           .attr('y2', d => d.target.y)
 
-        nodes
+        nodeElements
           .attr('transform', d => `translate(${d.x},${d.y})`)
       })
     }
@@ -289,7 +338,7 @@ export default {
         console.log('Starting data fetch...')
         
         // Fetch all data in parallel
-        const [graphResult, osvData, astData] = await Promise.all([
+        const [graphResult, osvData, astResult] = await Promise.all([
           neo4jService.getGraphData(),
           neo4jService.getOSVFiles(),
           neo4jService.getASTGraph()
@@ -298,7 +347,7 @@ export default {
         console.log('Data fetched:', {
           hasGraphData: !!graphResult,
           hasOSVData: !!osvData,
-          hasASTData: !!astData
+          hasASTData: !!astResult
         })
 
         // Handle graph data
@@ -308,7 +357,6 @@ export default {
             relationships: graphResult.relationships.length
           })
           graphData.value = graphResult
-          // Wait for next tick to ensure container is mounted
           await nextTick()
           initializeGraph(graphResult)
         } else {
@@ -325,43 +373,49 @@ export default {
         }
 
         // Handle AST data
-        if (astData && astData.nodes && astData.nodes.length > 0) {
+        if (astResult && astResult.nodes && astResult.nodes.length > 0) {
           console.log('Initializing AST graph with:', {
-            nodes: astData.nodes.length,
-            relationships: astData.relationships.length
+            nodes: astResult.nodes.length,
+            relationships: astResult.relationships.length
           })
           
-          // Clear existing graph
-          nodes.value.clear()
-          edges.value.clear()
+          astData.value = astResult
+          
+          // Clear existing AST graph data and destroy network if it exists
+          if (astNetwork.value) {
+            astNetwork.value.destroy()
+            astNetwork.value = null
+          }
+          astNodes.value.clear()
+          astEdges.value.clear()
 
-          // Transform nodes for visualization
-          const visNodes = astData.nodes.map(node => ({
-            id: node.id,
+          // Transform nodes for visualization with unique IDs
+          const visNodes = astResult.nodes.map(node => ({
+            id: `ast-${node.id}`, // Add prefix to ensure unique IDs
             label: `${node.type}\n${node.value || ''}`,
             title: JSON.stringify(node.properties, null, 2),
             group: node.type
           }))
 
-          // Transform relationships for visualization
-          const visEdges = astData.relationships.map(rel => ({
-            id: rel.id,
-            from: rel.source,
-            to: rel.target,
+          // Transform relationships for visualization with updated IDs
+          const visEdges = astResult.relationships.map(rel => ({
+            id: `ast-${rel.id}`,
+            from: `ast-${rel.source}`,
+            to: `ast-${rel.target}`,
             arrows: 'to',
             label: rel.type
           }))
 
           // Add the new nodes and edges
-          nodes.value.add(visNodes)
-          edges.value.add(visEdges)
+          astNodes.value.add(visNodes)
+          astEdges.value.add(visEdges)
 
-          // Create network if it doesn't exist
-          if (!network.value && graphContainer.value) {
-            const container = graphContainer.value
+          // Create new network
+          if (astContainer.value) {
+            const container = astContainer.value
             const data = {
-              nodes: nodes.value,
-              edges: edges.value
+              nodes: astNodes.value,
+              edges: astEdges.value
             }
             const options = {
               nodes: {
@@ -385,9 +439,7 @@ export default {
               },
               physics: false
             }
-            network.value = new Network(container, data, options)
-          } else if (!graphContainer.value) {
-            console.error('Graph container not found')
+            astNetwork.value = new Network(container, data, options)
           }
         } else {
           console.warn('No AST graph data available')
@@ -401,14 +453,19 @@ export default {
 
     return {
       graphContainer,
+      astContainer,
       osvFiles,
       selectedOSV,
       showOSVDetails,
       error,
       graphData,
+      astData,
       network,
+      astNetwork,
       nodes,
       edges,
+      astNodes,
+      astEdges,
       nodeSize,
       nodeDistance,
       zoomLevel,
