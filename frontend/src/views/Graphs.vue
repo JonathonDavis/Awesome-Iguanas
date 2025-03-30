@@ -2,27 +2,6 @@
   <div class="graphs-container">
     <h1 class="page-title">Vulnerability Graph Analysis</h1>
     
-    <!-- Statistics Section -->
-    <div class="statistics-section">
-      <h2>Overview Statistics</h2>
-      <div v-if="error" class="error-message">
-        Error: {{ error }}
-      </div>
-      <div v-else-if="!statistics" class="no-data-message">
-        No statistics available
-      </div>
-      <div class="stats-grid" v-else>
-        <div class="stat-box">
-          <h3>Total Nodes</h3>
-          <p>{{ statistics.get('totalNodes').low }}</p>
-        </div>
-        <div class="stat-box">
-          <h3>Unique Labels</h3>
-          <p>{{ statistics.get('uniqueLabels').low }}</p>
-        </div>
-      </div>
-    </div>
-
     <!-- Graph Visualization Section -->
     <div class="graph-section">
       <h2>Network Graph</h2>
@@ -34,6 +13,19 @@
       </div>
       <div class="graph-container" ref="graphContainer" v-else>
         <div class="graph-controls">
+          <div class="control-group">
+            <label>Node Size:</label>
+            <input type="range" v-model="nodeSize" min="8" max="30" @input="updateGraph">
+          </div>
+          <div class="control-group">
+            <label>Node Distance:</label>
+            <input type="range" v-model="nodeDistance" min="50" max="300" @input="updateGraph">
+          </div>
+          <div class="control-group">
+            <label>Zoom:</label>
+            <input type="range" v-model="zoomLevel" min="0.5" max="2" step="0.1" @input="updateGraph">
+          </div>
+          <button @click="resetView" class="control-button">Reset View</button>
         </div>
       </div>
     </div>
@@ -80,7 +72,7 @@
           <div class="detail-item">
             <strong>Affected:</strong>
             <ul>
-              <li v-for="(item, index) in selectedOSV.affected" :key="index">
+              <li v-for="(item, index) in selectedOSV.affected" :key="index"> 
                 {{ item }}
               </li>
             </ul>
@@ -110,7 +102,6 @@ export default {
   name: 'Graphs',
   setup() {
     const graphContainer = ref(null)
-    const statistics = ref(null)
     const osvFiles = ref([])
     const selectedOSV = ref(null)
     const graphData = ref(null)
@@ -118,6 +109,12 @@ export default {
     const nodes = ref(new DataSet([]))
     const edges = ref(new DataSet([]))
     const error = ref(null)
+    const nodeSize = ref(12)
+    const nodeDistance = ref(150)
+    const zoomLevel = ref(1)
+    const svg = ref(null)
+    const simulation = ref(null)
+    const transform = ref({ x: 0, y: 0, k: 1 })
 
     const getNodeColor = (label) => {
       const colors = {
@@ -129,7 +126,7 @@ export default {
     }
 
     const getNodeSize = (type) => {
-      return type === 'Vulnerability' ? 8 : 6
+      return type === 'Vulnerability' ? nodeSize.value : nodeSize.value * 0.75
     }
 
     const initializeGraph = (data) => {
@@ -144,33 +141,47 @@ export default {
       // Clear any existing SVG
       d3.select(graphContainer.value).selectAll('*').remove()
 
-      const svg = d3.select(graphContainer.value)
+      // Create SVG with zoom support
+      svg.value = d3.select(graphContainer.value)
         .append('svg')
         .attr('width', width)
         .attr('height', height)
+        .style('background-color', '#1a1a1a')
+        .call(d3.zoom()
+          .scaleExtent([0.5, 2])
+          .on('zoom', (event) => {
+            transform.value = event.transform
+            g.attr('transform', event.transform)
+          }))
 
-      const simulation = d3.forceSimulation(data.nodes)
+      // Create a group for the graph elements
+      const g = svg.value.append('g')
+
+      // Initialize force simulation
+      simulation.value = d3.forceSimulation(data.nodes)
         .force('link', d3.forceLink(data.relationships)
           .id(d => d.id)
-          .distance(150))
+          .distance(nodeDistance.value))
         .force('charge', d3.forceManyBody().strength(-400))
         .force('center', d3.forceCenter(width / 2, height / 2))
 
-      const links = svg.append('g')
+      // Create links with updated color
+      const links = g.append('g')
         .selectAll('line')
         .data(data.relationships)
         .enter()
         .append('line')
-        .attr('stroke', '#999')
+        .attr('stroke', '#4a4a4a')
         .attr('stroke-opacity', 0.6)
         .attr('stroke-width', 2)
 
-      const nodes = svg.append('g')
+      // Create nodes
+      const nodes = g.append('g')
         .selectAll('g')
         .data(data.nodes)
         .enter()
         .append('g')
-        .call(drag(simulation))
+        .call(drag(simulation.value))
 
       // Add circles for nodes
       nodes.append('circle')
@@ -201,7 +212,8 @@ export default {
           return `${d.id}\nEcosystem: ${d.ecosystem}`
         })
 
-      simulation.on('tick', () => {
+      // Update positions on each tick
+      simulation.value.on('tick', () => {
         links
           .attr('x1', d => d.source.x)
           .attr('y1', d => d.source.y)
@@ -211,6 +223,36 @@ export default {
         nodes
           .attr('transform', d => `translate(${d.x},${d.y})`)
       })
+    }
+
+    const updateGraph = () => {
+      if (!simulation.value || !svg.value) return
+
+      // Update node sizes
+      svg.value.selectAll('circle')
+        .attr('r', d => getNodeSize(d.type))
+
+      // Update link distances
+      simulation.value.force('link').distance(nodeDistance.value)
+
+      // Update zoom level
+      svg.value.transition()
+        .duration(300)
+        .call(d3.zoom().transform, d3.zoomIdentity
+          .translate(transform.value.x, transform.value.y)
+          .scale(zoomLevel.value))
+    }
+
+    const resetView = () => {
+      if (!svg.value) return
+      
+      // Reset zoom and pan
+      zoomLevel.value = 1
+      transform.value = { x: 0, y: 0, k: 1 }
+      
+      svg.value.transition()
+        .duration(300)
+        .call(d3.zoom().transform, d3.zoomIdentity)
     }
 
     const drag = (simulation) => {
@@ -247,30 +289,17 @@ export default {
         console.log('Starting data fetch...')
         
         // Fetch all data in parallel
-        const [statsData, graphResult, osvData, astData] = await Promise.all([
-          neo4jService.getStatistics(),
+        const [graphResult, osvData, astData] = await Promise.all([
           neo4jService.getGraphData(),
           neo4jService.getOSVFiles(),
           neo4jService.getASTGraph()
         ])
 
         console.log('Data fetched:', {
-          hasStats: !!statsData,
           hasGraphData: !!graphResult,
           hasOSVData: !!osvData,
           hasASTData: !!astData
         })
-
-        // Handle statistics
-        if (statsData) {
-          statistics.value = statsData
-          console.log('Statistics loaded:', {
-            totalNodes: statistics.value.get('totalNodes'),
-            uniqueLabels: statistics.value.get('uniqueLabels')
-          })
-        } else {
-          console.warn('No statistics data available')
-        }
 
         // Handle graph data
         if (graphResult && graphResult.nodes && graphResult.nodes.length > 0) {
@@ -372,7 +401,6 @@ export default {
 
     return {
       graphContainer,
-      statistics,
       osvFiles,
       selectedOSV,
       showOSVDetails,
@@ -380,7 +408,11 @@ export default {
       graphData,
       network,
       nodes,
-      edges
+      edges,
+      nodeSize,
+      nodeDistance,
+      zoomLevel,
+      resetView
     }
   }
 }
@@ -399,7 +431,6 @@ export default {
   margin-bottom: 2rem;
 }
 
-.statistics-section,
 .graph-section,
 .osv-section {
   margin-bottom: 2rem;
@@ -416,28 +447,6 @@ h2, h3 {
 
 p, span {
   color: white;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-}
-
-.stat-box {
-  background-color: rgba(255, 255, 255, 0.1);
-  padding: 1rem;
-  border-radius: 4px;
-  text-align: center;
-}
-
-.graph-container {
-  width: 100%;
-  height: 600px;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 8px;
-  overflow: hidden;
-  margin-top: 1rem;
 }
 
 .osv-grid {
@@ -550,7 +559,45 @@ button:hover {
 }
 
 .graph-controls {
-  margin-bottom: 1rem;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+.control-group {
+  margin-bottom: 10px;
+}
+
+.control-group label {
+  display: block;
+  margin-bottom: 5px;
+  color: #333;
+  font-size: 12px;
+}
+
+.control-group input[type="range"] {
+  width: 150px;
+  margin: 0;
+}
+
+.control-button {
+  background: #259a67;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.control-button:hover {
+  background: #1d7a52;
 }
 
 .error-message {
