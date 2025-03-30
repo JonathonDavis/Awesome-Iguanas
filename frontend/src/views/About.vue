@@ -55,53 +55,103 @@
 
 <style scoped>
 .about {
+  margin: 2rem;
   padding: 2rem;
+  border: 1px solid #ffffff;
+  border-radius: 8px;
   line-height: 1.6;
-  background-color: #2c2c2c; /* Dark grey background */
-  color: #f5f5f5; /* Light text color for contrast */
-  border-radius: 8px; /* Optional: Add rounded corners for better aesthetics */
-  text-align: center; /* Center-align content */
+  background-color: #259a67;
+  color: #A2E656;
+  text-align: center;
 }
 
 .ascii-lizard {
-  font-family: monospace; /* Use monospace font for ASCII art */
-  color: #4caf50; /* Bright green color for the lizard */
-  margin-bottom: 1rem; /* Add spacing below the ASCII art */
+  font-family: monospace;
+  color: white;
+  margin-bottom: 2rem;
+ background: rgba(44, 44, 44, 0.8);
+  padding: 1rem;
+  border-radius: 4px;
+  overflow-x: auto;
 }
 
-h1, h2 {
-  color: #4caf50; /* Bright green for headings */
+h1 {
+  color: white;
+  margin-bottom: 1.5rem;
+  font-size: 2rem;
 }
 
-p, ul {
-  color: #82b1ff; /* Light text color for paragraphs and lists */
+h2 {
+  color: white;
+  margin: 2rem 0 1rem;
+  font-size: 1.5rem;
+}
+
+p {
+  color: white;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
 }
 
 ul {
-  list-style: none; /* Remove default bullet points */
+  list-style: none;
   padding: 0;
-  margin-left: 0;
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 li {
   display: flex;
   align-items: center;
   margin-bottom: 0.5rem;
+  background: rgba(44, 44, 44, 0.8);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  width: 100%;
+  max-width: 600px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 li::before {
-  content: "•"; /* Custom bullet point */
-  color: #4caf50; /* Bright green for the bullet */
+  content: "•";
+  color: #259a67;
   font-size: 1.5rem;
   margin-right: 0.5rem;
 }
 
 a {
-  color: #05398d; 
+  color: white;
   text-decoration: none;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: background-color 0.3s;
 }
 
 a:hover {
-  text-decoration: underline;
+  background: rgba(255, 255, 255, 0.2);
+  text-decoration: none;
+}
+
+@media (max-width: 768px) {
+  .about {
+    margin: 1rem;
+    padding: 1rem;
+  }
+
+  .ascii-lizard {
+    font-size: 0.8rem;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+  }
 }
 </style>
