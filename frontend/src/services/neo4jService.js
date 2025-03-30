@@ -268,8 +268,6 @@ class Neo4jService {
       await session.close()
     }
   }
-}
-
 
   async getAllLabelsSampleData() {
     const session = this.driver.session()
@@ -367,9 +365,6 @@ class Neo4jService {
     }
   }
   
-  /**
-   * Starts continuous updates from OSV with throttled fetching
-   */
   startContinuousOSVUpdates() {
     // Clear any existing timer
     if (this.continuousUpdateTimer) {
@@ -387,9 +382,6 @@ class Neo4jService {
     }, this.continuousUpdateInterval);
   }
   
-  /**
-   * Stops the continuous OSV updates
-   */
   stopContinuousOSVUpdates() {
     if (this.continuousUpdateTimer) {
       clearInterval(this.continuousUpdateTimer);
@@ -398,9 +390,6 @@ class Neo4jService {
     }
   }
   
-  /**
-   * Fetch only the latest updates from OSV to minimize API usage
-   */
   async fetchLatestOSVUpdates() {
     try {
       console.log('Fetching latest OSV vulnerability updates...');
@@ -576,9 +565,6 @@ class Neo4jService {
     }
   }
 
-  /**
-   * Get the timestamp of the most recently modified vulnerability in our database
-   */
   async getLatestVulnerabilityTimestamp() {
     const session = this.driver.session();
     try {
@@ -601,9 +587,6 @@ class Neo4jService {
     }
   }
   
-  /**
-   * Get the most active packages for an ecosystem based on vulnerability frequency
-   */
   async getActivePackagesForEcosystem(ecosystem) {
     // First check if we have packages for this ecosystem in our database
     const session = this.driver.session();
