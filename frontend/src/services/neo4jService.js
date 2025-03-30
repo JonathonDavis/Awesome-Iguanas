@@ -93,23 +93,37 @@ class Neo4jService {
       const result = await session.run(`
         MATCH (n)
         OPTIONAL MATCH (n)-[r]->(m)
-        WITH collect(DISTINCT {
-          id: id(n),
-          labels: labels(n),
-          properties: properties(n)
-        }) as nodes,
-        collect(DISTINCT {
-          id: id(r),
-          type: type(r),
-          properties: properties(r),
-          source: id(startNode(r)),
-          target: id(endNode(r))
-        }) as relationships
-        WHERE r IS NOT NULL
-        RETURN {nodes: nodes, relationships: relationships} as graphData
+        WITH DISTINCT n, r, m
+        WITH 
+          collect(DISTINCT {
+            id: id(n),
+            labels: labels(n),
+            properties: properties(n)
+          }) as nodes,
+          collect(DISTINCT CASE WHEN r IS NOT NULL THEN {
+            id: id(r),
+            type: type(r),
+            properties: properties(r),
+            source: id(startNode(r)),
+            target: id(endNode(r))
+          } END) as rels
+        RETURN {
+          nodes: nodes,
+          relationships: [rel in rels WHERE rel IS NOT NULL]
+        } as graphData
       `)
       
-      return result.records[0].get('graphData')
+      if (!result.records || result.records.length === 0) {
+        console.warn('No graph data found in database')
+        return null
+      }
+
+      const graphData = result.records[0].get('graphData')
+      console.log('Retrieved graph data:', {
+        nodeCount: graphData.nodes.length,
+        relationshipCount: graphData.relationships.length
+      })
+      return graphData
     } catch (error) {
       console.error('Error fetching graph data:', error)
       throw error
@@ -139,27 +153,50 @@ class Neo4jService {
     const session = this.driver.session()
     try {
       const result = await session.run(`
-        MATCH (n:AST)
-        OPTIONAL MATCH (n)-[r:AST_EDGE]->(m:AST)
-        WITH collect(DISTINCT {
-          id: id(n),
-          labels: labels(n),
-          type: n.type,
-          value: n.value,
-          properties: properties(n)
-        }) as nodes,
-        collect(DISTINCT {
-          id: id(r),
-          type: type(r),
-          properties: properties(r),
-          source: id(startNode(r)),
-          target: id(endNode(r))
-        }) as relationships
-        WHERE r IS NOT NULL
-        RETURN {nodes: nodes, relationships: relationships} as astGraph
+        MATCH (n:Vulnerability)
+        OPTIONAL MATCH (n)-[r:AFFECTS]->(m:Package)
+        WITH DISTINCT n, r, m
+        WITH 
+          collect(DISTINCT {
+            id: n.id,
+            labels: labels(n),
+            type: 'Vulnerability',
+            summary: n.summary,
+            severity: n.severity,
+            details: n.details,
+            properties: properties(n)
+          }) as vulnNodes,
+          collect(DISTINCT CASE WHEN m IS NOT NULL THEN {
+            id: m.name,
+            labels: labels(m),
+            type: 'Package',
+            ecosystem: m.ecosystem,
+            properties: properties(m)
+          } END) as pkgNodes,
+          collect(DISTINCT CASE WHEN r IS NOT NULL THEN {
+            id: id(r),
+            type: type(r),
+            properties: properties(r),
+            source: n.id,
+            target: m.name
+          } END) as rels
+        RETURN {
+          nodes: vulnNodes + [node in pkgNodes WHERE node IS NOT NULL],
+          relationships: [rel in rels WHERE rel IS NOT NULL]
+        } as astGraph
       `)
       
-      return result.records[0]?.get('astGraph') || { nodes: [], relationships: [] }
+      if (!result.records || result.records.length === 0) {
+        console.warn('No AST graph data found in database')
+        return null
+      }
+
+      const astData = result.records[0].get('astGraph')
+      console.log('Retrieved AST data:', {
+        nodeCount: astData.nodes.length,
+        relationshipCount: astData.relationships.length
+      })
+      return astData
     } catch (error) {
       console.error('Error fetching AST graph:', error)
       throw error

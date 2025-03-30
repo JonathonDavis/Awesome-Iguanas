@@ -101,7 +101,7 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import * as d3 from 'd3'
 import neo4jService from '../services/neo4jService'
 import { Network, DataSet } from 'vis-network/standalone'
@@ -119,7 +119,25 @@ export default {
     const edges = ref(new DataSet([]))
     const error = ref(null)
 
+    const getNodeColor = (label) => {
+      const colors = {
+        Vulnerability: '#ff7f0e',
+        Package: '#1f77b4',
+        default: '#7f7f7f'
+      }
+      return colors[label] || colors.default
+    }
+
+    const getNodeSize = (type) => {
+      return type === 'Vulnerability' ? 8 : 6
+    }
+
     const initializeGraph = (data) => {
+      if (!graphContainer.value) {
+        console.warn('Graph container not found')
+        return
+      }
+
       const width = graphContainer.value.clientWidth
       const height = 600
 
@@ -134,8 +152,8 @@ export default {
       const simulation = d3.forceSimulation(data.nodes)
         .force('link', d3.forceLink(data.relationships)
           .id(d => d.id)
-          .distance(100))
-        .force('charge', d3.forceManyBody().strength(-300))
+          .distance(150))
+        .force('charge', d3.forceManyBody().strength(-400))
         .force('center', d3.forceCenter(width / 2, height / 2))
 
       const links = svg.append('g')
@@ -145,18 +163,43 @@ export default {
         .append('line')
         .attr('stroke', '#999')
         .attr('stroke-opacity', 0.6)
+        .attr('stroke-width', 2)
 
       const nodes = svg.append('g')
-        .selectAll('circle')
+        .selectAll('g')
         .data(data.nodes)
         .enter()
-        .append('circle')
-        .attr('r', 5)
-        .attr('fill', d => getNodeColor(d.labels[0]))
+        .append('g')
         .call(drag(simulation))
 
+      // Add circles for nodes
+      nodes.append('circle')
+        .attr('r', d => getNodeSize(d.type))
+        .attr('fill', d => getNodeColor(d.type))
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2)
+
+      // Add labels for nodes
+      nodes.append('text')
+        .text(d => {
+          if (d.type === 'Vulnerability') {
+            return d.id.substring(0, 12) + '...'
+          }
+          return d.id
+        })
+        .attr('x', 12)
+        .attr('y', 4)
+        .attr('font-size', '12px')
+        .attr('fill', '#fff')
+
+      // Add tooltips
       nodes.append('title')
-        .text(d => d.labels.join(', '))
+        .text(d => {
+          if (d.type === 'Vulnerability') {
+            return `${d.id}\nSeverity: ${d.severity}\n${d.summary}`
+          }
+          return `${d.id}\nEcosystem: ${d.ecosystem}`
+        })
 
       simulation.on('tick', () => {
         links
@@ -166,19 +209,8 @@ export default {
           .attr('y2', d => d.target.y)
 
         nodes
-          .attr('cx', d => d.x)
-          .attr('cy', d => d.y)
+          .attr('transform', d => `translate(${d.x},${d.y})`)
       })
-    }
-
-    const getNodeColor = (label) => {
-      const colors = {
-        OSV: '#ff7f0e',
-        Package: '#1f77b4',
-        Vulnerability: '#2ca02c',
-        default: '#7f7f7f'
-      }
-      return colors[label] || colors.default
     }
 
     const drag = (simulation) => {
@@ -247,6 +279,8 @@ export default {
             relationships: graphResult.relationships.length
           })
           graphData.value = graphResult
+          // Wait for next tick to ensure container is mounted
+          await nextTick()
           initializeGraph(graphResult)
         } else {
           console.warn('No main graph data available')
@@ -342,7 +376,11 @@ export default {
       osvFiles,
       selectedOSV,
       showOSVDetails,
-      error
+      error,
+      graphData,
+      network,
+      nodes,
+      edges
     }
   }
 }
