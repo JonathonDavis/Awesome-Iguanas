@@ -5,6 +5,32 @@
     <!-- Graph Visualization Section -->
     <div class="graph-section">
       <h2>AST Network Graph</h2>
+      <div class="graph-legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: #ff7f0e;"></div>
+          <span>Vulnerability/OSV Nodes</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="visibleNodeTypes.Vulnerability" @change="toggleNodeType('Vulnerability')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: #1f77b4;"></div>
+          <span>Package Nodes</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="visibleNodeTypes.Package" @change="toggleNodeType('Package')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: #7f7f7f;"></div>
+          <span>Other Nodes</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="visibleNodeTypes.Other" @change="toggleNodeType('Other')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
       <div v-if="error" class="error-message">
         Error: {{ error }}
       </div>
@@ -120,18 +146,71 @@ export default {
     const svg = ref(null)
     const simulation = ref(null)
     const transform = ref({ x: 0, y: 0, k: 1 })
+    const visibleNodeTypes = ref({
+      Vulnerability: true,
+      Package: true,
+      OSV: true,
+      Other: true
+    })
 
-    const getNodeColor = (label) => {
+    const getNodeColor = (node) => {
+      // Log the node to see what properties we have
+      console.log('Node for color:', node);
+      
+      // Try to get the type from either the type property or the first label
+      const nodeType = node.type || (node.labels && node.labels[0]);
+      console.log('Determined node type:', nodeType);
+      
       const colors = {
-        Vulnerability: '#ff7f0e',
-        Package: '#1f77b4',
-        default: '#7f7f7f'
+        Vulnerability: '#ff7f0e',  // Orange
+        Package: '#1f77b4',        // Blue
+        OSV: '#ff7f0e',           // Orange
+        default: '#7f7f7f'        // Gray
       }
-      return colors[label] || colors.default
+      return colors[nodeType] || colors.default
     }
 
     const getNodeSize = (type) => {
       return type === 'Vulnerability' ? nodeSize.value : nodeSize.value * 0.75
+    }
+
+    const toggleNodeType = (type) => {
+      visibleNodeTypes.value[type] = !visibleNodeTypes.value[type]
+      updateVisibleNodes()
+    }
+
+    const updateVisibleNodes = () => {
+      if (!svg.value || !graphData.value) return
+
+      // Update node visibility
+      svg.value.selectAll('g.node')
+        .style('opacity', d => {
+          const nodeType = d.type || (d.labels && d.labels[0])
+          if (nodeType === 'Vulnerability' || nodeType === 'OSV') {
+            return visibleNodeTypes.value.Vulnerability ? 1 : 0
+          }
+          if (nodeType === 'Package') {
+            return visibleNodeTypes.value.Package ? 1 : 0
+          }
+          return visibleNodeTypes.value.Other ? 1 : 0
+        })
+
+      // Update link visibility based on connected nodes
+      svg.value.selectAll('line')
+        .style('opacity', d => {
+          const sourceType = d.source.type || (d.source.labels && d.source.labels[0])
+          const targetType = d.target.type || (d.target.labels && d.target.labels[0])
+          
+          const sourceVisible = sourceType === 'Package' ? visibleNodeTypes.value.Package :
+                              sourceType === 'Vulnerability' || sourceType === 'OSV' ? visibleNodeTypes.value.Vulnerability :
+                              visibleNodeTypes.value.Other
+          
+          const targetVisible = targetType === 'Package' ? visibleNodeTypes.value.Package :
+                              targetType === 'Vulnerability' || targetType === 'OSV' ? visibleNodeTypes.value.Vulnerability :
+                              visibleNodeTypes.value.Other
+          
+          return sourceVisible && targetVisible ? 0.6 : 0
+        })
     }
 
     const initializeGraph = (data) => {
@@ -140,8 +219,8 @@ export default {
         return
       }
 
-      const width = graphContainer.value.clientWidth
-      const height = 600
+      const width = graphContainer.value.clientWidth * 1.2
+      const height = 700
 
       // Clear any existing SVG
       d3.select(graphContainer.value).selectAll('*').remove()
@@ -192,18 +271,19 @@ export default {
         .attr('stroke-opacity', 0.6)
         .attr('stroke-width', 2)
 
-      // Create nodes
+      // Create nodes with class for easier selection
       const nodeElements = g.append('g')
-        .selectAll('g')
+        .selectAll('g.node')
         .data(nodes)
         .enter()
         .append('g')
+        .attr('class', 'node')
         .call(drag(simulation.value))
 
       // Add circles for nodes
       nodeElements.append('circle')
-        .attr('r', d => getNodeSize(d.type))
-        .attr('fill', d => getNodeColor(d.type))
+        .attr('r', d => getNodeSize(d.type || d.labels[0]))
+        .attr('fill', d => getNodeColor(d))
         .attr('stroke', '#fff')
         .attr('stroke-width', 2)
 
@@ -279,7 +359,7 @@ export default {
 
       // Update node sizes
       svg.value.selectAll('circle')
-        .attr('r', d => getNodeSize(d.type))
+        .attr('r', d => getNodeSize(d.type || d.labels[0]))
 
       // Update link distances
       simulation.value.force('link').distance(nodeDistance.value)
@@ -469,7 +549,9 @@ export default {
       nodeSize,
       nodeDistance,
       zoomLevel,
-      resetView
+      resetView,
+      visibleNodeTypes,
+      toggleNodeType
     }
   }
 }
@@ -681,5 +763,76 @@ button:hover {
   margin: 1rem 0;
   text-align: center;
   font-style: italic;
+}
+
+.graph-legend {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: white;
+  font-size: 14px;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+  margin-left: 10px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.2);
+  transition: .4s;
+  border-radius: 20px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+  background-color: #8cffb6;
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(20px);
 }
 </style> 
