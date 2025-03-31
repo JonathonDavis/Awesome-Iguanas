@@ -11,20 +11,36 @@
           <h3>Unique Labels</h3>
           <p>{{ statistics.uniqueLabels || 'Loading...' }}</p>
         </div>
-      </div>
-      <div class="distribution-grid">
-      <div class="distribution-section">
-        <h3>Nodes Distribution</h3>
-        <div v-for="(item, index) in nodeDistribution" :key="index" class="distribution-item">
-          <span>{{ item.label }}:</span>
-          <span>{{ item.count }}</span>
+        <div class="stat-box">
+          <h3>Total Vulnerabilities</h3>
+          <p>{{ statistics.totalVulnerabilities || 'Loading...' }}</p>
+        </div>
+        <div class="stat-box">
+          <h3>Affected Packages</h3>
+          <p>{{ statistics.totalPackages || 'Loading...' }}</p>
+        </div>
+        <div class="stat-box">
+          <h3>Unique Ecosystems</h3>
+          <p>{{ statistics.uniqueEcosystems || 'Loading...' }}</p>
+        </div>
+        <div class="stat-box">
+          <h3>Last Update</h3>
+          <p>{{ formatDate(statistics.lastUpdate) || 'Loading...' }}</p>
         </div>
       </div>
-      <div class="distribution-chart">
-        <h3>Pie Chart</h3>
-        <PieChart />
+      <div class="distribution-grid">
+        <div class="distribution-section">
+          <h3>Nodes Distribution</h3>
+          <div v-for="(item, index) in nodeDistribution" :key="index" class="distribution-item">
+            <span>{{ item.label }}:</span>
+            <span>{{ item.count }}</span>
+          </div>
+        </div>
+        <div class="distribution-chart">
+          <h3>Pie Chart</h3>
+          <PieChart />
+        </div>
       </div>
-    </div>
     </div>
     <div class="text-section">
       <h3>Information</h3>
@@ -42,22 +58,43 @@ const statistics = ref({})
 const nodeDistribution = ref([])
 const chartDescription = ref('Loading database statistics...')
 
+const formatDate = (dateString) => {
+  if (!dateString) return 'Never';
+  const date = new Date(dateString);
+  return date.toLocaleString();
+}
+
 const fetchData = async () => {
   try {
+    // Get basic statistics
     const statsResult = await neo4jService.getStatistics()
     statistics.value = {
       totalNodes: statsResult.get('totalNodes').low,
       uniqueLabels: statsResult.get('uniqueLabels').low
     }
     
+    // Get vulnerability statistics
+    const vulnStats = await neo4jService.getVulnerabilityStatistics()
+    statistics.value = {
+      ...statistics.value,
+      totalVulnerabilities: vulnStats.totalVulnerabilities,
+      totalPackages: vulnStats.totalPackages,
+      uniqueEcosystems: vulnStats.uniqueEcosystems,
+      lastUpdate: vulnStats.lastUpdate
+    }
+    
+    // Get node distribution
     const distributionResult = await neo4jService.getNodeDistribution()
     nodeDistribution.value = distributionResult
     
-    // Call our new method to print detailed information about all labels
-    console.log('Fetching detailed information about all labels...')
-    await neo4jService.getAllLabelsSampleData()
+    // Get update status
+    const updateStatus = await neo4jService.getUpdateStatus()
+    if (updateStatus) {
+      statistics.value.lastUpdate = updateStatus.last_update;
+    }
     
-    chartDescription.value = `Database contains ${statistics.value.totalNodes} nodes across ${statistics.value.uniqueLabels} different types.`
+    chartDescription.value = `Database contains ${statistics.value.totalNodes} nodes across ${statistics.value.uniqueLabels} different types. 
+    There are ${statistics.value.totalVulnerabilities} vulnerabilities affecting ${statistics.value.totalPackages} packages across ${statistics.value.uniqueEcosystems} ecosystems.`
   } catch (error) {
     console.error('Error fetching data:', error)
     chartDescription.value = 'Error loading database statistics.'
@@ -75,12 +112,15 @@ onMounted(() => {
   padding: 1rem;
   border: 1px solid #ffffff;
   border-radius: 8px;
+  min-width: 60vh;
+
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
+  margin-bottom: 1rem;
 }
 
 .stat-box {
@@ -88,6 +128,11 @@ onMounted(() => {
   padding: 1rem;
   border-radius: 4px;
   text-align: center;
+  transition: transform 0.2s;
+}
+
+.stat-box:hover {
+  transform: translateY(-2px);
 }
 
 .distribution-grid {
