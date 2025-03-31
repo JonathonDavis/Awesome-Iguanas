@@ -87,10 +87,28 @@ const fetchData = async () => {
     const distributionResult = await neo4jService.getNodeDistribution()
     nodeDistribution.value = distributionResult
     
-    // Get update status
+    // Get update status and compare with current lastUpdate
     const updateStatus = await neo4jService.getUpdateStatus()
     if (updateStatus) {
-      statistics.value.lastUpdate = updateStatus.last_update;
+      const updateStatusTime = new Date(updateStatus.last_update);
+      const currentLastUpdate = statistics.value.lastUpdate ? new Date(statistics.value.lastUpdate) : null;
+      
+      // Use the most recent update time
+      if (!currentLastUpdate || updateStatusTime > currentLastUpdate) {
+        statistics.value.lastUpdate = updateStatus.last_update;
+      }
+    }
+    
+    // Get latest vulnerability timestamp
+    const latestVulnTime = await neo4jService.getLatestVulnerabilityTimestamp();
+    if (latestVulnTime) {
+      const latestVulnDate = new Date(latestVulnTime);
+      const currentLastUpdate = statistics.value.lastUpdate ? new Date(statistics.value.lastUpdate) : null;
+      
+      // Use the most recent update time
+      if (!currentLastUpdate || latestVulnDate > currentLastUpdate) {
+        statistics.value.lastUpdate = latestVulnTime;
+      }
     }
     
     chartDescription.value = `Database contains ${statistics.value.totalNodes} nodes across ${statistics.value.uniqueLabels} different types. 
