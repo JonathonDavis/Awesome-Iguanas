@@ -51,13 +51,14 @@ h2 {
 }
 
 h3 {
-  color: #259a67;
+  color: #d56a6a;
   margin: 0.5rem 0;
 }
 
 p {
   margin-bottom: 1rem;
   font-size: 1.1rem;
+  font-family: sans-serif;
 }
 
 .team-section {
@@ -75,7 +76,7 @@ p {
 }
 
 .team-member {
-  background: white;
+  background: rgba(15, 137, 118, 0.271);
   padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -103,7 +104,7 @@ p {
 }
 
 .member-role {
-  color: #666;
+  color: #efeeeef5;
   font-size: 0.9rem;
   margin: 0.5rem 0;
 }
