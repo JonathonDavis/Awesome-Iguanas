@@ -163,14 +163,21 @@ class Neo4jService {
       try {
         await updateSession.run(`
           MATCH (t:UpdateTracking)
-          SET t.last_successful_update = datetime(),
-              t.total_vulnerabilities = (MATCH (v:Vulnerability) RETURN count(v) as count)[0].count,
-              t.update_history = t.update_history + [{
-                end_time: datetime(),
-                status: 'success',
-                updates_count: $updatesCount,
-                duration: duration.between(datetime($startTime), datetime())
-              }]
+          WITH t
+          MATCH (v:Vulnerability)
+          WITH t, max(v.modified) as latestVulnTime
+          SET t.last_update = CASE 
+            WHEN latestVulnTime > t.last_update THEN latestVulnTime
+            ELSE t.last_update
+          END,
+          t.last_successful_update = datetime(),
+          t.total_vulnerabilities = (MATCH (v:Vulnerability) RETURN count(v) as count)[0].count,
+          t.update_history = t.update_history + [{
+            end_time: datetime(),
+            status: 'success',
+            updates_count: $updatesCount,
+            duration: duration.between(datetime($startTime), datetime())
+          }]
         `, {
           updatesCount: totalUpdates,
           startTime: updateStartTime.toISOString()
