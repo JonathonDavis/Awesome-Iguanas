@@ -19,11 +19,11 @@
           </div>
           <div class="control-group">
             <label>Node Distance:</label>
-            <input type="range" v-model="nodeDistance" min="50" max="300" @input="updateGraph">
+            <input type="range" v-model="nodeDistance" min="25" max="100" @input="updateGraph">
           </div>
           <div class="control-group">
             <label>Zoom:</label>
-            <input type="range" v-model="zoomLevel" min="0.5" max="2" step="0.1" @input="updateGraph">
+            <input type="range" v-model="zoomLevel" min="0.25" max="2" step="0.1" @input="updateGraph">
           </div>
           <button @click="resetView" class="control-button">Reset View</button>
         </div>
@@ -619,11 +619,12 @@ button:hover {
   position: absolute;
   top: 10px;
   right: 10px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
   padding: 15px;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   z-index: 1000;
+  min-width: 200px;
 }
 
 .control-group {
@@ -635,6 +636,7 @@ button:hover {
   margin-bottom: 5px;
   color: #333;
   font-size: 12px;
+  font-weight: bold;
 }
 
 .control-group input[type="range"] {
@@ -646,15 +648,20 @@ button:hover {
   background: #259a67;
   color: white;
   border: none;
-  padding: 5px 10px;
+  padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 10px;
+  width: 100%;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .control-button:hover {
   background: #1d7a52;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .error-message {

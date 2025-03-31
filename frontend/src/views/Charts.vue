@@ -71,7 +71,7 @@ onMounted(() => {
 
 <style scoped>
 .charts-container {
-  margin: 2rem;
+  margin: 1rem;
   padding: 1rem;
   border: 1px solid #ffffff;
   border-radius: 8px;
@@ -79,9 +79,8 @@ onMounted(() => {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 1rem;
-  /* margin-bottom: 1rem; */
 }
 
 .stat-box {
@@ -93,7 +92,7 @@ onMounted(() => {
 
 .distribution-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 1rem;
   margin-bottom: 1rem;
 }
@@ -103,7 +102,7 @@ onMounted(() => {
   padding: 1rem;
   border-radius: 4px;
   margin-top: 1rem;
-  max-height: 500px;
+  max-height: 300px;
   overflow-y: auto;
 }
 
@@ -112,6 +111,7 @@ onMounted(() => {
   padding: 1rem;
   border-radius: 4px;
   margin-top: 1rem;
+  min-height: 300px;
 }
 
 .distribution-item {
@@ -135,5 +135,51 @@ h2, h3 {
 
 p, span {
   color: white;
+}
+
+@media (min-width: 768px) {
+  .charts-container {
+    margin: 2rem;
+    padding: 2rem;
+  }
+
+  .distribution-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .distribution-section {
+    max-height: 500px;
+  }
+
+  .distribution-chart {
+    min-height: 400px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .charts-container {
+    margin: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .distribution-section {
+    max-height: 300px;
+  }
+
+  .distribution-chart {
+    min-height: 300px;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+  }
+
+  h3 {
+    font-size: 1.2rem;
+  }
 }
 </style>
