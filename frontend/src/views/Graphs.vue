@@ -115,6 +115,145 @@
         <button @click="selectedOSV = null">Close</button>
       </div>
     </div>
+
+    <!-- Node Details Modal -->
+    <div v-if="selectedNode" class="modal" @click.self="selectedNode = null">
+      <div class="modal-content">
+        <h2>{{ selectedNode.type || (selectedNode.labels && selectedNode.labels[0]) }}</h2>
+        <div class="details-grid">
+          <!-- Basic Information -->
+          <div class="detail-item">
+            <strong>ID:</strong>
+            <p>{{ selectedNode.id }}</p>
+          </div>
+
+          <!-- Vulnerability Information -->
+          <template v-if="selectedNode.type === 'Vulnerability' || (selectedNode.labels && selectedNode.labels[0] === 'Vulnerability')">
+            <div class="detail-item">
+              <strong>Severity:</strong>
+              <p :class="['severity', selectedNode.severity]">{{ selectedNode.severity || 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Summary:</strong>
+              <p>{{ selectedNode.summary }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Details:</strong>
+              <p>{{ selectedNode.details }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Published:</strong>
+              <p>{{ selectedNode.published ? new Date(selectedNode.published).toLocaleDateString() : 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Modified:</strong>
+              <p>{{ selectedNode.modified ? new Date(selectedNode.modified).toLocaleDateString() : 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>CVE ID:</strong>
+              <p>{{ selectedNode.cve_id || 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>GHSA ID:</strong>
+              <p>{{ selectedNode.ghsa_id || 'Not specified' }}</p>
+            </div>
+            <div v-if="selectedNode.aliases && selectedNode.aliases.length" class="detail-item">
+              <strong>Aliases:</strong>
+              <ul>
+                <li v-for="(alias, index) in selectedNode.aliases" :key="index">{{ alias }}</li>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Package Information -->
+          <template v-if="selectedNode.type === 'Package' || (selectedNode.labels && selectedNode.labels[0] === 'Package')">
+            <div class="detail-item">
+              <strong>Name:</strong>
+              <p>{{ selectedNode.name }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Version:</strong>
+              <p>{{ selectedNode.version }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Ecosystem:</strong>
+              <p>{{ selectedNode.ecosystem }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>PURL:</strong>
+              <p>{{ selectedNode.purl }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Package Manager:</strong>
+              <p>{{ selectedNode.package_manager }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Language:</strong>
+              <p>{{ selectedNode.language }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Description:</strong>
+              <p>{{ selectedNode.description }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>License:</strong>
+              <p>{{ selectedNode.license }}</p>
+            </div>
+            <div v-if="selectedNode.homepage" class="detail-item">
+              <strong>Homepage:</strong>
+              <p><a :href="selectedNode.homepage" target="_blank" rel="noopener">{{ selectedNode.homepage }}</a></p>
+            </div>
+            <div v-if="selectedNode.repository" class="detail-item">
+              <strong>Repository:</strong>
+              <p><a :href="selectedNode.repository" target="_blank" rel="noopener">{{ selectedNode.repository }}</a></p>
+            </div>
+          </template>
+
+          <!-- OSV Information -->
+          <template v-if="selectedNode.type === 'OSV' || (selectedNode.labels && selectedNode.labels[0] === 'OSV')">
+            <div class="detail-item">
+              <strong>Severity:</strong>
+              <p :class="['severity', selectedNode.severity]">{{ selectedNode.severity || 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Summary:</strong>
+              <p>{{ selectedNode.summary }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Details:</strong>
+              <p>{{ selectedNode.details }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Published:</strong>
+              <p>{{ selectedNode.published ? new Date(selectedNode.published).toLocaleDateString() : 'Not specified' }}</p>
+            </div>
+            <div v-if="selectedNode.affected && selectedNode.affected.length" class="detail-item">
+              <strong>Affected:</strong>
+              <ul>
+                <li v-for="(item, index) in selectedNode.affected" :key="index">{{ item }}</li>
+              </ul>
+            </div>
+            <div v-if="selectedNode.references && selectedNode.references.length" class="detail-item">
+              <strong>References:</strong>
+              <ul>
+                <li v-for="(ref, index) in selectedNode.references" :key="index">
+                  <a :href="ref" target="_blank" rel="noopener">{{ ref }}</a>
+                </li>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Additional Properties -->
+          <template v-if="selectedNode.properties">
+            <div v-for="(value, key) in selectedNode.properties" :key="key" class="detail-item">
+              <strong>{{ key }}:</strong>
+              <p>{{ typeof value === 'object' ? JSON.stringify(value) : value }}</p>
+            </div>
+          </template>
+        </div>
+        <button @click="selectedNode = null">Close</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -130,6 +269,7 @@ export default {
     const graphContainer = ref(null)
     const osvFiles = ref([])
     const selectedOSV = ref(null)
+    const selectedNode = ref(null)
     const graphData = ref(null)
     const network = ref(null)
     const nodes = ref(new DataSet([]))
@@ -279,6 +419,9 @@ export default {
         .append('g')
         .attr('class', 'node')
         .call(drag(simulation.value))
+        .on('click', (event, d) => {
+          showNodeDetails(d)
+        })
 
       // Add circles for nodes
       nodeElements.append('circle')
@@ -307,24 +450,46 @@ export default {
           
           // Basic info
           info.push(`ID: ${d.id}`)
-          info.push(`Type: ${d.type}`)
+          info.push(`Type: ${d.type || (d.labels && d.labels[0])}`)
           
           // Vulnerability specific info
-          if (d.type === 'Vulnerability') {
+          if (d.type === 'Vulnerability' || (d.labels && d.labels[0] === 'Vulnerability')) {
             if (d.severity) info.push(`Severity: ${d.severity}`)
             if (d.summary) info.push(`Summary: ${d.summary}`)
             if (d.details) info.push(`Details: ${d.details}`)
             if (d.published) info.push(`Published: ${new Date(d.published).toLocaleDateString()}`)
             if (d.modified) info.push(`Modified: ${new Date(d.modified).toLocaleDateString()}`)
             if (d.withdrawn) info.push(`Withdrawn: ${new Date(d.withdrawn).toLocaleDateString()}`)
+            if (d.cve_id) info.push(`CVE ID: ${d.cve_id}`)
+            if (d.ghsa_id) info.push(`GHSA ID: ${d.ghsa_id}`)
+            if (d.aliases) info.push(`Aliases: ${d.aliases.join(', ')}`)
           }
           
           // Package specific info
-          if (d.type === 'Package') {
+          if (d.type === 'Package' || (d.labels && d.labels[0] === 'Package')) {
             if (d.ecosystem) info.push(`Ecosystem: ${d.ecosystem}`)
             if (d.name) info.push(`Name: ${d.name}`)
             if (d.version) info.push(`Version: ${d.version}`)
             if (d.purl) info.push(`PURL: ${d.purl}`)
+            if (d.package_manager) info.push(`Package Manager: ${d.package_manager}`)
+            if (d.language) info.push(`Language: ${d.language}`)
+            if (d.description) info.push(`Description: ${d.description}`)
+            if (d.homepage) info.push(`Homepage: ${d.homepage}`)
+            if (d.repository) info.push(`Repository: ${d.repository}`)
+            if (d.license) info.push(`License: ${d.license}`)
+          }
+          
+          // OSV specific info
+          if (d.type === 'OSV' || (d.labels && d.labels[0] === 'OSV')) {
+            if (d.severity) info.push(`Severity: ${d.severity}`)
+            if (d.summary) info.push(`Summary: ${d.summary}`)
+            if (d.details) info.push(`Details: ${d.details}`)
+            if (d.published) info.push(`Published: ${new Date(d.published).toLocaleDateString()}`)
+            if (d.modified) info.push(`Modified: ${new Date(d.modified).toLocaleDateString()}`)
+            if (d.withdrawn) info.push(`Withdrawn: ${new Date(d.withdrawn).toLocaleDateString()}`)
+            if (d.aliases) info.push(`Aliases: ${d.aliases.join(', ')}`)
+            if (d.affected) info.push(`Affected: ${d.affected.join(', ')}`)
+            if (d.references) info.push(`References: ${d.references.join(', ')}`)
           }
           
           // Additional properties
@@ -337,6 +502,16 @@ export default {
               }
             })
           }
+          
+          // Add any remaining direct properties that weren't caught above
+          Object.entries(d).forEach(([key, value]) => {
+            if (!['id', 'type', 'labels', 'properties', 'x', 'y', 'vx', 'vy', 'fx', 'fy'].includes(key) && 
+                typeof value !== 'object' && 
+                value !== undefined && 
+                value !== null) {
+              info.push(`${key}: ${value}`)
+            }
+          })
           
           return info.join('\n')
         })
@@ -410,6 +585,10 @@ export default {
 
     const showOSVDetails = (osv) => {
       selectedOSV.value = osv
+    }
+
+    const showNodeDetails = (node) => {
+      selectedNode.value = node
     }
 
     onMounted(async () => {
@@ -536,7 +715,9 @@ export default {
       astContainer,
       osvFiles,
       selectedOSV,
+      selectedNode,
       showOSVDetails,
+      showNodeDetails,
       error,
       graphData,
       astData,
