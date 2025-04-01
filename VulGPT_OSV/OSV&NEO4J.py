@@ -13,7 +13,7 @@ NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "jaguarai"
 
 # Path to the directory containing the unzipped OSV JSON files
-LOCAL_OSV_DIR = "/mnt/disk-2/OSV-db"
+LOCAL_OSV_DIR = "/Downloads"
 
 # Batch size for Neo4j insertions (number of vulnerability records per transaction)
 BATCH_SIZE = 100
