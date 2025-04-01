@@ -167,4 +167,4 @@ def main():
 # MAIN EXECUTION
 # -------------------------
 if __name__ == "__main__":
-    main()[1]+  Exit 1     
+    main()
