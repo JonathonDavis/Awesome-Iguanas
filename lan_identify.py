@@ -7,37 +7,47 @@ from collections import defaultdict
 from pygments.lexers import guess_lexer_for_filename, get_lexer_for_filename, get_all_lexers
 from pygments.util import ClassNotFound
 
+import subprocess
+import sys
+import json
+import platform
+import os
+
 def install_dependencies():
     """Install all required dependencies with comprehensive error handling"""
     print("\n⚙️ Installing dependencies...")
     
-    # System dependencies
-    system_deps = [
-        ['sudo', 'apt-get', 'update'],
-        ['sudo', 'apt-get', 'install', '-y',
-         'python3-dev', 'python3-pip', 'build-essential',
-         'ruby', 'ruby-dev']
-    ]
+    # Determine the operating system
+    is_windows = platform.system() == 'Windows'
     
-    # Ruby gem
+    # System dependencies (Linux only)
+    if not is_windows:
+        system_deps = [
+            ['sudo', 'apt-get', 'update'],
+            ['sudo', 'apt-get', 'install', '-y',
+             'python3-dev', 'python3-pip', 'build-essential',
+             'ruby', 'ruby-dev']
+        ]
+        
+        # Install system dependencies
+        for cmd in system_deps:
+            try:
+                subprocess.run(cmd, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"⚠️ System dependency error: {e.stderr.decode().strip() if e.stderr else str(e)}")
+                print("Note: Some features may require these dependencies")
+
+    # Ruby gem (install on both systems)
     gem_deps = [
-        ['sudo', 'gem', 'install', 'github-linguist']
+        ['gem', 'install', 'github-linguist']
     ]
     
-    # Python packages
-    python_packages = [
-        'pygit2', 'pygments>=2.15.1',
-        'pygments-github-lexers>=0.0.5',
-        'charset-normalizer>=3.3.2'
-    ]
-
-    # Install system dependencies
-    for cmd in system_deps:
-        try:
-            subprocess.run(cmd, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"⚠️ System dependency error: {e.stderr.decode().strip() if e.stderr else str(e)}")
-
+    # On Windows, we might need to run as admin
+    if is_windows:
+        gem_deps = [
+            ['powershell', '-Command', 'Start-Process gem -ArgumentList "install github-linguist" -Verb RunAs']
+        ]
+    
     # Install Ruby gem
     for cmd in gem_deps:
         try:
@@ -45,6 +55,16 @@ def install_dependencies():
         except subprocess.CalledProcessError as e:
             print(f"⚠️ Ruby gem error: {e.stderr.decode().strip() if e.stderr else str(e)}")
             print("Note: Some features may be limited without github-linguist")
+            if is_windows:
+                print("On Windows, you might need to install Ruby first from https://rubyinstaller.org/")
+                print("And run this script as Administrator")
+
+    # Python packages (same for both systems)
+    python_packages = [
+        'pygit2', 'pygments>=2.15.1',
+        'pygments-github-lexers>=0.0.5',
+        'charset-normalizer>=3.3.2'
+    ]
 
     # Install Python packages
     try:
@@ -52,9 +72,59 @@ def install_dependencies():
             [sys.executable, '-m', 'pip', 'install', '--upgrade'] + python_packages,
             check=True
         )
-        print("✅ All dependencies installed successfully")
+        print("✅ Python dependencies installed successfully")
     except subprocess.CalledProcessError as e:
         print(f"❌ Python package error: {e.stderr.decode().strip() if e.stderr else str(e)}")
+        if is_windows:
+            print("On Windows, you might need to run this script as Administrator")
+
+def detect_with_linguist(repo_path):
+    """Use github-linguist for accurate language detection"""
+    try:
+        # On Windows, we need to find the gem executable path
+        if platform.system() == 'Windows':
+            # Try to find gem path
+            gem_path = None
+            possible_paths = [
+                os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), 'Ruby', 'bin', 'github-linguist.bat'),
+                os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'Ruby', 'bin', 'github-linguist.bat'),
+                'github-linguist'
+            ]
+            
+            for path in possible_paths:
+                try:
+                    subprocess.run([path, '--version'], capture_output=True, check=True)
+                    gem_path = path
+                    break
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+            
+            if not gem_path:
+                raise FileNotFoundError("github-linguist not found in standard locations")
+            
+            cmd = [gem_path]
+        else:
+            cmd = ['github-linguist']
+        
+        cmd.extend(['--breakdown', '--json', str(repo_path)])
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30
+        )
+        return json.loads(result.stdout)
+    except FileNotFoundError:
+        print("ℹ️ github-linguist not found. Using fallback methods...")
+        return None
+    except subprocess.TimeoutExpired:
+        print("⚠️ Linguist timed out after 30 seconds")
+        return None
+    except Exception as e:
+        print(f"⚠️ Linguist error: {str(e)}")
+        return None
 
 def detect_with_linguist(repo_path):
     """Use github-linguist for accurate language detection"""
@@ -153,8 +223,7 @@ def main_menu():
         print("Language Detection Tool".center(40))
         print("="*40)
         print("1. Detect languages in folder")
-        print("2. Detect language of single file")
-        print("3. Install dependencies")
+        print("2. Install dependencies")
         print("0. Exit")
         
         choice = input("\nEnter your choice: ").strip()
@@ -173,19 +242,6 @@ def main_menu():
             display_results(results.get('breakdown', results) if isinstance(results, dict) else results)
             
         elif choice == "2":
-            file_path = input("Enter file path: ").strip()
-            print("\n🔍 Analyzing file...")
-            
-            # Try github-linguist first
-            results = detect_with_linguist(file_path)
-            
-            # Fallback to pygments if needed
-            if not results:
-                results = pygments_language_detect(file_path)
-            
-            display_results(results)
-            
-        elif choice == "3":
             install_dependencies()
         elif choice == "0":
             print("Exiting...")
