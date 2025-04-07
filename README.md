@@ -126,12 +126,14 @@ These utility scripts help maintain the backend infrastructure that powers Iguan
 **Frontend Developers:** 
 - [Jonathon Davis](https://github.com/JonathanDavis)
 - [Yesmin Hernandez](https://github.com/Yesmin301)
-- [Samantha Jackson](https://github.com/Erosssore)
 
 **Backend Developers:** 
 - [Joshua Ludolf](https://github.com/Joshua-Ludolf)
 - [Alexander James](https://github.com/Pacificocean1912)
 - [Matthew Trevino](https://github.com/MattjTrev)
+
+**Documentation Updates:**
+- [Samantha Jackson](https://github.com/Erosssore)
 
 ## LICENSE
 This project is licensed under the Apache License Version 2.0 - see the [LICENSE](LICENSE) file for details.
