@@ -82,6 +82,21 @@
                   <strong>Total Languages:</strong>
                   <div class="language-count">{{ version.languageCount }}</div>
                 </div>
+                <div class="cve-list" v-if="version.cves && version.cves.length > 0">
+                  <div class="cve-header">Affected by CVEs:</div>
+                  <div class="cve-items">
+                    <a 
+                      v-for="cve in version.cves" 
+                      :key="cve"
+                      :href="`https://nvd.nist.gov/vuln/detail/${cve}`"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="cve-link"
+                    >
+                      {{ cve }}
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -580,5 +595,38 @@ fetchData()
 
 .expand-all-button:hover {
   background-color: rgba(255, 255, 255, 0.2);
+}
+
+.cve-list {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.cve-header {
+  color: #ff6b6b;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+.cve-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cve-link {
+  color: #61dafb;
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  background-color: rgba(97, 218, 251, 0.1);
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.cve-link:hover {
+  background-color: rgba(97, 218, 251, 0.2);
+  text-decoration: underline;
 }
 </style> 

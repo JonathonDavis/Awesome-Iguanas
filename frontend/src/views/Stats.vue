@@ -50,10 +50,39 @@
       <p>{{ chartDescription }}</p>
     </div> -->
 
-    <!-- Repository Breakdowns -->
-    <div class="repository-section">
-      <h2>Repository Breakdowns</h2>
-      <RepositoryStats />
+
+    
+    <!--Breakdown of CVE, Repository sections -->
+    <div class="breakdown-section">
+      <!-- CVE Breakdown -->
+      <div class="cve-section">
+        <div class="section-header">
+          <h2>CVE Breakdown</h2>
+          <button 
+            class="toggle-button"
+            @click="showCVEStats = !showCVEStats"
+            :class="{ 'active': showCVEStats }"
+          >
+            {{ showCVEStats ? 'Hide' : 'Show' }}
+          </button>
+        </div>
+        <CVEStats v-if="showCVEStats" />
+      </div>
+
+      <!-- Repository Breakdowns -->
+      <div class="repository-section">
+        <div class="section-header">
+          <h2>Repository Breakdowns</h2>
+          <button 
+            class="toggle-button"
+            @click="showRepositoryStats = !showRepositoryStats"
+            :class="{ 'active': showRepositoryStats }"
+          >
+            {{ showRepositoryStats ? 'Hide' : 'Show' }}
+          </button>
+        </div>
+        <RepositoryStats v-if="showRepositoryStats" />
+      </div>
     </div>
   </div>
 </template>
@@ -63,10 +92,13 @@ import { ref, onMounted } from 'vue'
 import neo4jService from '../services/neo4jService'
 import PieChart from '../components/PieChart.vue';
 import RepositoryStats from '../components/RepositoryStats.vue'
+import CVEStats from '../components/CVEStats.vue'
 
 const statistics = ref({})
 const nodeDistribution = ref([])
 const chartDescription = ref('Loading database statistics...')
+const showCVEStats = ref(true)
+const showRepositoryStats = ref(true)
 
 const formatDate = (dateString) => {
   if (!dateString) return 'Never';
@@ -266,5 +298,56 @@ p, span {
 .repository-section h2 {
   color: white;
   margin-bottom: 1rem;
+}
+
+.cve-section {
+  margin-top: 2rem;
+  padding: 1rem;
+  background-color: #259a67;
+  border-radius: 4px;
+}
+
+.cve-section h2 {
+  color: white;
+  margin-bottom: 1rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.toggle-button {
+  padding: 0.5rem 1rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.toggle-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.toggle-button.active {
+  background-color: rgba(97, 218, 251, 0.2);
+  border-color: #61dafb;
+}
+
+@media (max-width: 768px) {
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .toggle-button {
+    width: 100%;
+  }
 }
 </style>
