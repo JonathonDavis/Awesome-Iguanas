@@ -8,6 +8,12 @@
           placeholder="Search repositories..."
           class="search-input"
         />
+        <button 
+          @click="expandAllRepositories" 
+          class="expand-all-button"
+        >
+          {{ expandedRepos.length === repositories.length ? 'Collapse All' : 'Expand All' }}
+        </button>
       </div>
       
       <div class="repository-list">
@@ -238,6 +244,16 @@ const toggleRepository = (repo) => {
 const selectVersion = (version) => {
   selectedVersion.value = selectedVersion.value === version ? null : version
 }
+
+const expandAllRepositories = () => {
+  if (expandedRepos.value.length === repositories.value.length) {
+    // If all are expanded, collapse all
+    expandedRepos.value = [];
+  } else {
+    // Expand all repositories
+    expandedRepos.value = repositories.value.map(repo => repo.repository);
+  }
+};
 
 const fetchData = async () => {
   try {
@@ -511,6 +527,7 @@ fetchData()
   border-radius: 4px;
   display: flex;
   align-items: center;
+  gap: 0.5rem;
 }
 
 .search-input {
@@ -532,5 +549,21 @@ fetchData()
 .search-input:focus {
   outline: none;
   background-color: rgba(255, 255, 255, 0.15);
+}
+
+.expand-all-button {
+  padding: 0.75rem 1rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.expand-all-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
 }
 </style> 
