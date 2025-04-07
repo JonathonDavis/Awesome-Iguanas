@@ -5,6 +5,32 @@
     <!-- Graph Visualization Section -->
     <div class="graph-section">
       <h2>AST Network Graph</h2>
+      <div class="graph-legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: #ff7f0e;"></div>
+          <span>Vulnerability/OSV Nodes</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="visibleNodeTypes.Vulnerability" @change="toggleNodeType('Vulnerability')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: #1f77b4;"></div>
+          <span>Package Nodes</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="visibleNodeTypes.Package" @change="toggleNodeType('Package')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: #7f7f7f;"></div>
+          <span>Other Nodes</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="visibleNodeTypes.Other" @change="toggleNodeType('Other')">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
       <div v-if="error" class="error-message">
         Error: {{ error }}
       </div>
@@ -89,6 +115,145 @@
         <button @click="selectedOSV = null">Close</button>
       </div>
     </div>
+
+    <!-- Node Details Modal -->
+    <div v-if="selectedNode" class="modal" @click.self="selectedNode = null">
+      <div class="modal-content">
+        <h2>{{ selectedNode.type || (selectedNode.labels && selectedNode.labels[0]) }}</h2>
+        <div class="details-grid">
+          <!-- Basic Information -->
+          <div class="detail-item">
+            <strong>ID:</strong>
+            <p>{{ selectedNode.id }}</p>
+          </div>
+
+          <!-- Vulnerability Information -->
+          <template v-if="selectedNode.type === 'Vulnerability' || (selectedNode.labels && selectedNode.labels[0] === 'Vulnerability')">
+            <div class="detail-item">
+              <strong>Severity:</strong>
+              <p :class="['severity', selectedNode.severity]">{{ selectedNode.severity || 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Summary:</strong>
+              <p>{{ selectedNode.summary }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Details:</strong>
+              <p>{{ selectedNode.details }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Published:</strong>
+              <p>{{ selectedNode.published ? new Date(selectedNode.published).toLocaleDateString() : 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Modified:</strong>
+              <p>{{ selectedNode.modified ? new Date(selectedNode.modified).toLocaleDateString() : 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>CVE ID:</strong>
+              <p>{{ selectedNode.cve_id || 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>GHSA ID:</strong>
+              <p>{{ selectedNode.ghsa_id || 'Not specified' }}</p>
+            </div>
+            <div v-if="selectedNode.aliases && selectedNode.aliases.length" class="detail-item">
+              <strong>Aliases:</strong>
+              <ul>
+                <li v-for="(alias, index) in selectedNode.aliases" :key="index">{{ alias }}</li>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Package Information -->
+          <template v-if="selectedNode.type === 'Package' || (selectedNode.labels && selectedNode.labels[0] === 'Package')">
+            <div class="detail-item">
+              <strong>Name:</strong>
+              <p>{{ selectedNode.name }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Version:</strong>
+              <p>{{ selectedNode.version }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Ecosystem:</strong>
+              <p>{{ selectedNode.ecosystem }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>PURL:</strong>
+              <p>{{ selectedNode.purl }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Package Manager:</strong>
+              <p>{{ selectedNode.package_manager }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Language:</strong>
+              <p>{{ selectedNode.language }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Description:</strong>
+              <p>{{ selectedNode.description }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>License:</strong>
+              <p>{{ selectedNode.license }}</p>
+            </div>
+            <div v-if="selectedNode.homepage" class="detail-item">
+              <strong>Homepage:</strong>
+              <p><a :href="selectedNode.homepage" target="_blank" rel="noopener">{{ selectedNode.homepage }}</a></p>
+            </div>
+            <div v-if="selectedNode.repository" class="detail-item">
+              <strong>Repository:</strong>
+              <p><a :href="selectedNode.repository" target="_blank" rel="noopener">{{ selectedNode.repository }}</a></p>
+            </div>
+          </template>
+
+          <!-- OSV Information -->
+          <template v-if="selectedNode.type === 'OSV' || (selectedNode.labels && selectedNode.labels[0] === 'OSV')">
+            <div class="detail-item">
+              <strong>Severity:</strong>
+              <p :class="['severity', selectedNode.severity]">{{ selectedNode.severity || 'Not specified' }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Summary:</strong>
+              <p>{{ selectedNode.summary }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Details:</strong>
+              <p>{{ selectedNode.details }}</p>
+            </div>
+            <div class="detail-item">
+              <strong>Published:</strong>
+              <p>{{ selectedNode.published ? new Date(selectedNode.published).toLocaleDateString() : 'Not specified' }}</p>
+            </div>
+            <div v-if="selectedNode.affected && selectedNode.affected.length" class="detail-item">
+              <strong>Affected:</strong>
+              <ul>
+                <li v-for="(item, index) in selectedNode.affected" :key="index">{{ item }}</li>
+              </ul>
+            </div>
+            <div v-if="selectedNode.references && selectedNode.references.length" class="detail-item">
+              <strong>References:</strong>
+              <ul>
+                <li v-for="(ref, index) in selectedNode.references" :key="index">
+                  <a :href="ref" target="_blank" rel="noopener">{{ ref }}</a>
+                </li>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Additional Properties -->
+          <template v-if="selectedNode.properties">
+            <div v-for="(value, key) in selectedNode.properties" :key="key" class="detail-item">
+              <strong>{{ key }}:</strong>
+              <p>{{ typeof value === 'object' ? JSON.stringify(value) : value }}</p>
+            </div>
+          </template>
+        </div>
+        <button @click="selectedNode = null">Close</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -104,6 +269,7 @@ export default {
     const graphContainer = ref(null)
     const osvFiles = ref([])
     const selectedOSV = ref(null)
+    const selectedNode = ref(null)
     const graphData = ref(null)
     const network = ref(null)
     const nodes = ref(new DataSet([]))
@@ -120,18 +286,71 @@ export default {
     const svg = ref(null)
     const simulation = ref(null)
     const transform = ref({ x: 0, y: 0, k: 1 })
+    const visibleNodeTypes = ref({
+      Vulnerability: true,
+      Package: true,
+      OSV: true,
+      Other: true
+    })
 
-    const getNodeColor = (label) => {
+    const getNodeColor = (node) => {
+      // Log the node to see what properties we have
+      console.log('Node for color:', node);
+      
+      // Try to get the type from either the type property or the first label
+      const nodeType = node.type || (node.labels && node.labels[0]);
+      console.log('Determined node type:', nodeType);
+      
       const colors = {
-        Vulnerability: '#ff7f0e',
-        Package: '#1f77b4',
-        default: '#7f7f7f'
+        Vulnerability: '#ff7f0e',  // Orange
+        Package: '#1f77b4',        // Blue
+        OSV: '#ff7f0e',           // Orange
+        default: '#7f7f7f'        // Gray
       }
-      return colors[label] || colors.default
+      return colors[nodeType] || colors.default
     }
 
     const getNodeSize = (type) => {
       return type === 'Vulnerability' ? nodeSize.value : nodeSize.value * 0.75
+    }
+
+    const toggleNodeType = (type) => {
+      visibleNodeTypes.value[type] = !visibleNodeTypes.value[type]
+      updateVisibleNodes()
+    }
+
+    const updateVisibleNodes = () => {
+      if (!svg.value || !graphData.value) return
+
+      // Update node visibility
+      svg.value.selectAll('g.node')
+        .style('opacity', d => {
+          const nodeType = d.type || (d.labels && d.labels[0])
+          if (nodeType === 'Vulnerability' || nodeType === 'OSV') {
+            return visibleNodeTypes.value.Vulnerability ? 1 : 0
+          }
+          if (nodeType === 'Package') {
+            return visibleNodeTypes.value.Package ? 1 : 0
+          }
+          return visibleNodeTypes.value.Other ? 1 : 0
+        })
+
+      // Update link visibility based on connected nodes
+      svg.value.selectAll('line')
+        .style('opacity', d => {
+          const sourceType = d.source.type || (d.source.labels && d.source.labels[0])
+          const targetType = d.target.type || (d.target.labels && d.target.labels[0])
+          
+          const sourceVisible = sourceType === 'Package' ? visibleNodeTypes.value.Package :
+                              sourceType === 'Vulnerability' || sourceType === 'OSV' ? visibleNodeTypes.value.Vulnerability :
+                              visibleNodeTypes.value.Other
+          
+          const targetVisible = targetType === 'Package' ? visibleNodeTypes.value.Package :
+                              targetType === 'Vulnerability' || targetType === 'OSV' ? visibleNodeTypes.value.Vulnerability :
+                              visibleNodeTypes.value.Other
+          
+          return sourceVisible && targetVisible ? 0.6 : 0
+        })
     }
 
     const initializeGraph = (data) => {
@@ -140,8 +359,8 @@ export default {
         return
       }
 
-      const width = graphContainer.value.clientWidth
-      const height = 600
+      const width = graphContainer.value.clientWidth * 1.2
+      const height = 700
 
       // Clear any existing SVG
       d3.select(graphContainer.value).selectAll('*').remove()
@@ -192,18 +411,22 @@ export default {
         .attr('stroke-opacity', 0.6)
         .attr('stroke-width', 2)
 
-      // Create nodes
+      // Create nodes with class for easier selection
       const nodeElements = g.append('g')
-        .selectAll('g')
+        .selectAll('g.node')
         .data(nodes)
         .enter()
         .append('g')
+        .attr('class', 'node')
         .call(drag(simulation.value))
+        .on('click', (event, d) => {
+          showNodeDetails(d)
+        })
 
       // Add circles for nodes
       nodeElements.append('circle')
-        .attr('r', d => getNodeSize(d.type))
-        .attr('fill', d => getNodeColor(d.type))
+        .attr('r', d => getNodeSize(d.type || d.labels[0]))
+        .attr('fill', d => getNodeColor(d))
         .attr('stroke', '#fff')
         .attr('stroke-width', 2)
 
@@ -227,24 +450,46 @@ export default {
           
           // Basic info
           info.push(`ID: ${d.id}`)
-          info.push(`Type: ${d.type}`)
+          info.push(`Type: ${d.type || (d.labels && d.labels[0])}`)
           
           // Vulnerability specific info
-          if (d.type === 'Vulnerability') {
+          if (d.type === 'Vulnerability' || (d.labels && d.labels[0] === 'Vulnerability')) {
             if (d.severity) info.push(`Severity: ${d.severity}`)
             if (d.summary) info.push(`Summary: ${d.summary}`)
             if (d.details) info.push(`Details: ${d.details}`)
             if (d.published) info.push(`Published: ${new Date(d.published).toLocaleDateString()}`)
             if (d.modified) info.push(`Modified: ${new Date(d.modified).toLocaleDateString()}`)
             if (d.withdrawn) info.push(`Withdrawn: ${new Date(d.withdrawn).toLocaleDateString()}`)
+            if (d.cve_id) info.push(`CVE ID: ${d.cve_id}`)
+            if (d.ghsa_id) info.push(`GHSA ID: ${d.ghsa_id}`)
+            if (d.aliases) info.push(`Aliases: ${d.aliases.join(', ')}`)
           }
           
           // Package specific info
-          if (d.type === 'Package') {
+          if (d.type === 'Package' || (d.labels && d.labels[0] === 'Package')) {
             if (d.ecosystem) info.push(`Ecosystem: ${d.ecosystem}`)
             if (d.name) info.push(`Name: ${d.name}`)
             if (d.version) info.push(`Version: ${d.version}`)
             if (d.purl) info.push(`PURL: ${d.purl}`)
+            if (d.package_manager) info.push(`Package Manager: ${d.package_manager}`)
+            if (d.language) info.push(`Language: ${d.language}`)
+            if (d.description) info.push(`Description: ${d.description}`)
+            if (d.homepage) info.push(`Homepage: ${d.homepage}`)
+            if (d.repository) info.push(`Repository: ${d.repository}`)
+            if (d.license) info.push(`License: ${d.license}`)
+          }
+          
+          // OSV specific info
+          if (d.type === 'OSV' || (d.labels && d.labels[0] === 'OSV')) {
+            if (d.severity) info.push(`Severity: ${d.severity}`)
+            if (d.summary) info.push(`Summary: ${d.summary}`)
+            if (d.details) info.push(`Details: ${d.details}`)
+            if (d.published) info.push(`Published: ${new Date(d.published).toLocaleDateString()}`)
+            if (d.modified) info.push(`Modified: ${new Date(d.modified).toLocaleDateString()}`)
+            if (d.withdrawn) info.push(`Withdrawn: ${new Date(d.withdrawn).toLocaleDateString()}`)
+            if (d.aliases) info.push(`Aliases: ${d.aliases.join(', ')}`)
+            if (d.affected) info.push(`Affected: ${d.affected.join(', ')}`)
+            if (d.references) info.push(`References: ${d.references.join(', ')}`)
           }
           
           // Additional properties
@@ -257,6 +502,16 @@ export default {
               }
             })
           }
+          
+          // Add any remaining direct properties that weren't caught above
+          Object.entries(d).forEach(([key, value]) => {
+            if (!['id', 'type', 'labels', 'properties', 'x', 'y', 'vx', 'vy', 'fx', 'fy'].includes(key) && 
+                typeof value !== 'object' && 
+                value !== undefined && 
+                value !== null) {
+              info.push(`${key}: ${value}`)
+            }
+          })
           
           return info.join('\n')
         })
@@ -279,7 +534,7 @@ export default {
 
       // Update node sizes
       svg.value.selectAll('circle')
-        .attr('r', d => getNodeSize(d.type))
+        .attr('r', d => getNodeSize(d.type || d.labels[0]))
 
       // Update link distances
       simulation.value.force('link').distance(nodeDistance.value)
@@ -330,6 +585,10 @@ export default {
 
     const showOSVDetails = (osv) => {
       selectedOSV.value = osv
+    }
+
+    const showNodeDetails = (node) => {
+      selectedNode.value = node
     }
 
     onMounted(async () => {
@@ -456,7 +715,9 @@ export default {
       astContainer,
       osvFiles,
       selectedOSV,
+      selectedNode,
       showOSVDetails,
+      showNodeDetails,
       error,
       graphData,
       astData,
@@ -469,7 +730,9 @@ export default {
       nodeSize,
       nodeDistance,
       zoomLevel,
-      resetView
+      resetView,
+      visibleNodeTypes,
+      toggleNodeType
     }
   }
 }
@@ -681,5 +944,76 @@ button:hover {
   margin: 1rem 0;
   text-align: center;
   font-style: italic;
+}
+
+.graph-legend {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: white;
+  font-size: 14px;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+  margin-left: 10px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.2);
+  transition: .4s;
+  border-radius: 20px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+  background-color: #8cffb6;
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(20px);
 }
 </style> 

@@ -17,11 +17,11 @@ const routes = [
     name: 'About',
     component: () => import('../views/About.vue')
   },
-  {
-    path: '/graphs',
-    name: 'Graphs',
-    component: () => import('../views/Graphs.vue')
-  }
+  // {
+  //   path: '/graphs',
+  //   name: 'Graphs',
+  //   component: () => import('../views/Graphs.vue')
+  // }
 ]
 
 const router = createRouter({
