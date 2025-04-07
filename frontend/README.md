@@ -16,11 +16,11 @@ This folder contains the frontend code for the Awesome Iguanas project. It is bu
 - **`src/`**: The main source folder for the frontend application.
   - **`App.vue`**: The root Vue component that serves as the main layout for the app.
   - **`main.js`**: The entry JavaScript file that initializes the Vue app and sets up routing.
-  - **`style.css`**: Global styles for the application.
-  - **`assets/`**: Contains static assets like images and icons.
+  - **`style.css`**: Contains the global styles for the application.
+  - **`assets/`**: Contains .jpg images of the project contributors.
   - **`components/`**: Reusable Vue components.
     - **`Header.vue`**: The header component, including navigation links.
-    - **`PieChart.vue`**: A component for rendering pie charts using Chart.js.
+    - **`PieChart.vue`**: A component for rendering pie charts using Chart.js and Neo4j.
   - **`data/`**: Contains JSON files or other data used in the app.
     - **`teamMembers.json`**: Data about the team members displayed on the Home page.
   - **`router/`**: Contains the routing configuration for the app.
@@ -30,8 +30,7 @@ This folder contains the frontend code for the Awesome Iguanas project. It is bu
   - **`views/`**: Contains the main pages of the application.
     - **`Home.vue`**: The landing page of the application.
     - **`About.vue`**: Provides information about the project and contributors.
-    - **`Charts.vue`**: Displays database statistics and visualizations.
-    - **`Graphs.vue`**: Provides an interactive graph visualization of vulnerabilities.
+    - **`Stats.vue`**: Displays database statistics and visualizations.
 
 ## How to Run
 
@@ -51,7 +50,6 @@ This folder contains the frontend code for the Awesome Iguanas project. It is bu
 
 - **Dynamic Routing**: The app uses Vue Router for navigation between pages.
 - **Interactive Visualizations**: Includes charts and graphs for data analysis.
-- **Responsive Design**: Optimized for both desktop and mobile devices.
 - **Database Integration**: Connects to Neo4j for graph-based data visualization.
 
 ## Dependencies
@@ -67,10 +65,11 @@ This folder contains the frontend code for the Awesome Iguanas project. It is bu
 To contribute to this project:
 
 1. Clone the repository
-2. Install dependencies using `npm install`
-3. Make your changes
-4. Test your changes locally using `npm run dev`
-5. Submit a pull request
+2. cd into /frontend using `cd frontend`
+3. Install dependencies using `npm install`
+4. Make your changes
+5. Test your changes locally using `npm run dev`
+6. Submit a pull request
 
 ## Build for Production
 
