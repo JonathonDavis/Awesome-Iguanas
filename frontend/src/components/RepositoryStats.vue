@@ -26,7 +26,15 @@
             class="repo-header"
             @click="toggleRepository(repo)"
           >
-            <div class="repo-name">{{ getRepoName(repo.repository) }}</div>
+            <a 
+              :href="repo.repository" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              class="repo-link"
+              @click.stop
+            >
+              {{ getRepoName(repo.repository) }}
+            </a>
             <div class="version-count">{{ repo.versions.length }} versions</div>
           </div>
           
@@ -66,7 +74,7 @@
                       class="legend-item"
                     >
                       <span class="legend-color" :style="{ backgroundColor: getLanguageColor(lang) }"></span>
-                      <span class="legend-text">{{ lang }} ({{ percentage }}%)</span>
+                      <span class="legend-text">{{ lang }} ({{ percentage.toFixed(2) }}%)</span>
                     </div>
                   </div>
                 </div>
@@ -340,10 +348,17 @@ fetchData()
   background-color: rgba(184, 105, 8, 0.815);
 }
 
-.repo-name {
+.repo-link {
   color: white;
+  text-decoration: none;
   font-weight: bold;
   font-size: 1.1rem;
+  transition: color 0.2s;
+}
+
+.repo-link:hover {
+  color: #61dafb;
+  text-decoration: underline;
 }
 
 .version-count {

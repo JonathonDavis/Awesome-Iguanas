@@ -1031,15 +1031,6 @@ class Neo4jService {
         const languageCount = record.get('LanguageCount');
         const allLanguages = record.get('AllLanguages');
         
-        // Debug log for size
-        console.log(`Size data for ${url} v${version}:`, {
-          rawSize: size,
-          type: typeof size,
-          isObject: typeof size === 'object',
-          hasLow: size && typeof size === 'object' ? 'low' in size : false,
-          hasToNumber: size && typeof size === 'object' ? 'toNumber' in size : false
-        });
-        
         if (!repoMap.has(url)) {
           repoMap.set(url, {
             repository: url,
@@ -1055,10 +1046,13 @@ class Neo4jService {
                                   JSON.parse(allLanguages) : 
                                   allLanguages;
             
-            // Convert to percentage-based format
+            // Convert to percentage-based format with decimal precision
             const totalBytes = Object.values(parsedLanguages).reduce((sum, bytes) => sum + bytes, 0);
             Object.entries(parsedLanguages).forEach(([lang, bytes]) => {
-              languages[lang] = Math.round((bytes / totalBytes) * 100);
+              // Calculate percentage with full precision
+              const percentage = (bytes / totalBytes) * 100;
+              // Store the raw percentage without rounding
+              languages[lang] = percentage;
             });
           } catch (e) {
             console.error('Error parsing language_json:', e);
@@ -1082,8 +1076,6 @@ class Neo4jService {
             sizeValue = parseFloat(size);
           }
         }
-        
-        console.log(`Processed size for ${url} v${version}:`, sizeValue);
         
         repoMap.get(url).versions.push({
           version,
