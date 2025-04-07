@@ -1,6 +1,6 @@
 <h1 align="center">
 <br>
-<img src=/files/awesome-iguanas.jpg height="375" border="2px solid #000000">
+<img src=/files/awesome-iguanas.jpg height="400" border="2px solid #000000">
 <br>
 Awesome Iguanas Vulnerability Detection Tool
 </h1>
@@ -8,7 +8,7 @@ Awesome Iguanas Vulnerability Detection Tool
 
 ## WHAT
 
-  `IguanaGPT` is a LLM online vulnerability detection tool that aims to fix software bugs using Large Language Models (LLMs). `IguanaGPT` utilizes a Neo4j CWE database in combination with Llama. This tool prioritizes ease-of-use for the casual programmer.
+  `IguanaGPT` is a LLM online vulnerability detection tool that aims to fix software bugs using Large Language Models (LLMs). `IguanaGPT` utilizes a Neo4j CWE database in  combination with Llama. This tool prioritizes ease-of-use for the casual programmer.
 
   As a proof of concept, `IguanaGPT` capabilities include:
 
@@ -59,55 +59,69 @@ The methodology behind `IguanaGPT` involves the following steps:
 
 By combining cutting-edge AI technology with an up-to-date vulnerability database, `IguanaGPT` aims to streamline the process of identifying and addressing software vulnerabilities.
 
-## UTILITY SCRIPTS
+## UTILITY SCRIPT(S)
 
-The repository includes two powerful utility scripts that support the main functionality of IguanaGPT:
+The repository includes a powerful utility script that support the main functionality of `IguanaGPT`:
 
-### 1. Language Identification Tool (`lan_identify.py`)
+### 1. Database Updater (`updatelang.py`)
 
-This script provides advanced language detection capabilities for code repositories and files. It helps determine which programming languages are used in a project, which is essential for proper vulnerability analysis.
+This file handles the bulk of the backend with continuous OSV Database scraping, Neo4J compatibility and injestion via Bolt, and frontend integration.
 
-**Key Features:**
-- Multi-method language detection using both GitHub's Linguist and Python's Pygments
-- Automatic dependency installation with platform-specific support (Windows/Linux)
-- Interactive menu system for ease of use
-- Comprehensive error handling and fallback mechanisms
-- Percentage-based language breakdown for mixed-language repositories
-
-**Usage:**
-```
-python lan_identify.py
-```
-Then follow the interactive menu to either detect languages in a folder or install dependencies.
-
-### 2. OSV Database Updater (`osv_upload.py`)
-
-This script fetches the latest vulnerability data from the Open Source Vulnerability (OSV) database and populates a Neo4j graph database for use by IguanaGPT. The script creates a comprehensive vulnerability graph with relationships between packages, CVEs, and references.
-
-**Key Features:**
-- Automated downloading of the OSV vulnerability database
-- Smart filtering using a greedy algorithm to minimize database size while maximizing coverage
+#### Key Features:
+- Automated downloads and updates from the [Open Source Vulnerability Database](https://osv.dev/) at `03:00 GMT, Daily`
+- Smart filtering using a [greedy algorithm](https://en.wikipedia.org/wiki/Greedy_algorithm) for efficiency
 - Comprehensive Neo4j graph creation with multiple node types:
   - Vulnerability nodes (OSV entries)
+    - id: <i>Vulnerability ID</i>
+    - schema_version, published, modiifed, summary, details
+    - severity: <i>JSON severity string</i>
+    - affected: <i>JSON string of affected packages</i>
+    - database_specific: <i>JSON blob</i>
   - Package nodes (affected software)
+    - name: <i>Package name</i>
+    - ecosystem: <i>ecosystem types (go, npm, PyPI, etc.)</i>
+  - Repository nodes (GitHub repositories containing vulnerable code)
+    - url: <i>GitHub repository URL</i>
+  - Version nodes (with language statistics and version strings)
+    - id: <i>Unique version ID</i>
+    - version: <i>Version string</i>
+    - size: <i>Disk size of the repository file</i>
+    - language_json: <i>Full language breakdown</i>
+    - primary_languag: <i>Most dominant language in the repository</i>
+    - language_count: <i>Number of dedicated languages</i>
   - CVE nodes (related vulnerability identifiers)
+    - ID: <i>CVE ID Linked to the Vulnerability (CVE-2025-12345)</i>
   - Reference nodes (links to advisories, fixes)
-- Rich relationship mapping between different node types
+    - url: <i>URL to Notice</i>
+    - type: <i>Optional (ex. ADVISORY, FIX, etc.)</i>
+- Relationship mapping between nodes using Cypher query logic
+    - AFFECTED_BY: <i>Package -> Vulnerability (Packages affected by this vulnerability)</i>
+    - IDENTIFIED_AS: <i>CVE -> Vulnerability (CVE ID for the vulnerability)</i>
+    - REFERS_TO: <i>Vulnerability -> Reference (External links or vulnerability advisories)</i>
+    - FOUND_IN: <i>Vulnerability -> Repository (The vulnerabilities existing in this GitHub repository)</i>
+    - HAS_VERSION: <i>Repository -> Version (GitHub repository versions/tags)</i>
+    - RELATED_TO: <i>Vulnerability -> Vulnerability (Similar vulnerabilities)</i>
 
-**Technical Details:**
-- Configurable processing percentages for testing vs. production use
+#### Technical Details:
+- Configurable processing percentages for testing and production use
 - Timeout handlers to prevent hanging on large operations
-- Detailed progress monitoring with progress bars
+- Error handling for:
+  - OSV Data downloading and processing
+  - GitHub repository cloning retry logic
+  - Linguist fallbacks for manual language detection
+  - Neo4j insertion error handling
+  - Main script crash prevention
+  - Repeat node correction for continuous updates
 - Comprehensive database statistics reporting
 
-These utility scripts help maintain the backend infrastructure that powers IguanaGPT's vulnerability detection capabilities.
+This utility script help maintain the backend infrastructure that powers `IguanaGPT` vulnerability detection capabilities.
 
 ## FEATURES
 
-- **Language Agnostic Detection**: Works with multiple programming languages
-- **Interactive Visualization**: Neo4j-based graph visualization of vulnerability relationships
-- **Customizable Security Rules**: Adjust sensitivity based on project requirements
-- **Detailed Reporting**: Comprehensive vulnerability reports with remediation suggestions
+- <b>Language Agnostic Detection</b>: Works with multiple programming languages
+- <b>Interactive Visualization</b>: Neo4j-based graph visualization of vulnerability relationships
+- <b>Customizable Security Rules</b>: Adjust sensitivity based on project requirements
+- <b>Detailed Reporting</b>: Comprehensive vulnerability reports with remediation suggestions
 
 ## DISCLAIMER
 
@@ -128,7 +142,6 @@ These utility scripts help maintain the backend infrastructure that powers Iguan
 
 **Backend Developers:** 
 - [Joshua Ludolf](https://github.com/Joshua-Ludolf)
-- [Alexander James](https://github.com/Pacificocean1912)
 - [Matthew Trevino](https://github.com/MattjTrev)
 
 **Documentation Updates:**
