@@ -1012,12 +1012,14 @@ class Neo4jService {
       console.log('Executing repository statistics query...');
       const result = await session.run(`
         MATCH (r:Repository)-[:HAS_VERSION]->(v:Version)
+        OPTIONAL MATCH (c:CVE)-[:IDENTIFIED_AS]->(vuln:Vulnerability)-[:FOUND_IN]->(r)
         RETURN r.url AS RepositoryURL, 
                v.version AS Version, 
                v.size AS Size, 
                v.primary_language AS PrimaryLanguage,
                v.language_count AS LanguageCount,
-               v.language_json AS AllLanguages
+               v.language_json AS AllLanguages,
+               collect(DISTINCT c.id) as cves
         ORDER BY r.url, v.version
       `);
       
@@ -1030,6 +1032,7 @@ class Neo4jService {
         const primaryLanguage = record.get('PrimaryLanguage');
         const languageCount = record.get('LanguageCount');
         const allLanguages = record.get('AllLanguages');
+        const cves = record.get('cves');
         
         if (!repoMap.has(url)) {
           repoMap.set(url, {
@@ -1082,7 +1085,8 @@ class Neo4jService {
           size: sizeValue,
           languages: languages,
           primaryLanguage: primaryLanguage,
-          languageCount: languageCount ? languageCount.low || 0 : 0
+          languageCount: languageCount ? languageCount.low || 0 : 0,
+          cves: cves || []
         });
       });
       
@@ -1090,6 +1094,43 @@ class Neo4jService {
       return stats;
     } catch (error) {
       console.error('Error getting repository statistics:', error);
+      throw error;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getCVERepositoryData() {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (c:CVE)-[:IDENTIFIED_AS]->(v:Vulnerability)-[:FOUND_IN]->(r:Repository)
+        RETURN c.id as cveId, collect(DISTINCT r.url) as repositories
+        ORDER BY c.id
+      `);
+      
+      if (!result.records || result.records.length === 0) {
+        console.warn('No CVE data found in database');
+        return [];
+      }
+
+      const cveData = result.records.map(record => {
+        const cveId = record.get('cveId');
+        const repositories = record.get('repositories');
+        
+        // Log the data for debugging
+        console.log(`CVE: ${cveId}, Repositories: ${repositories.length}`);
+        
+        return {
+          cveId: cveId,
+          repositories: repositories
+        };
+      });
+
+      console.log(`Found ${cveData.length} CVEs with repositories`);
+      return cveData;
+    } catch (error) {
+      console.error('Error getting CVE repository data:', error);
       throw error;
     } finally {
       await session.close();
