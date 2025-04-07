@@ -24,8 +24,8 @@
               @click="selectVersion(version)"
             >
               <div class="version-header">
-                <div class="version-name">v{{ version.version }}</div>
-                <div class="version-size">{{ formatSize(version.size) }}</div>
+                <div class="version-name">{{ version.version }}</div>
+                <div class="version-size">Size: {{ formatSize(version.size) }}</div>
               </div>
               
               <div class="version-details" v-if="selectedVersion === version">
