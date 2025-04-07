@@ -108,7 +108,6 @@ These utility scripts help maintain the backend infrastructure that powers Iguan
 - **Interactive Visualization**: Neo4j-based graph visualization of vulnerability relationships
 - **Customizable Security Rules**: Adjust sensitivity based on project requirements
 - **Detailed Reporting**: Comprehensive vulnerability reports with remediation suggestions
-- **API Integration**: Connect with your CI/CD pipeline for automated scanning
 
 ## DISCLAIMER
 
