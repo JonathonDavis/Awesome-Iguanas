@@ -1,9 +1,18 @@
 <template>
   <div class="repository-explorer">
     <div class="explorer-container">
+      <div class="search-container">
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Search repositories..."
+          class="search-input"
+        />
+      </div>
+      
       <div class="repository-list">
         <div 
-          v-for="repo in repositories" 
+          v-for="repo in filteredRepositories" 
           :key="repo.repository"
           class="repository-item"
         >
@@ -69,12 +78,27 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import neo4jService from '../services/neo4jService'
 
 const repositories = ref([])
 const expandedRepos = ref([])
 const selectedVersion = ref(null)
+const searchQuery = ref('')
+
+// Add computed property for filtered repositories
+const filteredRepositories = computed(() => {
+  if (!searchQuery.value) return repositories.value;
+  
+  const query = searchQuery.value.toLowerCase();
+  return repositories.value.filter(repo => {
+    const repoName = getRepoName(repo.repository).toLowerCase();
+    const versionMatches = repo.versions.some(version => 
+      version.version.toLowerCase().includes(query)
+    );
+    return repoName.includes(query) || versionMatches;
+  });
+});
 
 // GitHub-like language colors
 const languageColors = {
@@ -297,7 +321,7 @@ fetchData()
 }
 
 .repo-header:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: rgba(184, 105, 8, 0.815);
 }
 
 .repo-name {
@@ -346,6 +370,8 @@ fetchData()
   border-radius: 4px;
   overflow: hidden;
   transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .version-header {
@@ -359,7 +385,7 @@ fetchData()
 }
 
 .version-header:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(210, 34, 34, 0.943);
 }
 
 .version-name {
@@ -377,9 +403,9 @@ fetchData()
   background-color: rgba(0, 0, 0, 0.2);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   overflow-y: auto;
-  margin-right: -0.5rem;
-  padding-right: 0.5rem;
   max-height: 40vh;
+  margin: 0;
+  padding-right: 0.75rem;
 }
 
 .version-details::-webkit-scrollbar {
@@ -476,5 +502,35 @@ fetchData()
   .version-name {
     font-size: 0.9rem;
   }
+}
+
+.search-container {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.search-input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.search-input:focus {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.15);
 }
 </style> 
