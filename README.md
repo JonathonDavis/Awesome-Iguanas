@@ -33,12 +33,12 @@ Awesome Iguanas Vulnerability Detection Tool
 The methodology behind `IguanaGPT` involves the following steps:
 
 1. **Data Collection**: 
-   - Leverages a Neo4j graph database populated with the latest CWE (Common Weakness Enumeration) data
+   - Leverages a Neo4j graph database populated with the latest CWE (Common Weakness Enumeration) data from [OSV](https://osv.dev/)
    - Regular updates ensure the database remains current with emerging vulnerabilities
    - Correlates vulnerability patterns across different programming languages and frameworks
 
 2. **LLM Integration**:
-   - Utilizes Llama, a state-of-the-art Large Language Model, to analyze and detect vulnerabilities in code
+   - Utilizes Llama to analyze and detect vulnerabilities in code
    - Fine-tuned specifically for code analysis and vulnerability detection
    - Implements prompt engineering to optimize model responses for security contexts
 
@@ -86,7 +86,6 @@ This script fetches the latest vulnerability data from the Open Source Vulnerabi
 
 **Key Features:**
 - Automated downloading of the OSV vulnerability database
-- Efficient processing with multi-threading support
 - Smart filtering using a greedy algorithm to minimize database size while maximizing coverage
 - Comprehensive Neo4j graph creation with multiple node types:
   - Vulnerability nodes (OSV entries)
