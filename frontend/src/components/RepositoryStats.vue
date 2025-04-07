@@ -55,6 +55,10 @@
                     </div>
                   </div>
                 </div>
+                <div class="detail-item" v-if="version.languageCount">
+                  <strong>Total Languages:</strong>
+                  <div class="language-count">{{ version.languageCount }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -172,15 +176,30 @@ const getRepoName = (url) => {
 }
 
 const formatSize = (bytes) => {
-  if (!bytes) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let size = bytes
-  let unitIndex = 0
+  // Debug log
+  console.log('Formatting size:', {
+    rawBytes: bytes,
+    type: typeof bytes,
+    isNumber: typeof bytes === 'number',
+    isNaN: isNaN(bytes)
+  });
+
+  if (!bytes && bytes !== 0) return '0 M';
+  if (isNaN(bytes)) return '0 M';
+  
+  const units = ['M'];
+  let size = Number(bytes);
+  let unitIndex = 0;
+  
   while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex++
+    size /= 1024;
+    unitIndex++;
   }
-  return `${size.toFixed(2)} ${units[unitIndex]}`
+  
+  // Format the number to show decimals only if they exist
+  const formattedSize = size % 1 === 0 ? size.toString() : size.toFixed(2).replace(/\.?0+$/, '');
+  console.log('Formatted size:', formattedSize + ' ' + units[unitIndex]);
+  return `${formattedSize} ${units[unitIndex]}`;
 }
 
 const toggleRepository = (repo) => {
@@ -198,9 +217,11 @@ const selectVersion = (version) => {
 
 const fetchData = async () => {
   try {
-    repositories.value = await neo4jService.getRepositoryStatistics()
+    const data = await neo4jService.getRepositoryStatistics();
+    console.log('Fetched data:', data);
+    repositories.value = data;
   } catch (error) {
-    console.error('Error fetching repository statistics:', error)
+    console.error('Error fetching repository statistics:', error);
   }
 }
 
@@ -426,6 +447,12 @@ fetchData()
 .legend-text {
   color: white;
   font-size: 0.9rem;
+}
+
+.language-count {
+  color: white;
+  font-size: 1rem;
+  margin-top: 0.25rem;
 }
 
 .version-item.selected {

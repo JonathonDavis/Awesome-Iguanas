@@ -1011,24 +1011,34 @@ class Neo4jService {
     try {
       console.log('Executing repository statistics query...');
       const result = await session.run(`
-        MATCH (r:Repository)-[:HAS_VERSION]->(v:Version) 
-        RETURN r.url as RepositoryURL, v.version as Version, v.size as RepositorySize, 
-               v.language_json as LanguageBreakdown, v.primary_language as PrimaryLanguage 
+        MATCH (r:Repository)-[:HAS_VERSION]->(v:Version)
+        RETURN r.url AS RepositoryURL, 
+               v.version AS Version, 
+               v.size AS Size, 
+               v.primary_language AS PrimaryLanguage,
+               v.language_count AS LanguageCount,
+               v.language_json AS AllLanguages
         ORDER BY r.url, v.version
       `);
-      
-      console.log('Raw query result:', result.records);
       
       // Group versions by repository
       const repoMap = new Map();
       result.records.forEach(record => {
         const url = record.get('RepositoryURL');
         const version = record.get('Version');
-        const size = record.get('RepositorySize');
-        const languageJson = record.get('LanguageBreakdown');
+        const size = record.get('Size');
         const primaryLanguage = record.get('PrimaryLanguage');
+        const languageCount = record.get('LanguageCount');
+        const allLanguages = record.get('AllLanguages');
         
-        console.log(`Processing record for ${url} - Languages:`, languageJson);
+        // Debug log for size
+        console.log(`Size data for ${url} v${version}:`, {
+          rawSize: size,
+          type: typeof size,
+          isObject: typeof size === 'object',
+          hasLow: size && typeof size === 'object' ? 'low' in size : false,
+          hasToNumber: size && typeof size === 'object' ? 'toNumber' in size : false
+        });
         
         if (!repoMap.has(url)) {
           repoMap.set(url, {
@@ -1038,27 +1048,53 @@ class Neo4jService {
         }
         
         // Parse language_json if it exists
-        let languages = [];
-        if (languageJson) {
+        let languages = {};
+        if (allLanguages) {
           try {
-            languages = typeof languageJson === 'string' ? 
-                       JSON.parse(languageJson) : 
-                       languageJson;
+            const parsedLanguages = typeof allLanguages === 'string' ? 
+                                  JSON.parse(allLanguages) : 
+                                  allLanguages;
+            
+            // Convert to percentage-based format
+            const totalBytes = Object.values(parsedLanguages).reduce((sum, bytes) => sum + bytes, 0);
+            Object.entries(parsedLanguages).forEach(([lang, bytes]) => {
+              languages[lang] = Math.round((bytes / totalBytes) * 100);
+            });
           } catch (e) {
             console.error('Error parsing language_json:', e);
           }
         }
         
+        // Handle size value
+        let sizeValue = 0;
+        if (size) {
+          if (typeof size === 'object') {
+            if (size.low !== undefined) {
+              sizeValue = size.low;
+            } else if (size.toNumber) {
+              sizeValue = size.toNumber();
+            } else if (size.toString) {
+              sizeValue = parseFloat(size.toString());
+            }
+          } else if (typeof size === 'number') {
+            sizeValue = size;
+          } else if (typeof size === 'string') {
+            sizeValue = parseFloat(size);
+          }
+        }
+        
+        console.log(`Processed size for ${url} v${version}:`, sizeValue);
+        
         repoMap.get(url).versions.push({
           version,
-          size: size ? size.low || 0 : 0,
+          size: sizeValue,
           languages: languages,
-          primaryLanguage: primaryLanguage
+          primaryLanguage: primaryLanguage,
+          languageCount: languageCount ? languageCount.low || 0 : 0
         });
       });
       
       const stats = Array.from(repoMap.values());
-      console.log('Processed repository statistics:', stats);
       return stats;
     } catch (error) {
       console.error('Error getting repository statistics:', error);
