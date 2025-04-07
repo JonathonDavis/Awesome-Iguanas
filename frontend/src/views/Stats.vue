@@ -1,5 +1,6 @@
 <template>
   <div class="charts-container">
+    <!-- Database Statistics -->
     <div class="chart-section">
       <h2>Database Statistics</h2>
       <div class="stats-grid">
@@ -42,9 +43,17 @@
         </div>
       </div>
     </div>
-    <div class="text-section">
+
+    <!-- Database Information -->
+    <!-- <div class="text-section">
       <h3>Information</h3>
       <p>{{ chartDescription }}</p>
+    </div> -->
+
+    <!-- Repository Breakdowns -->
+    <div class="repository-section">
+      <h2>Repository Breakdowns</h2>
+      <RepositoryStats />
     </div>
   </div>
 </template>
@@ -53,6 +62,7 @@
 import { ref, onMounted } from 'vue'
 import neo4jService from '../services/neo4jService'
 import PieChart from '../components/PieChart.vue';
+import RepositoryStats from '../components/RepositoryStats.vue'
 
 const statistics = ref({})
 const nodeDistribution = ref([])
@@ -244,5 +254,17 @@ p, span {
   h3 {
     font-size: 1.2rem;
   }
+}
+
+.repository-section {
+  margin-top: 2rem;
+  padding: 1rem;
+  background-color: #259a67;
+  border-radius: 4px;
+}
+
+.repository-section h2 {
+  color: white;
+  margin-bottom: 1rem;
 }
 </style>

@@ -1005,6 +1005,68 @@ class Neo4jService {
       await session.close()
     }
   }
+
+  async getRepositoryStatistics() {
+    const session = this.driver.session();
+    try {
+      console.log('Executing repository statistics query...');
+      const result = await session.run(`
+        MATCH (r:Repository)-[:HAS_VERSION]->(v:Version) 
+        RETURN r.url as RepositoryURL, v.version as Version, v.size as RepositorySize, 
+               v.language_json as LanguageBreakdown, v.primary_language as PrimaryLanguage 
+        ORDER BY r.url, v.version
+      `);
+      
+      console.log('Raw query result:', result.records);
+      
+      // Group versions by repository
+      const repoMap = new Map();
+      result.records.forEach(record => {
+        const url = record.get('RepositoryURL');
+        const version = record.get('Version');
+        const size = record.get('RepositorySize');
+        const languageJson = record.get('LanguageBreakdown');
+        const primaryLanguage = record.get('PrimaryLanguage');
+        
+        console.log(`Processing record for ${url} - Languages:`, languageJson);
+        
+        if (!repoMap.has(url)) {
+          repoMap.set(url, {
+            repository: url,
+            versions: []
+          });
+        }
+        
+        // Parse language_json if it exists
+        let languages = [];
+        if (languageJson) {
+          try {
+            languages = typeof languageJson === 'string' ? 
+                       JSON.parse(languageJson) : 
+                       languageJson;
+          } catch (e) {
+            console.error('Error parsing language_json:', e);
+          }
+        }
+        
+        repoMap.get(url).versions.push({
+          version,
+          size: size ? size.low || 0 : 0,
+          languages: languages,
+          primaryLanguage: primaryLanguage
+        });
+      });
+      
+      const stats = Array.from(repoMap.values());
+      console.log('Processed repository statistics:', stats);
+      return stats;
+    } catch (error) {
+      console.error('Error getting repository statistics:', error);
+      throw error;
+    } finally {
+      await session.close();
+    }
+  }
 }
 
 // Create and export a singleton instance instead of the class
