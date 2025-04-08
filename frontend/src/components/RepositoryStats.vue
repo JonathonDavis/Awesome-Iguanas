@@ -228,31 +228,28 @@ const getRepoName = (url) => {
   }
 }
 
-const formatSize = (bytes) => {
+const formatSize = (sizeValue) => {
   // Debug log
   console.log('Formatting size:', {
-    rawBytes: bytes,
-    type: typeof bytes,
-    isNumber: typeof bytes === 'number',
-    isNaN: isNaN(bytes)
+    rawSize: sizeValue,
+    type: typeof sizeValue
   });
 
-  if (!bytes && bytes !== 0) return '0 M';
-  if (isNaN(bytes)) return '0 M';
+  if (!sizeValue) return '0 MB';
   
-  const units = ['M'];
-  let size = Number(bytes);
-  let unitIndex = 0;
+  // Convert to string if it's a number
+  const sizeStr = typeof sizeValue === 'number' ? sizeValue.toString() : sizeValue;
   
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex++;
-  }
+  // Remove the 'M' suffix and format the number
+  const number = parseFloat(sizeStr.replace('M', ''));
+  
+  if (isNaN(number)) return '0 MB';
   
   // Format the number to show decimals only if they exist
-  const formattedSize = size % 1 === 0 ? size.toString() : size.toFixed(2).replace(/\.?0+$/, '');
-  console.log('Formatted size:', formattedSize + ' ' + units[unitIndex]);
-  return `${formattedSize} ${units[unitIndex]}`;
+  const formattedSize = number % 1 === 0 ? number.toString() : number.toFixed(2).replace(/\.?0+$/, '');
+  
+  console.log('Formatted size:', formattedSize + ' MB');
+  return `${formattedSize} MB`;
 }
 
 const toggleRepository = (repo) => {
@@ -388,7 +385,7 @@ fetchData()
   padding: 0.5rem;
   background-color: #402C1B;
   overflow-y: auto;
-  margin-right: -0.5rem;
+  margin: 0;
   padding-right: 0.5rem;
   max-height: 50vh;
 }
@@ -418,6 +415,7 @@ fetchData()
   transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
+  margin: 0;
 }
 
 .version-header {
@@ -428,6 +426,7 @@ fetchData()
   cursor: pointer;
   transition: background-color 0.2s;
   background-color: rgba(255, 255, 255, 0.05);
+  margin: 0;
 }
 
 .version-header:hover {

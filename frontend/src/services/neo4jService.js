@@ -1063,20 +1063,28 @@ class Neo4jService {
         }
         
         // Handle size value
-        let sizeValue = 0;
+        let sizeValue = '0M';
         if (size) {
           if (typeof size === 'object') {
             if (size.low !== undefined) {
-              sizeValue = size.low;
+              sizeValue = size.low.toString() + 'M';
             } else if (size.toNumber) {
-              sizeValue = size.toNumber();
+              sizeValue = size.toNumber().toString() + 'M';
             } else if (size.toString) {
-              sizeValue = parseFloat(size.toString());
+              sizeValue = size.toString();
             }
           } else if (typeof size === 'number') {
-            sizeValue = size;
+            sizeValue = size.toString() + 'M';
           } else if (typeof size === 'string') {
-            sizeValue = parseFloat(size);
+            // Check if the size ends with K (KB)
+            if (size.endsWith('K')) {
+              // Convert KB to MB by dividing by 1024
+              const kbValue = parseFloat(size.slice(0, -1));
+              const mbValue = (kbValue / 1024).toFixed(2);
+              sizeValue = mbValue + 'M';
+            } else {
+              sizeValue = size;
+            }
           }
         }
         
