@@ -101,6 +101,18 @@
             </div>
           </div>
         </div>
+        
+          <div v-if="!showAll && repositories.length > displayLimit" class="show-more-container">
+            <button @click="toggleShowAll" class="show-more-button">
+              Show More ({{ repositories.length - displayLimit }} more)
+            </button>
+          </div>
+        
+        <div v-if="showAll" class="show-more-container">
+          <button @click="toggleShowAll" class="show-more-button">
+            Show Less
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -115,19 +127,25 @@ const expandedRepos = ref([])
 const expandedVersions = ref([])
 const selectedVersion = ref(null)
 const searchQuery = ref('')
+const displayLimit = ref(10)
+const showAll = ref(false)
 
 // Add computed property for filtered repositories
 const filteredRepositories = computed(() => {
-  if (!searchQuery.value) return repositories.value;
+  if (!searchQuery.value) {
+    return showAll.value ? repositories.value : repositories.value.slice(0, displayLimit.value);
+  }
   
   const query = searchQuery.value.toLowerCase();
-  return repositories.value.filter(repo => {
+  const filtered = repositories.value.filter(repo => {
     const repoName = getRepoName(repo.repository).toLowerCase();
     const versionMatches = repo.versions.some(version => 
       version.version.toLowerCase().includes(query)
     );
     return repoName.includes(query) || versionMatches;
   });
+  
+  return showAll.value ? filtered : filtered.slice(0, displayLimit.value);
 });
 
 // GitHub-like language colors
@@ -297,6 +315,16 @@ const expandAllRepositories = () => {
     }
   }
 };
+
+const toggleShowAll = () => {
+  showAll.value = !showAll.value;
+  if (!showAll.value) {
+    // Reset expanded repos when collapsing
+    expandedRepos.value = [];
+    expandedVersions.value = [];
+    selectedVersion.value = null;
+  }
+}
 
 const fetchData = async () => {
   try {
@@ -659,5 +687,27 @@ fetchData()
 .cve-link:hover {
   background-color: rgba(97, 218, 251, 0.2);
   text-decoration: underline;
+}
+
+.show-more-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+  padding: 0.5rem;
+}
+
+.show-more-button {
+  padding: 0.75rem 1.5rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
+}
+
+.show-more-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
 }
 </style> 
