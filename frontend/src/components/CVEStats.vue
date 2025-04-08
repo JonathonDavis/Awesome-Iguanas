@@ -35,32 +35,61 @@
             class="cve-header"
             @click="toggleCVE(cve)"
           >
-            <a 
-              :href="`https://nvd.nist.gov/vuln/detail/${cve.cveId}`" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              class="cve-link"
-              @click.stop
-            >
-              {{ cve.cveId }}
-            </a>
-            <div class="repo-count">{{ cve.repositories.length }} repositories</div>
-          </div>
-          
-          <div class="repository-list" v-if="expandedCVEs.includes(cve.cveId)">
-            <div 
-              v-for="repo in cve.repositories" 
-              :key="repo"
-              class="repo-item"
-            >
+            <div class="cve-title">
               <a 
-                :href="repo" 
+                :href="`https://nvd.nist.gov/vuln/detail/${cve.cveId}`" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                class="repo-link"
+                class="cve-link"
+                @click.stop
               >
-                {{ getRepoName(repo) }}
+                {{ cve.cveId }}
               </a>
+              <span class="cve-status" :class="cve.status.toLowerCase()">
+                {{ cve.status }}
+              </span>
+            </div>
+            <div class="cve-meta">
+              <div class="repo-count">{{ cve.repositories.length }} repositories</div>
+              <div class="severity" :class="cve.severity.toLowerCase()">{{ cve.severity }}</div>
+            </div>
+          </div>
+          
+          <div class="cve-details" v-if="expandedCVEs.includes(cve.cveId)">
+            <div class="cve-info">
+              <div class="info-item">
+                <strong>Published:</strong> {{ formatDate(cve.publishedDate) }}
+              </div>
+              <div class="info-item">
+                <strong>Last Modified:</strong> {{ formatDate(cve.modifiedDate) }}
+              </div>
+              <!-- <div class="info-item">
+                <strong>Summary:</strong> {{ cve.summary }}
+              </div> -->
+              <div class="info-item" v-if="cve.details">
+                <strong>Details:</strong> {{ cve.details }}
+              </div>
+              <div class="info-item" v-if="cve.withdrawn">
+                <strong>Withdrawn:</strong> {{ formatDate(cve.withdrawn) }}
+              </div>
+            </div>
+            
+            <div class="repository-list">
+              <div class="repo-list-header">Affected Repositories:</div>
+              <div 
+                v-for="repo in cve.repositories" 
+                :key="repo"
+                class="repo-item"
+              >
+                <a 
+                  :href="repo" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  class="repo-link"
+                >
+                  {{ getRepoName(repo) }}
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -128,6 +157,15 @@ const fetchData = async () => {
   } finally {
     loading.value = false;
   }
+}
+
+const formatDate = (date) => {
+  if (!date) return 'Not available';
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
 }
 
 fetchData()
@@ -346,5 +384,87 @@ fetchData()
 
 .no-data-message {
   color: #ff6b6b;
+}
+
+.cve-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cve-status {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.cve-status.active {
+  background-color: rgba(40, 167, 69, 0.2);
+  color: #28a745;
+}
+
+.cve-status.withdrawn {
+  background-color: rgba(220, 53, 69, 0.2);
+  color: #dc3545;
+}
+
+.cve-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.severity {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.severity.critical {
+  background-color: rgba(220, 53, 69, 0.2);
+  color: #dc3545;
+}
+
+.severity.high {
+  background-color: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+.severity.medium {
+  background-color: rgba(23, 162, 184, 0.2);
+  color: #17a2b8;
+}
+
+.severity.low {
+  background-color: rgba(40, 167, 69, 0.2);
+  color: #28a745;
+}
+
+.cve-details {
+  padding: 1rem;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cve-info {
+  margin-bottom: 1rem;
+}
+
+.info-item {
+  margin-bottom: 0.5rem;
+  color: white;
+}
+
+.info-item strong {
+  color: #61dafb;
+  margin-right: 0.5rem;
+}
+
+.repo-list-header {
+  color: #61dafb;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
 }
 </style>

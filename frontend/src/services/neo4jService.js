@@ -658,7 +658,7 @@ class Neo4jService {
         MATCH (p:Package {ecosystem: $ecosystem})<-[:AFFECTS]-(v:Vulnerability)
         RETURN p.name AS packageName, count(v) AS vulnCount
         ORDER BY vulnCount DESC
-        LIMIT 5
+        // LIMIT 5
       `, { ecosystem });
       
       if (result.records.length > 0) {
@@ -1103,9 +1103,19 @@ class Neo4jService {
   async getCVERepositoryData() {
     const session = this.driver.session();
     try {
+      console.log('Fetching CVE repository data...');
       const result = await session.run(`
         MATCH (c:CVE)-[:IDENTIFIED_AS]->(v:Vulnerability)-[:FOUND_IN]->(r:Repository)
-        RETURN c.id as cveId, collect(DISTINCT r.url) as repositories
+        WITH c, v, collect(DISTINCT r.url) as repositories
+        RETURN 
+          c.id as cveId,
+          repositories,
+          v.published as publishedDate,
+          v.modified as modifiedDate,
+          v.summary as summary,
+          v.severity as severity,
+          v.withdrawn as withdrawn,
+          v.details as details
         ORDER BY c.id
       `);
       
@@ -1114,20 +1124,32 @@ class Neo4jService {
         return [];
       }
 
+      console.log(`Found ${result.records.length} total CVEs in database`);
+
       const cveData = result.records.map(record => {
         const cveId = record.get('cveId');
         const repositories = record.get('repositories');
-        
-        // Log the data for debugging
-        console.log(`CVE: ${cveId}, Repositories: ${repositories.length}`);
+        const publishedDate = record.get('publishedDate');
+        const modifiedDate = record.get('modifiedDate');
+        const summary = record.get('summary');
+        const severity = record.get('severity');
+        const withdrawn = record.get('withdrawn');
+        const details = record.get('details');
         
         return {
           cveId: cveId,
-          repositories: repositories
+          repositories: repositories,
+          publishedDate: publishedDate ? new Date(publishedDate.toString()) : null,
+          modifiedDate: modifiedDate ? new Date(modifiedDate.toString()) : null,
+          summary: summary || 'No summary available',
+          details: details || 'No details available',
+          severity: severity || 'UNKNOWN',
+          withdrawn: withdrawn ? new Date(withdrawn.toString()) : null,
+          status: withdrawn ? 'WITHDRAWN' : 'ACTIVE'
         };
       });
 
-      console.log(`Found ${cveData.length} CVEs with repositories`);
+      console.log(`Processed ${cveData.length} CVEs with repositories`);
       return cveData;
     } catch (error) {
       console.error('Error getting CVE repository data:', error);
