@@ -1124,7 +1124,7 @@ class Neo4jService {
           v.severity as severity,
           v.withdrawn as withdrawn,
           v.details as details
-        ORDER BY c.id
+        ORDER BY c.id DESC
       `);
       
       if (!result.records || result.records.length === 0) {

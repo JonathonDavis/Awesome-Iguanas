@@ -410,7 +410,7 @@ fetchData()
   overflow-y: auto;
   margin: 0;
   padding-right: 0.5rem;
-  max-height: 50vh;
+  /* max-height: 80vh; */
 }
 
 .version-list::-webkit-scrollbar {
@@ -471,7 +471,6 @@ fetchData()
   background-color: rgba(68, 56, 45, 0.973);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   overflow-y: auto;
-  max-height: 40vh;
   margin: 0;
   padding-right: 0.75rem;
 }
