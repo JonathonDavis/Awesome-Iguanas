@@ -93,6 +93,18 @@
             </div>
           </div>
         </div>
+        
+        <div v-if="!showAll && cves.length > displayLimit" class="show-more-container">
+          <button @click="toggleShowAll" class="show-more-button">
+            Show More ({{ cves.length - displayLimit }} more)
+          </button>
+        </div>
+        
+        <div v-if="showAll" class="show-more-container">
+          <button @click="toggleShowAll" class="show-more-button">
+            Show Less
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -106,18 +118,24 @@ const cves = ref([])
 const expandedCVEs = ref([])
 const searchQuery = ref('')
 const loading = ref(true)
+const displayLimit = ref(10)
+const showAll = ref(false)
 
 const filteredCVEs = computed(() => {
-  if (!searchQuery.value) return cves.value;
+  if (!searchQuery.value) {
+    return showAll.value ? cves.value : cves.value.slice(0, displayLimit.value);
+  }
   
   const query = searchQuery.value.toLowerCase();
-  return cves.value.filter(cve => {
+  const filtered = cves.value.filter(cve => {
     const cveId = cve.cveId.toLowerCase();
     const repoMatches = cve.repositories.some(repo => 
       repo.toLowerCase().includes(query)
     );
     return cveId.includes(query) || repoMatches;
   });
+  
+  return showAll.value ? filtered : filtered.slice(0, displayLimit.value);
 });
 
 const getRepoName = (url) => {
@@ -145,6 +163,13 @@ const expandAllCVEs = () => {
     expandedCVEs.value = cves.value.map(cve => cve.cveId);
   }
 };
+
+const toggleShowAll = () => {
+  showAll.value = !showAll.value;
+  if (!showAll.value) {
+    expandedCVEs.value = [];
+  }
+}
 
 const fetchData = async () => {
   try {
@@ -466,5 +491,27 @@ fetchData()
   color: #61dafb;
   font-weight: bold;
   margin-bottom: 0.5rem;
+}
+
+.show-more-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+  padding: 0.5rem;
+}
+
+.show-more-button {
+  padding: 0.75rem 1.5rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
+}
+
+.show-more-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
 }
 </style>
