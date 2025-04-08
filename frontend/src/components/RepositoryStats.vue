@@ -51,7 +51,7 @@
                 <div class="version-size">Size: {{ formatSize(version.size) }}</div>
               </div>
               
-              <div class="version-details" v-if="selectedVersion === version">
+              <div class="version-details" v-if="expandedVersions.includes(version)">
                 <div class="detail-item">
                   <strong>Primary Language:</strong>
                   <div class="primary-language">{{ version.primaryLanguage || 'Not specified' }}</div>
@@ -112,6 +112,7 @@ import neo4jService from '../services/neo4jService'
 
 const repositories = ref([])
 const expandedRepos = ref([])
+const expandedVersions = ref([])
 const selectedVersion = ref(null)
 const searchQuery = ref('')
 
@@ -262,16 +263,38 @@ const toggleRepository = (repo) => {
 }
 
 const selectVersion = (version) => {
-  selectedVersion.value = selectedVersion.value === version ? null : version
+  if (selectedVersion.value === version) {
+    selectedVersion.value = null;
+    // Remove from expanded versions when deselecting
+    const index = expandedVersions.value.indexOf(version);
+    if (index !== -1) {
+      expandedVersions.value.splice(index, 1);
+    }
+  } else {
+    selectedVersion.value = version;
+    // Add to expanded versions when selecting
+    if (!expandedVersions.value.includes(version)) {
+      expandedVersions.value.push(version);
+    }
+  }
 }
 
 const expandAllRepositories = () => {
   if (expandedRepos.value.length === repositories.value.length) {
     // If all are expanded, collapse all
     expandedRepos.value = [];
+    expandedVersions.value = [];
+    selectedVersion.value = null;
   } else {
-    // Expand all repositories
+    // Expand all repositories and their versions
     expandedRepos.value = repositories.value.map(repo => repo.repository);
+    expandedVersions.value = repositories.value.flatMap(repo => 
+      repo.versions.map(version => version)
+    );
+    // Select the first version of the first repository if available
+    if (repositories.value.length > 0 && repositories.value[0].versions.length > 0) {
+      selectedVersion.value = repositories.value[0].versions[0];
+    }
   }
 };
 
@@ -445,7 +468,7 @@ fetchData()
 
 .version-details {
   padding: 0.75rem;
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: rgba(68, 56, 45, 0.973);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   overflow-y: auto;
   max-height: 40vh;
