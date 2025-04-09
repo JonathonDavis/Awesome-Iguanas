@@ -112,7 +112,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import neo4jService from '../services/neo4jService'
+import neo4jService from '../services/neo4j/neo4jService'
 
 const cves = ref([])
 const expandedCVEs = ref([])
