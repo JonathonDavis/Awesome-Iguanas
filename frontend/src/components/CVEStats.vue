@@ -95,8 +95,14 @@
         </div>
         
         <div v-if="!showAll && cves.length > displayLimit" class="show-more-container">
-          <button @click="toggleShowAll" class="show-more-button">
-            Show More ({{ cves.length - displayLimit }} more)
+          <button @click="showLessCVEs" class="show-less-button" v-if="displayLimit > 10">
+            Show 10 Less
+          </button>
+          <button @click="showMoreCVEs" class="show-more-button">
+            Show Next 10
+          </button>
+          <button @click="toggleShowAll" class="show-all-button">
+            Show All ({{ cves.length - displayLimit }} more)
           </button>
         </div>
         
@@ -168,7 +174,16 @@ const toggleShowAll = () => {
   showAll.value = !showAll.value;
   if (!showAll.value) {
     expandedCVEs.value = [];
+    displayLimit.value = 10; // Reset display limit when showing less
   }
+}
+
+const showMoreCVEs = () => {
+  displayLimit.value += 10;
+}
+
+const showLessCVEs = () => {
+  displayLimit.value = Math.max(10, displayLimit.value - 10);
 }
 
 const fetchData = async () => {
@@ -498,9 +513,12 @@ fetchData()
   justify-content: center;
   margin-top: 1rem;
   padding: 0.5rem;
+  gap: 0.5rem;
 }
 
-.show-more-button {
+.show-more-button,
+.show-all-button,
+.show-less-button {
   padding: 0.75rem 1.5rem;
   background-color: rgba(255, 255, 255, 0.1);
   color: white;
@@ -511,7 +529,9 @@ fetchData()
   transition: background-color 0.2s;
 }
 
-.show-more-button:hover {
+.show-more-button:hover,
+.show-all-button:hover,
+.show-less-button:hover {
   background-color: rgba(255, 255, 255, 0.2);
 }
 </style>
