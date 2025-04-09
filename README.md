@@ -148,21 +148,19 @@ This shell script helps maintain the update structure of the scripts.
 - TODO: <b>Detailed Reporting</b>: Comprehensive vulnerability reports with remediation suggestions
 
 ## MILESTONES
-<h2 align="center"> Milestone 1 </h2>
-<h3 align="center">
-    <video width="720" height="405" controls style="display: block; margin:0 auto">
-        <source src="/files/Milestone1.mp4" type="video/mp4">
-    </video>
-</h3>
+<h2 align="center">Milestone 1</h2>
+<p align="center">
+  <a href="https://youtu.be/vUtb4zwUBao?si=1ftEJPqavI6z_9yC">
+    <img src="files/IguanasMilestone1.png" alt="Milestone 1" width="720">
+  </a>
+</p>
 
-<h2 align="center"> Milestone 2 </h2>
-<h3 align="center">
-    <br>
-    <video width="720" height="405" controls>
-        <source src="/files/Milestone2-ffmpeg.mp4" type="video/mp4">
-    </video>
-    <br>
-</h3>
+<h2 align="center">Milestone 2</h2>
+<p align="center">
+  <a href="https://youtu.be/yfaaWXrq3rI?si=1sgcpeTci_-ZG_zJ">
+    <img src="files/IguanasMilestone2.png" alt="Milestone 2" width="720">
+  </a>
+</p>
 
 ## DISCLAIMER
 
