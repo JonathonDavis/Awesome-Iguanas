@@ -6,7 +6,7 @@
 
 <script>
 import { Chart } from 'chart.js/auto'
-import neo4jService from '../services/neo4jService'
+import neo4jService from '../services/neo4j/neo4jService'
 
 export default {
   name: 'PieChart',

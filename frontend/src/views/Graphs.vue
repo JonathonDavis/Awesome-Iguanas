@@ -260,7 +260,7 @@
 <script>
 import { ref, onMounted, nextTick } from 'vue'
 import * as d3 from 'd3'
-import neo4jService from '../services/neo4jService'
+import neo4jService from '../services/neo4j/neo4jService'
 import { Network, DataSet } from 'vis-network/standalone'
 
 export default {
