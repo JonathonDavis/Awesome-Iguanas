@@ -14,7 +14,7 @@ Awesome Iguanas Vulnerability Detection Tool
 
   >  1. Dynamic solutions for memory safety vulnerabilities in any programming language.
   >  2. Constantly updating CWE database logic.
-  >  3. User friendly online interface that prioritizes programmers of any skill level. 
+  >  3. User-friendly online interface that prioritizes programmers of any skill level. 
 
 ## HOW TO USE
 
@@ -61,14 +61,14 @@ By combining cutting-edge AI technology with an up-to-date vulnerability databas
 
 ## UTILITY SCRIPT(S)
 
-The repository includes a powerful utility script that support the main functionality of `IguanaGPT`:
+The repository three powerful utility scripts that support the main functionality of `IguanaGPT`:
 
-### 1. Database Updater (`updatelang.py`)
+### 1. Database Handler (`VulGPT_OSV/TestOSVGIT3.py`)
 
-This file handles the bulk of the backend with continuous OSV Database scraping, Neo4J compatibility and injestion via Bolt, and frontend integration.
+This file handles the bulk of the backend with continuous OSV Database scraping integration, Neo4J compatibility and ingestion via Bolt, and frontend integration.
 
 #### Key Features:
-- Automated downloads and updates from the [Open Source Vulnerability Database](https://osv.dev/) at `03:00 GMT, Daily`
+- Automated download and update handling from the [Open Source Vulnerability Database](https://osv.dev/)
 - Smart filtering using a [greedy algorithm](https://en.wikipedia.org/wiki/Greedy_algorithm) for efficiency
 - Comprehensive Neo4j graph creation with multiple node types:
   - Vulnerability nodes (OSV entries)
@@ -114,14 +114,55 @@ This file handles the bulk of the backend with continuous OSV Database scraping,
   - Repeat node correction for continuous updates
 - Comprehensive database statistics reporting
 
-This utility script help maintain the backend infrastructure that powers `IguanaGPT` vulnerability detection capabilities.
+This utility script helps maintain the backend infrastructure that powers `IguanaGPT` vulnerability detection capabilities.
+
+### 2. Update Timestamps (`VulGPT_OSV/daily_osv_update.sh`)
+
+This shell script handles logging the node updates for Neo4J. This will run when `daily_osv_update.sh` is executed.
+
+#### Technical Details:
+- This file dynamically logs node updates in Neo4J allowing for easy troubleshooting and error logging
+- When completed this script closes its connection with Neo4J
+
+This timestamp script allows us to maintain a detailed log of Neo4J infrastructure updates.
+
+### 3. Daily Update Script (`VulGPT_OSV/daily_osv_update.sh`)
+
+This shell script handles updating the nodes in Neo4J. It is linked to a cron job scheduled to run at `3:00 AM GMT Daily`
+
+#### Technical Details:
+- This file will trigger a cron job at `3:00 AM GMT Daily` within the VM handling this Neo4J database
+- This file is set to run the update script `TestOSVGIT3.py` first then `update_tracking_timestamp.py`
+  - `TestOSVGIT3.py` for updating purposes
+  - `update_tracking_timestamp.py` logging purposes
+- Error handling for missing file locations
+- Confirmation of completion when updates are completed to the console
+
+This shell script helps maintain the update structure of the scripts.
 
 ## FEATURES
 
 - <b>Language Agnostic Detection</b>: Works with multiple programming languages
 - <b>Interactive Visualization</b>: Neo4j-based graph visualization of vulnerability relationships
-- <b>Customizable Security Rules</b>: Adjust sensitivity based on project requirements
-- <b>Detailed Reporting</b>: Comprehensive vulnerability reports with remediation suggestions
+- TODO: <b>Customizable Security Rules</b>: Adjust sensitivity based on project requirements
+- TODO: <b>Detailed Reporting</b>: Comprehensive vulnerability reports with remediation suggestions
+
+## MILESTONES
+<h2 align="center"> Milestone 1 </h2>
+<h3 align="center">
+    <video width="720" height="405" controls style="display: block; margin:0 auto">
+        <source src="/files/Milestone1.mp4" type="video/mp4">
+    </video>
+</h3>
+
+<h2 align="center"> Milestone 2 </h2>
+<h3 align="center">
+    <br>
+    <video width="720" height="405" controls>
+        <source src="/files/Milestone2-ffmpeg.mp4" type="video/mp4">
+    </video>
+    <br>
+</h3>
 
 ## DISCLAIMER
 
@@ -143,6 +184,7 @@ This utility script help maintain the backend infrastructure that powers `Iguana
 **Backend Developers:** 
 - [Joshua Ludolf](https://github.com/Joshua-Ludolf)
 - [Matthew Trevino](https://github.com/MattjTrev)
+- [Alexander James](https://github.com/pacificocean1912)
 
 **Documentation Updates:**
 - [Samantha Jackson](https://github.com/Erosssore)
