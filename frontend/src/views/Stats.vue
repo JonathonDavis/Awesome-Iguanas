@@ -89,7 +89,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import neo4jService from '../services/neo4jService'
+import neo4jService from '../services/neo4j/neo4jService'
 import PieChart from '../components/PieChart.vue';
 import RepositoryStats from '../components/RepositoryStats.vue'
 import CVEStats from '../components/CVEStats.vue'
