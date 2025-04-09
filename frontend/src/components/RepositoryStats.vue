@@ -102,11 +102,17 @@
           </div>
         </div>
         
-          <div v-if="!showAll && repositories.length > displayLimit" class="show-more-container">
-            <button @click="toggleShowAll" class="show-more-button">
-              Show More ({{ repositories.length - displayLimit }} more)
-            </button>
-          </div>
+        <div v-if="!showAll && repositories.length > displayLimit" class="show-more-container">
+          <button @click="showLessRepositories" class="show-less-button" v-if="displayLimit > 10">
+            Show 10 Less
+          </button>
+          <button @click="showMoreRepositories" class="show-more-button">
+            Show Next 10
+          </button>
+          <button @click="toggleShowAll" class="show-all-button">
+            Show All ({{ repositories.length - displayLimit }} more)
+          </button>
+        </div>
         
         <div v-if="showAll" class="show-more-container">
           <button @click="toggleShowAll" class="show-more-button">
@@ -323,7 +329,16 @@ const toggleShowAll = () => {
     expandedRepos.value = [];
     expandedVersions.value = [];
     selectedVersion.value = null;
+    displayLimit.value = 10; // Reset display limit when showing less
   }
+}
+
+const showMoreRepositories = () => {
+  displayLimit.value += 10;
+}
+
+const showLessRepositories = () => {
+  displayLimit.value = Math.max(10, displayLimit.value - 10);
 }
 
 const fetchData = async () => {
@@ -694,9 +709,12 @@ fetchData()
   justify-content: center;
   margin-top: 1rem;
   padding: 0.5rem;
+  gap: 0.5rem;
 }
 
-.show-more-button {
+.show-more-button,
+.show-all-button,
+.show-less-button {
   padding: 0.75rem 1.5rem;
   background-color: rgba(255, 255, 255, 0.1);
   color: white;
@@ -707,7 +725,9 @@ fetchData()
   transition: background-color 0.2s;
 }
 
-.show-more-button:hover {
+.show-more-button:hover,
+.show-all-button:hover,
+.show-less-button:hover {
   background-color: rgba(255, 255, 255, 0.2);
 }
 </style> 
