@@ -147,8 +147,8 @@ This shell script helps maintain the update structure of the scripts.
 - TODO: <b>Customizable Security Rules</b>: Adjust sensitivity based on project requirements
 - TODO: <b>Detailed Reporting</b>: Comprehensive vulnerability reports with remediation suggestions
 
-## MILESTONES
-<h2 align="center">Milestone 1</h2>
+## MILESTONES VIDEO REPORTS
+<h2 align="center">Milestone 1 </h2>
 <p align="center">
   <a href="https://youtu.be/vUtb4zwUBao?si=1ftEJPqavI6z_9yC">
     <img src="files/IguanasMilestone1.png" alt="Milestone 1" width="720">
