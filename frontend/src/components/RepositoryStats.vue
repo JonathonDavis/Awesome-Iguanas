@@ -146,6 +146,7 @@ const filteredRepositories = computed(() => {
   const filtered = repositories.value.filter(repo => {
     const repoName = getRepoName(repo.repository).toLowerCase();
     const versionMatches = repo.versions.some(version => 
+      version && version.version && typeof version.version === 'string' && 
       version.version.toLowerCase().includes(query)
     );
     return repoName.includes(query) || versionMatches;
@@ -245,6 +246,8 @@ const getLanguageColor = (lang) => {
 }
 
 const getRepoName = (url) => {
+  if (!url) return 'Unknown Repository';
+  
   try {
     const urlObj = new URL(url)
     return urlObj.pathname.split('/').slice(-2).join('/')
