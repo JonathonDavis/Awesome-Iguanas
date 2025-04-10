@@ -1,77 +1,123 @@
-# Vue 3 + Vite
+# DataVault Pro
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+DataVault Pro is a professional Database Vulnerability Management System that helps organizations identify, track, and remediate software vulnerabilities efficiently. The system uses Neo4j graph database to store and analyze complex vulnerability relationships.
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+![DataVault Pro](https://via.placeholder.com/1200x600/1a2942/FFFFFF?text=DataVault+Pro)
 
-# Frontend Documentation
+## Overview
 
-This folder contains the frontend code for the Awesome Iguanas project. It is built using Vue 3 and Vite for a modern, fast, and modular development experience.
+DataVault Pro provides a comprehensive solution for tracking vulnerabilities across your software ecosystem. Built with Vue 3 and Neo4j, it offers powerful visualization tools, detailed analytics, and an intuitive user interface for security professionals.
+
+## Key Features
+
+- **Vulnerability Management**: Track and manage vulnerabilities with detailed information including severity, affected packages, and remediation status
+- **Graph-Based Visualization**: Explore the relationships between vulnerabilities and affected packages
+- **Advanced Analytics**: Gain insights into your security posture with comprehensive analytics dashboards
+- **Responsive Design**: Access the platform from any device with a fully responsive interface
+
+## Tech Stack
+
+- **Frontend**: Vue 3, Vue Router, Chart.js, D3.js
+- **Database**: Neo4j Graph Database
+- **API**: RESTful services built with Node.js
+- **Build Tools**: Vite, npm
 
 ## Folder Structure
 
-- **`index.html`**: The entry point for the application. It includes the root `div` where the Vue app is mounted.
-- **`package.json`**: Contains the dependencies and scripts for managing the frontend project.
-- **`vite.config.js`**: Configuration file for Vite, specifying plugins and build options.
-- **`src/`**: The main source folder for the frontend application.
-  - **`App.vue`**: The root Vue component that serves as the main layout for the app.
-  - **`main.js`**: The entry JavaScript file that initializes the Vue app and sets up routing.
-  - **`style.css`**: Contains the global styles for the application.
-  - **`assets/`**: Contains .jpg images of the project contributors.
+- **`index.html`**: The entry point for the application.
+- **`package.json`**: Dependencies and scripts for the project.
+- **`vite.config.js`**: Configuration for Vite.
+- **`src/`**: Main source folder.
+  - **`App.vue`**: Root Vue component with main layout.
+  - **`main.js`**: Entry point that initializes the Vue app.
+  - **`style.css`**: Global styles.
+  - **`assets/`**: Static assets like images and icons.
   - **`components/`**: Reusable Vue components.
-    - **`Header.vue`**: The header component, including navigation links.
-    - **`PieChart.vue`**: A component for rendering pie charts using Chart.js and Neo4j.
-  - **`data/`**: Contains JSON files or other data used in the app.
-    - **`teamMembers.json`**: Data about the team members displayed on the Home page.
-  - **`router/`**: Contains the routing configuration for the app.
-    - **`index.js`**: Defines the routes and their corresponding components.
-  - **`services/`**: Contains service files for interacting with external APIs or databases.
-    - **`neo4jService.js`**: Handles communication with the Neo4j database.
-  - **`views/`**: Contains the main pages of the application.
-    - **`Home.vue`**: The landing page of the application.
-    - **`About.vue`**: Provides information about the project and contributors.
-    - **`Stats.vue`**: Displays database statistics and visualizations.
+  - **`data/`**: Data files used in the application.
+  - **`router/`**: Routing configuration.
+  - **`services/`**: Services for API and database interactions.
+    - **`neo4j/`**: Neo4j database services.
+      - **`neo4jService.js`**: Core service for database connectivity.
+      - **`vulnerabilityProcessor.js`**: Handles vulnerability data processing.
+      - **`statisticsService.js`**: Generates analytics and statistics.
+      - **`repositoryService.js`**: Manages repository data.
+  - **`views/`**: Main pages of the application.
+    - **`Home.vue`**: Dashboard view.
+    - **`Stats.vue`**: Analytics view.
+    - **`Graphs.vue`**: Network visualization view.
+    - **`About.vue`**: Documentation view.
 
-## How to Run
+## Getting Started
 
-1. Install dependencies:
+### Prerequisites
+
+- Node.js 16+
+- npm or yarn
+- Neo4j Database (local or remote)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/JonathonDavis/Awesome-Iguanas
+   cd Awesome-Iguanas/frontend
+   ```
+
+2. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Start the development server:
+3. Configure environment variables:
+   Create a `.env` file with the following settings:
+   ```
+   VITE_NEO4J_URI=neo4j://localhost:7687
+   VITE_NEO4J_USER=neo4j
+   VITE_NEO4J_PASSWORD=your-password
+   ```
+
+4. Start the development server:
    ```bash
    npm run dev
    ```
 
-3. Open the application in your browser at `http://localhost:5173` (or the port specified by Vite).
+5. Open your browser and navigate to `http://localhost:5173`
 
-## Key Features
+## Usage
 
-- **Dynamic Routing**: The app uses Vue Router for navigation between pages.
-- **Interactive Visualizations**: Includes charts and graphs for data analysis.
-- **Database Integration**: Connects to Neo4j for graph-based data visualization.
+### Dashboard
 
-## Dependencies
+The dashboard provides a quick overview of your vulnerability landscape, including:
+- Current database status
+- Total vulnerabilities tracked
+- Indexed packages
+- Last update timestamp
 
-- **Vue 3**: The JavaScript framework used for building the user interface.
-- **Vite**: A fast build tool and development server.
-- **Vue Router**: For handling navigation between different views.
-- **Chart.js**: For rendering interactive charts.
-- **Neo4j Driver**: For connecting to the Neo4j database.
+### Analytics
 
-## Development
+The Analytics page offers detailed insights into your vulnerability data:
+- Severity distribution
+- Trend analysis
+- Package ecosystem statistics
+- Time-based visualizations
 
-To contribute to this project:
+### Visualizations
 
-1. Clone the repository
-2. cd into /frontend using `cd frontend`
-3. Install dependencies using `npm install`
-4. Make your changes
-5. Test your changes locally using `npm run dev`
-6. Submit a pull request
+The Visualizations page provides interactive graph visualizations:
+- Vulnerability-package relationships
+- Dependency chains
+- Impact analysis
+- Custom filtering options
 
-## Build for Production
+### Documentation
+
+The Documentation page provides comprehensive information about:
+- System architecture
+- Data model
+- API reference
+- Usage examples
+
+## Deployment
 
 To build the application for production:
 
@@ -79,4 +125,18 @@ To build the application for production:
 npm run build
 ```
 
-The built files will be in the `dist` directory, ready to be deployed.
+The built files will be in the `dist` directory, ready to be deployed to your web server or cloud hosting platform.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Built with [Vue.js](https://vuejs.org/)
+- Database powered by [Neo4j](https://neo4j.com/)
+- Icons provided by [Font Awesome](https://fontawesome.com/)
