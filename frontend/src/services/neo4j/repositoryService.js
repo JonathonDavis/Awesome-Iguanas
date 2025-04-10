@@ -126,7 +126,10 @@ export async function getCVERepositoryData() {
 
     console.log(`Found ${result.records.length} total CVEs in database`);
 
-    const cveData = result.records.map(record => {
+    // Create a Map to deduplicate CVEs by ID
+    const cveMap = new Map();
+    
+    result.records.forEach(record => {
       const cveId = record.get('cveId');
       const repositories = record.get('repositories');
       const publishedDate = record.get('publishedDate');
@@ -136,20 +139,31 @@ export async function getCVERepositoryData() {
       const withdrawn = record.get('withdrawn');
       const details = record.get('details');
       
-      return {
-        cveId: cveId,
-        repositories: repositories,
-        publishedDate: publishedDate ? new Date(publishedDate.toString()) : null,
-        modifiedDate: modifiedDate ? new Date(modifiedDate.toString()) : null,
-        summary: summary || 'No summary available',
-        details: details || 'No details available',
-        severity: severity || 'UNKNOWN',
-        withdrawn: withdrawn ? new Date(withdrawn.toString()) : null,
-        status: withdrawn ? 'WITHDRAWN' : 'ACTIVE'
-      };
+      // If we already have this CVE, merge the repositories
+      if (cveMap.has(cveId)) {
+        const existingCVE = cveMap.get(cveId);
+        const combinedRepos = [...new Set([...existingCVE.repositories, ...repositories])];
+        existingCVE.repositories = combinedRepos;
+      } else {
+        // Otherwise add it to the map
+        cveMap.set(cveId, {
+          cveId: cveId,
+          repositories: repositories,
+          publishedDate: publishedDate ? new Date(publishedDate.toString()) : null,
+          modifiedDate: modifiedDate ? new Date(modifiedDate.toString()) : null,
+          summary: summary || 'No summary available',
+          details: details || 'No details available',
+          severity: severity || 'UNKNOWN',
+          withdrawn: withdrawn ? new Date(withdrawn.toString()) : null,
+          status: withdrawn ? 'WITHDRAWN' : 'ACTIVE'
+        });
+      }
     });
 
-    console.log(`Processed ${cveData.length} CVEs with repositories`);
+    // Convert the map to an array
+    const cveData = Array.from(cveMap.values());
+
+    console.log(`Processed ${cveData.length} unique CVEs with repositories`);
     return cveData;
   } catch (error) {
     console.error('Error getting CVE repository data:', error);
