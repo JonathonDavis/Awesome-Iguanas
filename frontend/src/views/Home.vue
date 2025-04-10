@@ -3,13 +3,6 @@
     <h1>Welcome to Iguana's GPT</h1>
     <div class="description">
       <p>This project is made in collaboration of 6 determined Texas A&M University-San Antonio students for our class, Senior Project.</p>
-      <p>We are a team of 6 students who are passionate about creating a tool that will help developers identify and resolve software vulnerabilities efficiently.</p>
-      <p>We are a team of 6 students who are passionate about creating a tool that will help developers identify and resolve software vulnerabilities efficiently.</p>
-      <p>We are a team of 6 students who are passionate about creating a tool that will help developers identify and resolve software vulnerabilities efficiently.</p>
-      <p>We are a team of 6 students who are passionate about creating a tool that will help developers identify and resolve software vulnerabilities efficiently.</p>
-      <p>We are a team of 6 students who are passionate about creating a tool that will help developers identify and resolve software vulnerabilities efficiently.</p>  
-      
-      
       
       <div class="team-section">
         <h2>Our Team</h2>
