@@ -1,27 +1,27 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Charts from '../views/Stats.vue'
+import Analytics from '../views/Stats.vue'
 
 const routes = [
   {
     path: '/',
-    name: 'Home',
+    name: 'Dashboard',
     component: () => import('../views/Home.vue')
   },
   {
-    path: '/stats',
-    name: 'Stats',
-    component: Charts
+    path: '/analytics',
+    name: 'Analytics',
+    component: Analytics
   },
   {
-    path: '/about',
-    name: 'About',
+    path: '/documentation',
+    name: 'Documentation',
     component: () => import('../views/About.vue')
   },
-  // {
-  //   path: '/graphs',
-  //   name: 'Graphs',
-  //   component: () => import('../views/Graphs.vue')
-  // }
+  {
+    path: '/visualizations',
+    name: 'Visualizations',
+    component: () => import('../views/Graphs.vue')
+  }
 ]
 
 const router = createRouter({

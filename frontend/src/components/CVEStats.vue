@@ -1,41 +1,50 @@
 <template>
   <div class="cve-explorer">
-    <div class="explorer-container">
+    <div class="explorer-header">
       <div class="search-container">
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search CVEs..."
-          class="search-input"
-        />
+        <div class="search-input-wrapper">
+          <i class="fas fa-search search-icon"></i>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search vulnerabilities..."
+            class="search-input"
+          />
+        </div>
         <button 
           @click="expandAllCVEs" 
-          class="expand-all-button"
+          class="action-button"
           :disabled="!cves.length"
         >
+          <i :class="expandedCVEs.length === cves.length ? 'fas fa-compress-alt' : 'fas fa-expand-alt'"></i>
           {{ expandedCVEs.length === cves.length ? 'Collapse All' : 'Expand All' }}
         </button>
       </div>
-      
-      <div v-if="loading" class="loading-message">
-        Loading CVE data...
-      </div>
-      
-      <div v-else-if="!cves.length" class="no-data-message">
-        No CVE data available
-      </div>
-      
-      <div v-else class="cve-list">
+    </div>
+    
+    <div v-if="loading" class="loading-state">
+      <i class="fas fa-circle-notch fa-spin"></i>
+      <p>Loading vulnerability data...</p>
+    </div>
+    
+    <div v-else-if="!cves.length" class="empty-state">
+      <i class="fas fa-shield-alt"></i>
+      <p>No vulnerability data available</p>
+    </div>
+    
+    <div v-else class="cve-list">
+      <div 
+        v-for="cve in filteredCVEs" 
+        :key="cve.cveId"
+        class="cve-item"
+      >
         <div 
-          v-for="cve in filteredCVEs" 
-          :key="cve.cveId"
-          class="cve-item"
+          class="cve-header"
+          @click="toggleCVE(cve)"
         >
-          <div 
-            class="cve-header"
-            @click="toggleCVE(cve)"
-          >
+          <div class="cve-header-main">
             <div class="cve-title">
+              <i :class="expandedCVEs.includes(cve.cveId) ? 'fas fa-chevron-down' : 'fas fa-chevron-right'" class="expand-icon"></i>
               <a 
                 :href="`https://nvd.nist.gov/vuln/detail/${cve.cveId}`" 
                 target="_blank" 
@@ -45,79 +54,87 @@
               >
                 {{ cve.cveId }}
               </a>
-              <span class="cve-status" :class="cve.status.toLowerCase()">
-                {{ cve.status }}
-              </span>
             </div>
-            <div class="cve-meta">
-              <div class="repo-count">{{ cve.repositories.length }} repositories</div>
-              <div class="severity" :class="cve.severity.toLowerCase()">{{ cve.severity }}</div>
+            <div class="severity-badge" :class="cve.severity.toLowerCase()">
+              {{ cve.severity }}
             </div>
           </div>
-          
-          <div class="cve-details" v-if="expandedCVEs.includes(cve.cveId)">
-            <div class="cve-info">
-              <div class="info-item">
+          <div class="cve-meta">
+            <span class="meta-item">
+              <i class="fas fa-calendar-alt"></i> {{ formatDate(cve.publishedDate) }}
+            </span>
+            <span class="meta-item">
+              <i class="fas fa-code-branch"></i> {{ cve.repositories.length }} repositories
+            </span>
+            <span class="status-badge" :class="cve.status.toLowerCase()">
+              {{ cve.status }}
+            </span>
+          </div>
+        </div>
+        
+        <div class="cve-details" v-if="expandedCVEs.includes(cve.cveId)">
+          <div class="details-section">
+            <h3 class="section-title"><i class="fas fa-info-circle"></i> Vulnerability Details</h3>
+            <div class="details-grid">
+              <div class="detail-item">
                 <strong>Published:</strong> {{ formatDate(cve.publishedDate) }}
               </div>
-              <div class="info-item">
+              <div class="detail-item">
                 <strong>Last Modified:</strong> {{ formatDate(cve.modifiedDate) }}
               </div>
-              <!-- <div class="info-item">
-                <strong>Summary:</strong> {{ cve.summary }}
-              </div> -->
-              <div class="info-item" v-if="cve.details">
-                <strong>Details:</strong> {{ cve.details }}
+              <div class="detail-item full-width" v-if="cve.details">
+                <strong>Details:</strong>
+                <p class="detail-text">{{ cve.details }}</p>
               </div>
-              <div class="info-item" v-if="cve.withdrawn">
+              <div class="detail-item" v-if="cve.withdrawn">
                 <strong>Withdrawn:</strong> {{ formatDate(cve.withdrawn) }}
               </div>
             </div>
-            
+          </div>
+          
+          <div class="details-section">
+            <h3 class="section-title"><i class="fas fa-code-branch"></i> Affected Repositories</h3>
             <div class="repository-list">
-              <div class="repo-list-header">Affected Repositories:</div>
-              <div 
+              <a 
                 v-for="repo in cve.repositories" 
                 :key="repo"
-                class="repo-item"
+                :href="repo" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                class="repo-link"
               >
-                <a 
-                  :href="repo" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  class="repo-link"
-                >
-                  {{ getRepoName(repo) }}
-                </a>
-              </div>
+                <i class="fas fa-external-link-alt"></i>
+                {{ getRepoName(repo) }}
+              </a>
             </div>
           </div>
         </div>
-        
-        <div v-if="!showAll && cves.length > displayLimit" class="show-more-container">
-          <button @click="showLessCVEs" class="show-less-button" v-if="displayLimit > 10">
-            Show 10 Less
-          </button>
-          <button @click="showMoreCVEs" class="show-more-button">
-            Show Next 10
-          </button>
-          <button @click="toggleShowAll" class="show-all-button">
-            Show All ({{ cves.length - displayLimit }} more)
-          </button>
-        </div>
-        
-        <div v-if="showAll" class="show-more-container">
-          <button @click="toggleShowAll" class="show-more-button">
-            Show Less
-          </button>
-        </div>
+      </div>
+      
+      <div v-if="!showAll && cves.length > displayLimit" class="pagination-controls">
+        <button @click="showLessCVEs" class="page-button" v-if="displayLimit > 10">
+          <i class="fas fa-chevron-left"></i> Previous 10
+        </button>
+        <span class="page-info">Showing {{ Math.min(displayLimit, filteredCVEs.length) }} of {{ cves.length }}</span>
+        <button @click="showMoreCVEs" class="page-button">
+          Next 10 <i class="fas fa-chevron-right"></i>
+        </button>
+        <button @click="toggleShowAll" class="show-all-button">
+          <i class="fas fa-list"></i> Show All
+        </button>
+      </div>
+      
+      <div v-if="showAll" class="pagination-controls">
+        <button @click="toggleShowAll" class="show-all-button">
+          <i class="fas fa-list-alt"></i> Show Less
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import neo4jService from '../services/neo4j/neo4jService'
 
 const cves = ref([])
@@ -151,6 +168,11 @@ const getRepoName = (url) => {
   } catch {
     return url
   }
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'Not available';
+  return new Date(dateString).toLocaleDateString();
 }
 
 const toggleCVE = (cve) => {
@@ -199,339 +221,364 @@ const fetchData = async () => {
   }
 }
 
-const formatDate = (date) => {
-  if (!date) return 'Not available';
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
-}
-
-fetchData()
+onMounted(() => {
+  fetchData();
+})
 </script>
 
 <style scoped>
 .cve-explorer {
   width: 100%;
-  height: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
-.explorer-container {
+.explorer-header {
+  margin-bottom: 1.5rem;
+}
+
+.search-container {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.search-input-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 250px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--light-text);
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.75rem 1rem 0.75rem 2.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+}
+
+.action-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-button:hover {
+  background-color: var(--background-color);
+  border-color: var(--accent-color);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading-state, .empty-state {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background-color: #066c43;
-  border-radius: 4px;
-  padding: 1rem;
-  overflow: hidden;
-  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
+}
+
+.loading-state i, .empty-state i {
+  font-size: 2.5rem;
+  color: var(--light-text);
+  margin-bottom: 1rem;
+}
+
+.loading-state p, .empty-state p {
+  color: var(--light-text);
+  font-size: 1.1rem;
 }
 
 .cve-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  overflow-y: auto;
-  flex: 1;
-  padding-right: 0.5rem;
-  margin-right: -0.5rem;
-  min-height: 0;
-}
-
-.cve-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.cve-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.cve-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-.cve-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  gap: 1rem;
 }
 
 .cve-item {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
   overflow: hidden;
-  transition: all 0.3s ease;
-  display: flex;
-  flex-direction: column;
+  transition: box-shadow 0.2s ease;
+}
+
+.cve-item:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
 .cve-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
+  padding: 1rem 1.25rem;
   cursor: pointer;
-  transition: background-color 0.2s;
-  background-color: #402C1B;
+  transition: background-color 0.2s ease;
 }
 
 .cve-header:hover {
-  background-color: rgba(184, 105, 8, 0.815);
+  background-color: rgba(0, 0, 0, 0.02);
 }
 
-.cve-link {
-  color: white;
-  text-decoration: none;
-  font-weight: bold;
-  font-size: 1.1rem;
-  transition: color 0.2s;
-}
-
-.cve-link:hover {
-  color: #61dafb;
-  text-decoration: underline;
-}
-
-.repo-count {
-  color: #efefee;
-  font-size: 0.9rem;
-}
-
-.repository-list {
+.cve-header-main {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background-color: #402C1B;
-  overflow-y: auto;
-  margin-right: -0.5rem;
-  padding-right: 0.5rem;
-  max-height: 50vh;
-}
-
-.repository-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.repository-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.repository-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-.repository-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.repo-item {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  padding: 0.75rem;
-  transition: background-color 0.2s;
-}
-
-.repo-item:hover {
-  background-color: rgba(210, 34, 34, 0.943);
-}
-
-.repo-link {
-  color: white;
-  text-decoration: none;
-  display: block;
-  width: 100%;
-}
-
-.repo-link:hover {
-  color: #61dafb;
-  text-decoration: underline;
-}
-
-.search-container {
-  margin-bottom: 1rem;
-  padding: 0.5rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.search-input {
-  flex: 1;
-  padding: 0.75rem;
-  border: none;
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 1rem;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.search-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.search-input:focus {
-  outline: none;
-  background-color: rgba(255, 255, 255, 0.15);
-}
-
-.expand-all-button {
-  padding: 0.75rem 1rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.2s;
-  white-space: nowrap;
-}
-
-.expand-all-button:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-@media (max-width: 768px) {
-  .explorer-container {
-    padding: 0.5rem;
-  }
-  
-  .cve-link {
-    font-size: 1rem;
-  }
-}
-
-.loading-message, .no-data-message {
-  color: white;
-  text-align: center;
-  padding: 2rem;
-  font-size: 1.1rem;
-}
-
-.loading-message {
-  color: #61dafb;
-}
-
-.no-data-message {
-  color: #ff6b6b;
+  margin-bottom: 0.5rem;
 }
 
 .cve-title {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  font-weight: 600;
+  color: var(--primary-color);
 }
 
-.cve-status {
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  font-weight: bold;
+.expand-icon {
+  font-size: 0.85rem;
+  color: var(--light-text);
+  width: 16px;
 }
 
-.cve-status.active {
-  background-color: rgba(40, 167, 69, 0.2);
-  color: #28a745;
+.cve-link {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-size: 1.1rem;
+  transition: color 0.2s ease;
 }
 
-.cve-status.withdrawn {
-  background-color: rgba(220, 53, 69, 0.2);
-  color: #dc3545;
+.cve-link:hover {
+  color: var(--accent-color);
+  text-decoration: underline;
 }
 
 .cve-meta {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 1.25rem;
 }
 
-.severity {
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--light-text);
+  font-size: 0.9rem;
+}
+
+.severity-badge, .status-badge {
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   font-size: 0.8rem;
-  font-weight: bold;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
-.severity.critical {
-  background-color: rgba(220, 53, 69, 0.2);
-  color: #dc3545;
+.severity-badge.critical {
+  background-color: #F56565;
+  color: white;
 }
 
-.severity.high {
-  background-color: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
+.severity-badge.high {
+  background-color: #ED8936;
+  color: white;
 }
 
-.severity.medium {
-  background-color: rgba(23, 162, 184, 0.2);
-  color: #17a2b8;
+.severity-badge.medium {
+  background-color: #ECC94B;
+  color: #744210;
 }
 
-.severity.low {
-  background-color: rgba(40, 167, 69, 0.2);
-  color: #28a745;
+.severity-badge.low {
+  background-color: #48BB78;
+  color: white;
+}
+
+.severity-badge.unknown {
+  background-color: #CBD5E0;
+  color: #2D3748;
+}
+
+.status-badge.published {
+  background-color: #4299E1;
+  color: white;
+}
+
+.status-badge.modified {
+  background-color: #805AD5;
+  color: white;
+}
+
+.status-badge.withdrawn {
+  background-color: #A0AEC0;
+  color: white;
 }
 
 .cve-details {
-  padding: 1rem;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0 1.25rem 1.25rem;
+  border-top: 1px solid var(--border-color);
 }
 
-.cve-info {
-  margin-bottom: 1rem;
-}
-
-.info-item {
-  margin-bottom: 0.5rem;
-  color: white;
-}
-
-.info-item strong {
-  color: #61dafb;
-  margin-right: 0.5rem;
-}
-
-.repo-list-header {
-  color: #61dafb;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.show-more-container {
-  display: flex;
-  justify-content: center;
+.details-section {
   margin-top: 1rem;
-  padding: 0.5rem;
+}
+
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--secondary-color);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
-.show-more-button,
-.show-all-button,
-.show-less-button {
-  padding: 0.75rem 1.5rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.2s;
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 }
 
-.show-more-button:hover,
-.show-all-button:hover,
-.show-less-button:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+.detail-item {
+  margin-bottom: 0.75rem;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.detail-item strong {
+  display: block;
+  font-weight: 500;
+  color: var(--light-text);
+  margin-bottom: 0.25rem;
+}
+
+.detail-text {
+  line-height: 1.5;
+  color: var(--text-color);
+}
+
+.repository-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.repo-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background-color: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  color: var(--text-color);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+}
+
+.repo-link:hover {
+  background-color: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.page-button, .show-all-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.page-button:hover, .show-all-button:hover {
+  background-color: var(--background-color);
+  border-color: var(--accent-color);
+}
+
+.page-info {
+  color: var(--light-text);
+  font-size: 0.9rem;
+}
+
+.show-all-button {
+  margin-left: auto;
+  background-color: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.show-all-button:hover {
+  background-color: var(--secondary-color);
+  border-color: var(--secondary-color);
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .cve-header-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .cve-meta {
+    margin-top: 0.5rem;
+  }
+  
+  .pagination-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .show-all-button {
+    margin-left: 0;
+  }
 }
 </style>

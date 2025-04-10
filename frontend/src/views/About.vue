@@ -1,157 +1,406 @@
 <template>
-  <div class="about">
-    <!-- ASCII Lizard -->
-    <div class="ascii-lizard">
-      <pre>
-
-\ \ \ \ \ \ \ \ \| |\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \| |\ \ \ \ \ \ \ \ \ 
-/ / / / / / / / / | | / / / / / / __  / / / / / / / / | | / / / / / / / / /
- \ \ \ \ \ \ \ \ \| |\ \ \ \ \   /..\  ` ` \ \ \ \ \ \| |\ \ \ \ \ \ \ \ \ 
-------------------' `---------- (    ) \|/ -----------' `------------------
- ,------------------------- _\___>  <__//` ------------------------------. 
- |/ / / / / / / / / / / / / >,---.   ,-'  / / / / / / / / / / / / / / / /| 
- | \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ |  . \  \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ | 
- |/ / / / / / / / / / / / / / /  `. `. \   ., / / / / / / / / / / / / / /| 
- | \ \ \ \ \ \ \ \ \ \ \ \ \ \ \  |  `. | \||_ \ \ \ \ \ \ \ \ \ \ \ \ \ | 
- |/ / / / / / / / / / / / / / / / `.  : |__||   / / / / / / / / / / / / /| 
- | \ \ \ \ \ \ \ \ \ \ \ \ \ \ \  __> `.,---'  \ \ \ \ \ \ \ \ \ \ \ \ \ | 
- |/ / / / / / / / / / / / / / /  |.--'\`.\  / / / / / / / / / / / / / / /| 
- `------------------------------ _\\   \`.| -----------------------------' 
-------------------. ,------------ /|\ - |:| ----------. ,------------------
- \ \ \ \ \ \ \ \ \| |\ \ \ \ \ \ ' `    |:|  \ \ \ \ \| |\ \ \ \ \ \ \ \ \ 
-/ / / / / / / / / | | / / / / / / / / / |:| / / / / / | | / / / / / / / / /
- \ \ \ \ \ \ \ \ \| |\ \ \ \ \ \ \ \ \  |:/  \ \ \ \ \| |\ \ \ \ \ \ \ \ \ 
-/ / / / / / / / / | | / /  --.________,-_/  / / / / / | | / / / / / / / / /
- \ \ \ \ \ \ \ \ \| |\ \ \ \ \ ```-----' \ \ \ \ \ \ \| |\ \ \ \ \ \ \ \ \ 
-/ / / / / / / / / | | / / / / / / / / / / / / / / / / | | / / / / / / / / / 
-      </pre>
+  <div class="documentation">
+    <div class="doc-header">
+      <h1>DataVault Pro Documentation</h1>
+      <p class="subtitle">Database Vulnerability Management System</p>
     </div>
-    <h1>About Iguana's GPT</h1>
-    <p>
-      Iguana's GPT is a cutting-edge vulnerability detection tool designed to help developers identify and resolve software vulnerabilities efficiently. 
-      This project leverages Neo4j for graph-based data storage and visualization, along with Vue.js for an intuitive user interface.
-    </p>
-    <h2>Features</h2>
-    <ul>
-      <li>Dynamic solutions for memory safety vulnerabilities in any programming language.</li>
-      <li>Constantly updating CWE database logic.</li>
-      <li>User-friendly online interface for developers of all skill levels.</li>
-    </ul>
-    <h2>Contributors</h2>
-    <ul>
-      <li>Matthew Trevino - Team Lead & Backend Developer</li>
-      <li>Jonathon Davis - Frontend Developer</li>
-      <li>Joshua Ludolf - Backend Developer</li>
-      <li>Samantha Jackson - Frontend Developer</li>
-      <li>Alexandar James - Backend Developer</li>
-      <li>Yesmin Hernandez - Frontend Developer</li>
-    </ul>
-    <h2>Learn More</h2>
-    <p>
-      For more information, visit our <a href="https://github.com/JonathonDavis/Awesome-Iguanas" target="_blank">GitHub repository</a>.
-    </p>
+    
+    <div class="doc-container">
+      <aside class="doc-sidebar">
+        <nav class="sidebar-nav">
+          <ul>
+            <li><a href="#overview" class="active">Overview</a></li>
+            <li><a href="#architecture">System Architecture</a></li>
+            <li><a href="#data-model">Data Model</a></li>
+            <li><a href="#api">API Reference</a></li>
+            <li><a href="#usage">Usage Examples</a></li>
+          </ul>
+        </nav>
+      </aside>
+      
+      <main class="doc-content">
+        <section id="overview" class="doc-section">
+          <h2>Overview</h2>
+          <p>
+            DataVault Pro is a professional vulnerability management system that helps organizations identify, track, and remediate software vulnerabilities efficiently. The system uses Neo4j graph database to store and analyze complex vulnerability relationships.
+          </p>
+          <div class="feature-grid">
+            <div class="feature-card">
+              <div class="feature-icon"><i class="fas fa-shield-alt"></i></div>
+              <h3>Vulnerability Tracking</h3>
+              <p>Complete vulnerability lifecycle management with severity classification and affected package tracking.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon"><i class="fas fa-project-diagram"></i></div>
+              <h3>Relationship Analysis</h3>
+              <p>Graph-based visualization of dependencies and impact paths across your software ecosystem.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+              <h3>Analytics Dashboard</h3>
+              <p>Comprehensive analytics to understand vulnerability trends and security posture.</p>
+            </div>
+          </div>
+        </section>
+        
+        <section id="architecture" class="doc-section">
+          <h2>System Architecture</h2>
+          <p>
+            DataVault Pro follows a modern microservices architecture with the following components:
+          </p>
+          <ul class="architecture-list">
+            <li><strong>Frontend:</strong> Vue.js based responsive UI for data visualization and management</li>
+            <li><strong>API Layer:</strong> RESTful service endpoints for data access and manipulation</li>
+            <li><strong>Database:</strong> Neo4j graph database for storing vulnerability and package relationships</li>
+            <li><strong>Data Processor:</strong> Background services for vulnerability data ingestion and analysis</li>
+          </ul>
+          <div class="code-block">
+            <pre><code>// Example Neo4j Connection
+import neo4j from 'neo4j-driver'
+
+const driver = neo4j.driver(
+  'neo4j://localhost:7687',
+  neo4j.auth.basic('username', 'password')
+)
+
+const session = driver.session()</code></pre>
+          </div>
+        </section>
+        
+        <section id="data-model" class="doc-section">
+          <h2>Data Model</h2>
+          <p>
+            The core data model consists of the following primary entities:
+          </p>
+          <ul class="model-list">
+            <li><strong>Vulnerability:</strong> Central entity containing vulnerability details, severity, and references</li>
+            <li><strong>Package:</strong> Software packages that may contain vulnerabilities</li>
+            <li><strong>AFFECTS:</strong> Relationship between vulnerabilities and packages, including version ranges</li>
+          </ul>
+          <div class="diagram">
+            <p class="diagram-caption">Simplified Entity Relationship Diagram</p>
+            <div class="diagram-content">
+              <div class="entity">Vulnerability</div>
+              <div class="relationship">AFFECTS →</div>
+              <div class="entity">Package</div>
+            </div>
+          </div>
+        </section>
+        
+        <section id="api" class="doc-section">
+          <h2>API Reference</h2>
+          <p>
+            DataVault Pro exposes a comprehensive REST API for integrating with your existing systems.
+          </p>
+          <div class="api-endpoints">
+            <div class="endpoint">
+              <div class="method get">GET</div>
+              <div class="path">/api/v1/vulnerabilities</div>
+              <div class="description">Retrieve all vulnerabilities with pagination support</div>
+            </div>
+            <div class="endpoint">
+              <div class="method get">GET</div>
+              <div class="path">/api/v1/vulnerabilities/:id</div>
+              <div class="description">Get detailed information about a specific vulnerability</div>
+            </div>
+            <div class="endpoint">
+              <div class="method post">POST</div>
+              <div class="path">/api/v1/vulnerabilities</div>
+              <div class="description">Create a new vulnerability record</div>
+            </div>
+            <div class="endpoint">
+              <div class="method get">GET</div>
+              <div class="path">/api/v1/packages/:ecosystem/:name</div>
+              <div class="description">Retrieve package information with vulnerabilities</div>
+            </div>
+          </div>
+        </section>
+        
+        <section id="usage" class="doc-section">
+          <h2>Usage Examples</h2>
+          <p>
+            Get started quickly with these common usage examples:
+          </p>
+          <div class="usage-example">
+            <h3>Search for vulnerabilities affecting a specific package</h3>
+            <div class="code-block">
+              <pre><code>// Example API request
+const response = await fetch('/api/v1/vulnerabilities?package=lodash&ecosystem=npm');
+const vulnerabilities = await response.json();
+
+console.log(`Found ${vulnerabilities.length} vulnerabilities affecting lodash`);</code></pre>
+            </div>
+          </div>
+          <div class="usage-example">
+            <h3>Generate a vulnerability report</h3>
+            <p>
+              Navigate to the Analytics dashboard to generate comprehensive reports on your vulnerability landscape.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.about {
-  margin: 2rem;
-  padding: 2rem;
-  border: 1px solid #ffffff;
-  border-radius: 8px;
-  line-height: 1.6;
-  background-color: #259a67;
-  color: #A2E656;
+.documentation {
+  color: var(--text-color);
+  background-color: var(--background-color);
+}
+
+.doc-header {
   text-align: center;
-}
-
-.ascii-lizard {
-  font-family: monospace;
-  color: white;
   margin-bottom: 2rem;
- background: rgba(44, 44, 44, 0.8);
-  padding: 1rem;
-  border-radius: 4px;
-  overflow-x: auto;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border-color);
 }
 
-h1 {
-  color: white;
-  margin-bottom: 1.5rem;
+.doc-header h1 {
+  color: var(--primary-color);
   font-size: 2rem;
+  margin-bottom: 0.5rem;
 }
 
-h2 {
-  color: white;
-  margin: 2rem 0 1rem;
-  font-size: 1.5rem;
-}
-
-p {
-  color: white;
-  margin-bottom: 1rem;
+.subtitle {
+  color: var(--light-text);
   font-size: 1.1rem;
 }
 
-ul {
+.doc-container {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 2rem;
+}
+
+.doc-sidebar {
+  position: sticky;
+  top: 2rem;
+  height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
+.sidebar-nav ul {
   list-style: none;
   padding: 0;
-  margin: 1rem 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  margin: 0;
 }
 
-li {
-  display: flex;
-  align-items: center;
+.sidebar-nav li {
   margin-bottom: 0.5rem;
-  background: rgba(44, 44, 44, 0.8);
-  padding: 0.5rem 1rem;
+}
+
+.sidebar-nav a {
+  display: block;
+  padding: 0.75rem 1rem;
+  color: var(--text-color);
+  text-decoration: none;
   border-radius: 4px;
-  width: 100%;
-  max-width: 600px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
 }
 
-li::before {
-  content: "•";
-  color: #259a67;
-  font-size: 1.5rem;
-  margin-right: 0.5rem;
+.sidebar-nav a:hover {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
-a {
+.sidebar-nav a.active {
+  background-color: var(--accent-color);
   color: white;
-  text-decoration: none;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  transition: background-color 0.3s;
 }
 
-a:hover {
-  background: rgba(255, 255, 255, 0.2);
-  text-decoration: none;
+.doc-content {
+  padding-bottom: 4rem;
+}
+
+.doc-section {
+  margin-bottom: 3rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.doc-section:last-child {
+  border-bottom: none;
+}
+
+.doc-section h2 {
+  color: var(--primary-color);
+  font-size: 1.6rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--accent-color);
+  display: inline-block;
+}
+
+.doc-section h3 {
+  color: var(--secondary-color);
+  font-size: 1.2rem;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.doc-section p {
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.feature-card {
+  background-color: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.feature-icon {
+  background-color: rgba(66, 153, 225, 0.1);
+  color: var(--accent-color);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.architecture-list, .model-list {
+  margin: 1rem 0 2rem;
+  padding-left: 1.5rem;
+  line-height: 1.8;
+}
+
+.architecture-list li, .model-list li {
+  margin-bottom: 0.75rem;
+}
+
+.code-block {
+  background-color: #1a2942;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+
+.code-block pre {
+  margin: 0;
+}
+
+.code-block code {
+  color: #e2e8f0;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.diagram {
+  margin: 2rem 0;
+  text-align: center;
+}
+
+.diagram-caption {
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--secondary-color);
+}
+
+.diagram-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.entity {
+  background-color: var(--accent-color);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.relationship {
+  color: var(--light-text);
+  font-weight: 600;
+}
+
+.api-endpoints {
+  margin: 1.5rem 0;
+}
+
+.endpoint {
+  display: grid;
+  grid-template-columns: 80px 1fr 1fr;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.method {
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.method.get {
+  background-color: #48bb78;
+  color: white;
+}
+
+.method.post {
+  background-color: #4299e1;
+  color: white;
+}
+
+.path {
+  font-family: 'Fira Code', monospace;
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.usage-example {
+  margin: 2rem 0;
 }
 
 @media (max-width: 768px) {
-  .about {
-    margin: 1rem;
-    padding: 1rem;
+  .doc-container {
+    grid-template-columns: 1fr;
   }
-
-  .ascii-lizard {
-    font-size: 0.8rem;
+  
+  .doc-sidebar {
+    position: static;
+    height: auto;
+    margin-bottom: 2rem;
   }
-
-  h1 {
-    font-size: 1.5rem;
+  
+  .endpoint {
+    grid-template-columns: 70px 1fr;
+    grid-template-rows: auto auto;
   }
-
-  h2 {
-    font-size: 1.2rem;
+  
+  .path {
+    grid-column: 2;
+  }
+  
+  .description {
+    grid-column: 1 / -1;
+    margin-top: 0.5rem;
   }
 }
 </style>
