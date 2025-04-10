@@ -1,84 +1,106 @@
 <template>
-  <div class="charts-container">
+  <div class="analytics-container">
     <!-- Database Statistics -->
-    <div class="chart-section">
-      <h2>Database Statistics</h2>
+    <div class="section-header">
+      <h1>Analytics Dashboard</h1>
+      <p class="subtitle">Comprehensive database vulnerability insights</p>
+    </div>
+    
+    <div class="card">
+      <h2 class="heading-secondary">Database Overview</h2>
       <div class="stats-grid">
         <div class="stat-box">
-          <h3>Total Nodes</h3>
-          <p>{{ statistics.totalNodes || 'Loading...' }}</p>
-        </div>
-        <div class="stat-box">
-          <h3>Unique Labels</h3>
-          <p>{{ statistics.uniqueLabels || 'Loading...' }}</p>
-        </div>
-        <div class="stat-box">
-          <h3>Total Vulnerabilities</h3>
-          <p>{{ statistics.totalVulnerabilities || 'Loading...' }}</p>
-        </div>
-        <div class="stat-box">
-          <h3>Affected Packages</h3>
-          <p>{{ statistics.totalPackages || 'Loading...' }}</p>
-        </div>
-        <div class="stat-box">
-          <h3>Unique Ecosystems</h3>
-          <p>{{ statistics.uniqueEcosystems || 'Loading...' }}</p>
-        </div>
-        <div class="stat-box">
-          <h3>Last Update</h3>
-          <p>{{ formatDate(statistics.lastUpdate) || 'Loading...' }}</p>
-        </div>
-      </div>
-      <div class="distribution-grid">
-        <div class="distribution-section">
-          <h3>Nodes Distribution</h3>
-          <div v-for="(item, index) in nodeDistribution" :key="index" class="distribution-item">
-            <span>{{ item.label }}:</span>
-            <span>{{ item.count }}</span>
+          <div class="stat-icon"><i class="fas fa-database"></i></div>
+          <div class="stat-content">
+            <h3>Total Nodes</h3>
+            <p class="stat-value">{{ statistics.totalNodes || 'Loading...' }}</p>
           </div>
         </div>
-        <div class="distribution-chart">
-          <h3>Pie Chart</h3>
-          <PieChart />
+        <div class="stat-box">
+          <div class="stat-icon"><i class="fas fa-tags"></i></div>
+          <div class="stat-content">
+            <h3>Unique Labels</h3>
+            <p class="stat-value">{{ statistics.uniqueLabels || 'Loading...' }}</p>
+          </div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-icon"><i class="fas fa-bug"></i></div>
+          <div class="stat-content">
+            <h3>Total Vulnerabilities</h3>
+            <p class="stat-value">{{ statistics.totalVulnerabilities || 'Loading...' }}</p>
+          </div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-icon"><i class="fas fa-box"></i></div>
+          <div class="stat-content">
+            <h3>Affected Packages</h3>
+            <p class="stat-value">{{ statistics.totalPackages || 'Loading...' }}</p>
+          </div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-icon"><i class="fas fa-globe"></i></div>
+          <div class="stat-content">
+            <h3>Unique Ecosystems</h3>
+            <p class="stat-value">{{ statistics.uniqueEcosystems || 'Loading...' }}</p>
+          </div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-icon"><i class="fas fa-clock"></i></div>
+          <div class="stat-content">
+            <h3>Last Update</h3>
+            <p class="stat-value date">{{ formatDate(statistics.lastUpdate) || 'Loading...' }}</p>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Database Information -->
-    <!-- <div class="text-section">
-      <h3>Information</h3>
-      <p>{{ chartDescription }}</p>
-    </div> -->
-
-
+    <div class="card">
+      <h2 class="heading-secondary">Distribution Analysis</h2>
+      <div class="distribution-grid">
+        <div class="distribution-section">
+          <h3>Node Type Distribution</h3>
+          <div class="distribution-list">
+            <div v-for="(item, index) in nodeDistribution" :key="index" class="distribution-item">
+              <span class="distribution-label">{{ item.label }}</span>
+              <div class="distribution-bar-container">
+                <div class="distribution-bar" :style="{ width: getPercentage(item.count) + '%' }"></div>
+              </div>
+              <span class="distribution-count">{{ item.count }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="distribution-chart">
+          <h3>Visual Distribution</h3>
+          <PieChart />
+        </div>
+      </div>
+    </div>
     
-    <!--Breakdown of CVE, Repository sections -->
+    <!-- Breakdowns Section -->
     <div class="breakdown-section">
       <!-- CVE Breakdown -->
-      <div class="cve-section">
-        <div class="section-header">
-          <h2>CVE Breakdown</h2>
+      <div class="card">
+        <div class="card-header">
+          <h2 class="heading-secondary">Vulnerability Analysis</h2>
           <button 
             class="toggle-button"
             @click="showCVEStats = !showCVEStats"
-            :class="{ 'active': showCVEStats }"
           >
-            {{ showCVEStats ? 'Hide' : 'Show' }}
+            <i :class="showCVEStats ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
           </button>
         </div>
         <CVEStats v-if="showCVEStats" />
       </div>
 
       <!-- Repository Breakdowns -->
-      <div class="repository-section">
-        <div class="section-header">
-          <h2>Repository Breakdowns</h2>
+      <div class="card">
+        <div class="card-header">
+          <h2 class="heading-secondary">Repository Analysis</h2>
           <button 
             class="toggle-button"
             @click="showRepositoryStats = !showRepositoryStats"
-            :class="{ 'active': showRepositoryStats }"
           >
-            {{ showRepositoryStats ? 'Hide' : 'Show' }}
+            <i :class="showRepositoryStats ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
           </button>
         </div>
         <RepositoryStats v-if="showRepositoryStats" />
@@ -88,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import neo4jService from '../services/neo4j/neo4jService'
 import PieChart from '../components/PieChart.vue';
 import RepositoryStats from '../components/RepositoryStats.vue'
@@ -104,6 +126,11 @@ const formatDate = (dateString) => {
   if (!dateString) return 'Never';
   const date = new Date(dateString);
   return date.toLocaleString();
+}
+
+const getPercentage = (count) => {
+  const total = nodeDistribution.value.reduce((sum, item) => sum + item.count, 0);
+  return total > 0 ? (count / total) * 100 : 0;
 }
 
 const fetchData = async () => {
@@ -167,187 +194,195 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.charts-container {
-  margin: 1rem;
-  padding: 1rem;
-  border: 1px solid #ffffff;
-  border-radius: 8px;
-  min-width: 60vh;
-
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.stat-box {
-  background-color: #259a67;
-  padding: 1rem;
-  border-radius: 4px;
-  text-align: center;
-  transition: transform 0.2s;
-}
-
-.stat-box:hover {
-  transform: translateY(-2px);
-}
-
-.distribution-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.distribution-section {
-  background-color: #259a67;
-  padding: 1rem;
-  border-radius: 4px;
-  margin-top: 1rem;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.distribution-chart {
-  background-color: #259a67;
-  padding: 1rem;
-  border-radius: 4px;
-  margin-top: 1rem;
-  min-height: 300px;
-}
-
-.distribution-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.text-section {
-  padding: 1rem;
-  background-color: #259a67;
-  border-radius: 4px;
-  margin-top: 1rem;
-}
-
-h2, h3 {
-  color: white;
-  margin-bottom: 1rem;
-}
-
-p, span {
-  color: white;
-}
-
-@media (min-width: 768px) {
-  .charts-container {
-    margin: 2rem;
-    padding: 2rem;
-  }
-
-  .distribution-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .distribution-section {
-    max-height: 500px;
-  }
-
-  .distribution-chart {
-    min-height: 400px;
-  }
-
-  .stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  }
-}
-
-@media (max-width: 767px) {
-  .charts-container {
-    margin: 0.5rem;
-    padding: 0.5rem;
-  }
-
-  .distribution-section {
-    max-height: 300px;
-  }
-
-  .distribution-chart {
-    min-height: 300px;
-  }
-
-  h2 {
-    font-size: 1.5rem;
-  }
-
-  h3 {
-    font-size: 1.2rem;
-  }
-}
-
-.repository-section {
-  margin-top: 2rem;
-  padding: 1rem;
-  background-color: #259a67;
-  border-radius: 4px;
-}
-
-.repository-section h2 {
-  color: white;
-  margin-bottom: 1rem;
-}
-
-.cve-section {
-  margin-top: 2rem;
-  padding: 1rem;
-  background-color: #259a67;
-  border-radius: 4px;
-}
-
-.cve-section h2 {
-  color: white;
-  margin-bottom: 1rem;
+.analytics-container {
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .section-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.section-header h1 {
+  color: var(--primary-color);
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.subtitle {
+  color: var(--light-text);
+  font-size: 1.1rem;
+}
+
+.card {
+  background-color: var(--card-background);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
 }
 
+.heading-secondary {
+  color: var(--secondary-color);
+  font-size: 1.4rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--accent-color);
+  display: inline-block;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.stat-box {
+  background-color: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-box:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stat-icon {
+  background-color: rgba(66, 153, 225, 0.1);
+  color: var(--accent-color);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  margin-right: 1rem;
+}
+
+.stat-content {
+  flex: 1;
+}
+
+.stat-content h3 {
+  color: var(--text-color);
+  font-size: 1rem;
+  margin: 0 0 0.5rem 0;
+}
+
+.stat-value {
+  color: var(--secondary-color);
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.stat-value.date {
+  font-size: 1.1rem;
+}
+
+.distribution-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.distribution-section h3, .distribution-chart h3 {
+  color: var(--text-color);
+  font-size: 1.2rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.distribution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.distribution-item {
+  display: grid;
+  grid-template-columns: 150px 1fr 60px;
+  align-items: center;
+  gap: 1rem;
+}
+
+.distribution-label {
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.distribution-bar-container {
+  height: 10px;
+  background-color: var(--border-color);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.distribution-bar {
+  height: 100%;
+  background-color: var(--accent-color);
+  border-radius: 5px;
+}
+
+.distribution-count {
+  font-weight: 600;
+  color: var(--secondary-color);
+  text-align: right;
+}
+
 .toggle-button {
-  padding: 0.5rem 1rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  background-color: transparent;
+  color: var(--accent-color);
+  border: none;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 1.2rem;
+  padding: 0.5rem;
   transition: all 0.2s ease;
 }
 
 .toggle-button:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  color: var(--secondary-color);
 }
 
-.toggle-button.active {
-  background-color: rgba(97, 218, 251, 0.2);
-  border-color: #61dafb;
+@media (max-width: 992px) {
+  .distribution-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
-  .section-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
+  .stat-box {
+    padding: 1rem;
   }
   
-  .toggle-button {
-    width: 100%;
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1rem;
+  }
+  
+  .stat-value {
+    font-size: 1.4rem;
+  }
+  
+  .distribution-item {
+    grid-template-columns: 100px 1fr 50px;
   }
 }
 </style>
