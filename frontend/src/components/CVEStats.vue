@@ -136,7 +136,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import neo4jService from '../services/neo4j/neo4jService'
+import { useRoute } from 'vue-router'
 
+const route = useRoute()
 const cves = ref([])
 const expandedCVEs = ref([])
 const searchQuery = ref('')
@@ -208,22 +210,40 @@ const showLessCVEs = () => {
   displayLimit.value = Math.max(10, displayLimit.value - 10);
 }
 
-const fetchData = async () => {
+onMounted(async () => {
+  // Check for CVE search parameter and populate search field
+  if (route.query.cveSearch) {
+    searchQuery.value = route.query.cveSearch
+  }
+  
+  await fetchCVEs()
+})
+
+async function fetchCVEs() {
   try {
-    loading.value = true;
-    const data = await neo4jService.getCVERepositoryData();
-    console.log('Fetched CVE data:', data);
-    cves.value = data;
+    loading.value = true
+    cves.value = await neo4jService.getCVERepositoryData()
+    
+    // If search parameter is present, expand matching CVEs
+    if (route.query.cveSearch) {
+      const matchingCVEs = cves.value.filter(cve => {
+        return cve.cveId.toLowerCase().includes(route.query.cveSearch.toLowerCase())
+      })
+      
+      if (matchingCVEs.length) {
+        matchingCVEs.forEach(cve => {
+          if (!expandedCVEs.value.includes(cve.cveId)) {
+            expandedCVEs.value.push(cve.cveId)
+          }
+        })
+      }
+    }
   } catch (error) {
-    console.error('Error fetching CVE data:', error);
+    console.error('Error fetching CVE data:', error)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
-
-onMounted(() => {
-  fetchData();
-})
 </script>
 
 <style scoped>

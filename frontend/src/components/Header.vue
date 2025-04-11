@@ -16,11 +16,11 @@
         </router-link>
         <router-link to="/analytics" class="nav-link">
           <i class="fas fa-code-branch"></i>
-          <span>Repository Analytics</span>
+          <span>Database Analytics</span>
         </router-link>
         <router-link to="/visualizations" class="nav-link">
           <i class="fas fa-shield-alt"></i>
-          <span>Vulnerability Insights</span>
+          <span>Visualization</span>
         </router-link>
         <router-link to="/documentation" class="nav-link">
           <i class="fas fa-book"></i>

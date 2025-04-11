@@ -176,7 +176,9 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import neo4jService from '../services/neo4j/neo4jService'
+import { useRoute } from 'vue-router'
 
+const route = useRoute()
 const repositories = ref([])
 const expandedRepos = ref([])
 const searchQuery = ref('')
@@ -184,6 +186,16 @@ const debouncedSearchQuery = ref('')
 const loading = ref(true)
 const displayLimit = ref(10)
 const showAll = ref(false)
+
+onMounted(async () => {
+  // Check for repo search parameter and populate search field
+  if (route.query.repoSearch) {
+    searchQuery.value = route.query.repoSearch
+    debouncedSearchQuery.value = route.query.repoSearch
+  }
+  
+  await fetchRepositories()
+})
 
 // Debounce the search query
 let debounceTimeout = null
@@ -194,6 +206,33 @@ watch(searchQuery, (newValue) => {
     console.log('Search debounced:', newValue)
   }, 300) // 300ms debounce
 })
+
+async function fetchRepositories() {
+  try {
+    loading.value = true
+    repositories.value = await neo4jService.getRepositoryStatistics()
+    
+    // If search parameter is present, expand the matching repository
+    if (route.query.repoSearch) {
+      const matchingRepos = repositories.value.filter(repo => {
+        const repoName = getRepoName(repo.repository).toLowerCase()
+        return repoName.includes(route.query.repoSearch.toLowerCase())
+      })
+      
+      if (matchingRepos.length) {
+        matchingRepos.forEach(repo => {
+          if (!expandedRepos.value.includes(repo.repository)) {
+            expandedRepos.value.push(repo.repository)
+          }
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching repositories:', error)
+  } finally {
+    loading.value = false
+  }
+}
 
 const filteredRepositories = computed(() => {
   // Return all repositories if no search query
@@ -414,48 +453,6 @@ const showMoreRepos = () => {
 const showLessRepos = () => {
   displayLimit.value = Math.max(10, displayLimit.value - 10);
 }
-
-const fetchData = async () => {
-  try {
-    loading.value = true;
-    const data = await neo4jService.getRepositoryStatistics();
-    
-    // Log repository data
-    console.log(`Fetched ${data.length} repositories`);
-    
-    // Log structure of first repository for debugging
-    if (data.length > 0) {
-      const sampleRepo = data[0];
-      console.log('Sample repository structure:', {
-        repository: sampleRepo.repository,
-        versionsCount: sampleRepo.versions ? sampleRepo.versions.length : 0
-      });
-      
-      // Log first version if available
-      if (sampleRepo.versions && sampleRepo.versions.length > 0) {
-        const sampleVersion = sampleRepo.versions[0];
-        console.log('Sample version structure:', {
-          version: sampleVersion.version,
-          size: sampleVersion.size,
-          primaryLanguage: sampleVersion.primaryLanguage,
-          languageCount: sampleVersion.languageCount,
-          languages: sampleVersion.languages ? Object.keys(sampleVersion.languages).length : 0,
-          cves: sampleVersion.cves ? sampleVersion.cves.length : 0
-        });
-      }
-    }
-    
-    repositories.value = data;
-  } catch (error) {
-    console.error('Error fetching repository data:', error);
-  } finally {
-    loading.value = false;
-  }
-}
-
-onMounted(() => {
-  fetchData();
-})
 </script>
 
 <style scoped>

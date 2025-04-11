@@ -78,22 +78,9 @@
     
     <!-- Breakdowns Section -->
     <div class="breakdown-section">
-      <!-- CVE Breakdown -->
-      <div class="card">
-        <div class="card-header">
-          <h2 class="heading-secondary">Vulnerability Analysis</h2>
-          <button 
-            class="toggle-button"
-            @click="showCVEStats = !showCVEStats"
-          >
-            <i :class="showCVEStats ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
-          </button>
-        </div>
-        <CVEStats v-if="showCVEStats" />
-      </div>
-
+    
       <!-- Repository Breakdowns -->
-      <div class="card">
+      <div class="card" id="Repository-Analysis">
         <div class="card-header">
           <h2 class="heading-secondary">Repository Analysis</h2>
           <button 
@@ -104,6 +91,20 @@
           </button>
         </div>
         <RepositoryStats v-if="showRepositoryStats" />
+      </div>
+
+      <!-- CVE Breakdown -->
+      <div class="card vulnerability-section" id="Vulnerability-Analysis">
+        <div class="card-header">
+          <h2 class="heading-secondary">Vulnerability Analysis</h2>
+          <button 
+            class="toggle-button"
+            @click="showCVEStats = !showCVEStats"
+          >
+            <i :class="showCVEStats ? 'fas fa-chevron-up' : 'fas fa-chevron-down'"></i>
+          </button>
+        </div>
+        <CVEStats v-if="showCVEStats" />
       </div>
     </div>
   </div>
@@ -358,6 +359,14 @@ onMounted(() => {
 
 .toggle-button:hover {
   color: var(--secondary-color);
+}
+
+#Repository-Analysis, #Vulnerability-Analysis {
+  scroll-margin-top: 100px; /* Provides space at the top when scrolled to */
+}
+
+.vulnerability-section {
+  border-left: 4px solid var(--secondary-color);
 }
 
 @media (max-width: 992px) {
