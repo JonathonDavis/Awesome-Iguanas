@@ -10,7 +10,7 @@ import Header from './components/Header.vue'
     </main>
     <footer class="footer">
       <div class="footer-content">
-        <p>&copy; 2025 DataVault Pro. All rights reserved.</p>
+        <p>&copy; 2025 Igauana's GPT. All rights reserved.</p>
       </div>
     </footer>
   </div>
