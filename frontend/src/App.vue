@@ -18,17 +18,29 @@ import Header from './components/Header.vue'
 
 <style>
 :root {
-  --primary-color: #1a2942;
-  --secondary-color: #2c5282;
-  --accent-color: #4299e1;
-  --text-color: #2d3748;
-  --light-text: #718096;
-  --background-color: #f7fafc;
+  --primary-color: #2d9f5d;
+  --secondary-color: #065535;
+  --accent-color: #ff5a3d;
+  --text-color: #223344;
+  --light-text: #5c7b6b;
+  --background-color: #f3f8e6;
   --card-background: #ffffff;
-  --border-color: #e2e8f0;
-  --error-color: #e53e3e;
-  --success-color: #48bb78;
-  --warning-color: #ed8936;
+  --border-color: #bade9e;
+  --error-color: #e63946;
+  --success-color: #43aa8b;
+  --warning-color: #f9a03f;
+  
+  /* Additional complementary colors */
+  --primary-dark: #227747;
+  --secondary-light: #3db77f;
+  --accent-dark: #d14124;
+  --background-dark: #e3edcf;
+  --iguana-blue: #7ea6c7;
+  --iguana-yellow: #ffd166;
+  --iguana-orange: #fa824c;
+  --tropical-teal: #17a398;
+  --sandy-brown: #dda77b;
+  --shadow-color: rgba(6, 85, 53, 0.15);
 }
 
 body {
