@@ -14,6 +14,7 @@
             <li><a href="#data-model">Data Model</a></li>
             <li><a href="#api">API Reference</a></li>
             <li><a href="#usage">Usage Examples</a></li>
+            <li><a href="#team">Meet the Team</a></li>
           </ul>
         </nav>
       </aside>
@@ -138,10 +139,39 @@ console.log(`Found ${vulnerabilities.length} vulnerabilities affecting lodash`);
             </p>
           </div>
         </section>
+        
+        <section id="team" class="doc-section">
+          <h2>Meet the Team</h2>
+          <p>
+            Our talented team of developers working on Iguana's GPT:
+          </p>
+          
+          <div class="team-grid">
+            <div v-for="member in teamMembers" :key="member.id" class="team-card">
+              <div class="member-image">
+                <img :src="member.imageUrl" :alt="member.name">
+              </div>
+              <h3>{{ member.name }}</h3>
+              <p class="member-role">{{ member.role }}</p>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   </div>
 </template>
+
+<script>
+import teamMembersData from '../data/teamMembers.json';
+
+export default {
+  data() {
+    return {
+      teamMembers: teamMembersData.teamMembers
+    };
+  }
+};
+</script>
 
 <style scoped>
 .documentation {
@@ -376,6 +406,51 @@ console.log(`Found ${vulnerabilities.length} vulnerabilities affecting lodash`);
 
 .usage-example {
   margin: 2rem 0;
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.team-card {
+  background-color: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+  text-align: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.team-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+}
+
+.member-image {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid var(--accent-color);
+}
+
+.member-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.team-card h3 {
+  margin-bottom: 0.3rem;
+}
+
+.member-role {
+  color: var(--secondary-color);
+  font-size: 0.9rem;
 }
 
 @media (max-width: 768px) {
