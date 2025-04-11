@@ -294,15 +294,29 @@ export default {
           }))
 
       // Create a group for the graph elements
-      const g = svg.value.append('g')
-
-      // Create unique IDs for nodes and links
+      const g = svg.value.append('g')      // Create unique IDs for nodes and links
       const nodes = data.nodes.map(node => ({
         ...node,
         id: `node-${node.id}` // Ensure unique IDs
       }))
-
-      const links = data.relationships.map(link => ({
+      
+      // Create a Set of node IDs for quick lookup
+      const nodeIdSet = new Set(data.nodes.map(node => node.id.toString()))
+      
+      // Filter relationships to only include those with valid source and target nodes
+      const validRelationships = data.relationships.filter(link => {
+        const sourceExists = nodeIdSet.has(link.source.toString())
+        const targetExists = nodeIdSet.has(link.target.toString())
+        
+        if (!sourceExists || !targetExists) {
+          console.debug(`Skipping invalid relationship: ${link.id} (${link.source} -> ${link.target})`)
+          return false
+        }
+        return true
+      })
+      
+      // Map the valid relationships to links with the correct node-prefixed IDs
+      const links = validRelationships.map(link => ({
         ...link,
         source: `node-${link.source}`,
         target: `node-${link.target}`
@@ -660,14 +674,12 @@ export default {
           }
         } else {
           console.warn('No AST graph data available')
-        }
-
-      } catch (error) {
+        }      } catch (error) {
         console.error('Error loading data:', error)
         error.value = `Failed to load data: ${error.message}`
       }
     })
-
+    
     return {
       graphContainer,
       astContainer,
@@ -690,7 +702,16 @@ export default {
       zoomLevel,
       resetView,
       visibleNodeTypes,
-      toggleNodeType
+      toggleNodeType,
+      // Add missing functions that are used in the template
+      getSeverityClass,
+      formatDate,
+      getAffectedPackages,
+      formatAffectedItem,
+      formatReferenceLink,
+      getNodeTitle,
+      getNodeColor,
+      updateGraph
     }
   }
 }
