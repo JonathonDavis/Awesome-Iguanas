@@ -12,8 +12,12 @@
         </div>
         <div class="card-content">
           <h3>Database Status</h3>
-          <p class="status-indicator success">Connected</p>
-          <p class="status-details">Neo4j Server Active</p>
+          <p class="status-indicator" :class="dbConnected ? 'success' : 'error'">
+            {{ dbConnected ? 'Connected' : 'Disconnected' }}
+          </p>
+          <p class="status-details">
+            {{ dbConnected ? 'Neo4j Server Active' : 'Connection Error' }}
+          </p>
         </div>
       </div>
       
@@ -63,7 +67,7 @@
       <div class="dashboard-section">
         <div class="section-header">
           <h2><i class="fas fa-code-branch"></i> Repository Statistics</h2>
-          <router-link to="/analytics" class="view-more-link">
+          <router-link to="/analytics#Repository-Analysis" class="view-more-link">
             View All <i class="fas fa-arrow-right"></i>
           </router-link>
         </div>
@@ -113,7 +117,11 @@
             <h3>Recent Repositories</h3>
             <div class="repo-list">
               <router-link 
-                to="/analytics" 
+                :to="{
+                  path: '/analytics',
+                  hash: '#Repository-Analysis',
+                  query: { repoSearch: getRepoName(repo.url) }
+                }"
                 v-for="(repo, index) in recentRepos" 
                 :key="index"
                 class="repo-item"
@@ -133,7 +141,7 @@
       <div class="dashboard-section">
         <div class="section-header">
           <h2><i class="fas fa-shield-alt"></i> Vulnerability Statistics</h2>
-          <router-link to="/visualizations" class="view-more-link">
+          <router-link to="/analytics#Vulnerability-Analysis" class="view-more-link">
             View All <i class="fas fa-arrow-right"></i>
           </router-link>
         </div>
@@ -184,7 +192,11 @@
             <h3>Recent Vulnerabilities</h3>
             <div class="cve-list">
               <router-link 
-                to="/visualizations" 
+                :to="{
+                  path: '/analytics',
+                  hash: '#Vulnerability-Analysis',
+                  query: { cveSearch: cve.id }
+                }"
                 v-for="(cve, index) in recentCVEs" 
                 :key="index"
                 class="cve-item"
@@ -230,6 +242,7 @@ import neo4jService from '../services/neo4j/neo4jService';
 
 const router = useRouter();
 const isLoading = ref(true);
+const dbConnected = ref(true);
 
 const stats = reactive({
   cveCount: 0,
@@ -264,6 +277,9 @@ async function fetchDashboardData() {
   isLoading.value = true;
   
   try {
+    // Set connection to true at the start of fetch attempt
+    dbConnected.value = true;
+    
     // Fetch repository data
     const repoData = await neo4jService.getRepositoryStatistics();
     stats.repoCount = repoData.length;
@@ -375,6 +391,8 @@ async function fetchDashboardData() {
     }
   } catch (error) {
     console.error('Failed to load dashboard data:', error);
+    // Set connection status to false if there's an error
+    dbConnected.value = false;
   } finally {
     isLoading.value = false;
   }
@@ -413,11 +431,17 @@ function getLanguageColor(language) {
 }
 
 function goToAnalytics() {
-  router.push('/analytics');
+  router.push({
+    path: '/analytics',
+    hash: '#Repository-Analysis'
+  });
 }
 
 function goToVisualizations() {
-  router.push('/visualizations');
+  router.push({
+    path: '/analytics',
+    hash: '#Vulnerability-Analysis'
+  });
 }
 
 function goToDocumentation() {
@@ -501,6 +525,10 @@ async function refreshData() {
 
 .status-indicator.success {
   color: var(--success-color);
+}
+
+.status-indicator.error {
+  color: #e53e3e;
 }
 
 .count-indicator {
