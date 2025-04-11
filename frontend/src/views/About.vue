@@ -9,12 +9,9 @@
       <aside class="doc-sidebar">
         <nav class="sidebar-nav">
           <ul>
-            <li><a href="#overview" class="active">Overview</a></li>
-            <li><a href="#architecture">System Architecture</a></li>
-            <li><a href="#data-model">Data Model</a></li>
-            <li><a href="#api">API Reference</a></li>
-            <li><a href="#usage">Usage Examples</a></li>
-            <li><a href="#team">Meet the Team</a></li>
+            <li v-for="section in sections" :key="section.id">
+              <a :href="`#${section.id}`" :class="{ active: activeSection === section.id }">{{ section.title }}</a>
+            </li>
           </ul>
         </nav>
       </aside>
@@ -167,8 +164,60 @@ import teamMembersData from '../data/teamMembers.json';
 export default {
   data() {
     return {
-      teamMembers: teamMembersData.teamMembers
+      teamMembers: teamMembersData.teamMembers,
+      sections: [
+        { id: 'overview', title: 'Overview' },
+        { id: 'architecture', title: 'System Architecture' },
+        { id: 'data-model', title: 'Data Model' },
+        { id: 'api', title: 'API Reference' },
+        { id: 'usage', title: 'Usage Examples' },
+        { id: 'team', title: 'Meet the Team' }
+      ],
+      activeSection: 'overview'
     };
+  },
+  mounted() {
+    window.addEventListener('scroll', this.handleScroll);
+    this.handleScroll(); // Set initial active section
+  },
+  beforeUnmount() {
+    window.removeEventListener('scroll', this.handleScroll);
+  },
+  methods: {
+    handleScroll() {
+      // Get all section elements
+      const sectionElements = this.sections.map(section => ({
+        id: section.id,
+        element: document.getElementById(section.id)
+      })).filter(item => item.element);
+      
+      // Calculate which section is most visible in the viewport
+      let mostVisibleSection = null;
+      let maxVisibility = 0;
+      
+      sectionElements.forEach(({ id, element }) => {
+        const rect = element.getBoundingClientRect();
+        const windowHeight = window.innerHeight;
+        
+        // Calculate how much of the section is visible
+        const visibleTop = Math.max(0, rect.top);
+        const visibleBottom = Math.min(windowHeight, rect.bottom);
+        const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+        
+        // Weight visibility towards the top of the viewport for better UX
+        const topProximity = 1 - (Math.max(0, visibleTop) / windowHeight);
+        const visibilityScore = visibleHeight * (1 + topProximity);
+        
+        if (visibilityScore > maxVisibility) {
+          maxVisibility = visibilityScore;
+          mostVisibleSection = id;
+        }
+      });
+      
+      if (mostVisibleSection) {
+        this.activeSection = mostVisibleSection;
+      }
+    }
   }
 };
 </script>
