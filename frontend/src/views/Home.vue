@@ -49,7 +49,7 @@
         </div>
         <div class="card-content">
           <h3>Last Update</h3>
-          <p class="stat-value date">{{ formatDate(stats.lastUpdate) || 'Loading...' }}</p>
+          <p class="stat-value date">{{ stats.lastUpdate ? formatDate(stats.lastUpdate) : 'Unknown' }}</p>
           <p class="status-details">DB Synchronized</p>
         </div>
       </div>
@@ -248,7 +248,7 @@ const stats = reactive({
   cveCount: 0,
   repoCount: 0,
   versionCount: 0,
-  lastUpdate: new Date(),
+  lastUpdate: null,
   severityCounts: {
     Critical: 0,
     High: 0,
