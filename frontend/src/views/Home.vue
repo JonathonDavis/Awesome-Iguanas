@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard">
     <div class="welcome-banner">
-      <h1>DataVault Pro Dashboard</h1>
+      <h1>Welcome to Iguana's GPT</h1>
       <p>Enterprise Database Vulnerability Management Solution</p>
     </div>
     

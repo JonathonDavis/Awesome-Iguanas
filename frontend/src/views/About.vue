@@ -1,7 +1,7 @@
 <template>
   <div class="documentation">
     <div class="doc-header">
-      <h1>DataVault Pro Documentation</h1>
+      <h1>About Iguana's GPT</h1>
       <p class="subtitle">Database Vulnerability Management System</p>
     </div>
     
@@ -22,7 +22,7 @@
         <section id="overview" class="doc-section">
           <h2>Overview</h2>
           <p>
-            DataVault Pro is a professional vulnerability management system that helps organizations identify, track, and remediate software vulnerabilities efficiently. The system uses Neo4j graph database to store and analyze complex vulnerability relationships.
+            Iguana's GPT is an enterprise-grade database vulnerability management solution designed to help organizations identify, assess, and remediate security vulnerabilities in their database systems. The system uses Neo4j graph database to store and analyze complex vulnerability relationships.
           </p>
           <div class="feature-grid">
             <div class="feature-card">
@@ -46,7 +46,7 @@
         <section id="architecture" class="doc-section">
           <h2>System Architecture</h2>
           <p>
-            DataVault Pro follows a modern microservices architecture with the following components:
+            Iguana's GPT follows a modern microservices architecture with the following components:
           </p>
           <ul class="architecture-list">
             <li><strong>Frontend:</strong> Vue.js based responsive UI for data visualization and management</li>
@@ -90,7 +90,7 @@ const session = driver.session()</code></pre>
         <section id="api" class="doc-section">
           <h2>API Reference</h2>
           <p>
-            DataVault Pro exposes a comprehensive REST API for integrating with your existing systems.
+            Iguana's GPT exposes a comprehensive REST API for integrating with your existing systems.
           </p>
           <div class="api-endpoints">
             <div class="endpoint">
