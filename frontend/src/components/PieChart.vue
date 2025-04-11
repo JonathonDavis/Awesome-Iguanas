@@ -55,8 +55,8 @@ export default {
               family: "'Inter', sans-serif"
             },
             padding: {
-              top: 10,
-              bottom: 20
+              top: 0,
+              bottom: 10
             }
           },
           legend: {
@@ -64,7 +64,8 @@ export default {
             labels: {
               color: '#2D3748', // text-color
               font: {
-                family: "'Inter', sans-serif"
+                family: "'Inter', sans-serif",
+                size: 14
               },
               padding: 15
             }
