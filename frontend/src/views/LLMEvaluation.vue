@@ -15,8 +15,8 @@
       </div>
       <div class="info-content">
         <h3>About This Tool</h3>
-        <p class="description">
-          This advanced tool leverages Large Language Model (LLama2) technology to perform deep analysis of repository code revisions for potential security vulnerabilities. The system provides comprehensive reports highlighting areas of concern, affected files and functions, and classification of vulnerability severity.
+        <p class="description" data-v-8c6c0e87="">
+          This advanced tool leverages Large Language Model ({{ ollamaModel }}) technology to perform deep analysis of repository code revisions for potential security vulnerabilities. The system provides comprehensive reports highlighting areas of concern, affected files and functions, and classification of vulnerability severity.
         </p>
       </div>
     </div>
@@ -52,6 +52,11 @@ export default {
   name: 'LLMEvaluation',
   components: {
     LLMVulnerabilityEvaluation
+  },
+  data() {
+    return {
+      ollamaModel: import.meta.env.VITE_OLLAMA_MODEL || 'deepseek-r1:7b'
+    };
   }
 }
 </script>
