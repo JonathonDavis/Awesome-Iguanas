@@ -20,6 +20,10 @@ const routes = [
     path: '/visualizations',
     name: 'Visualizations',
     component: () => import('../views/Graphs.vue')
+  },  {
+    path: '/llm-evaluation',
+    name: 'LLMEvaluation',
+    component: () => import(/* webpackChunkName: "llm-evaluation" */ '../views/LLMEvaluation.vue')
   }
 ]
 

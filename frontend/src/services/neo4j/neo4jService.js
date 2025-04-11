@@ -51,7 +51,6 @@ class Neo4jService {
     // Start the update system
     this.startUpdateSystem();
   }
-
   // Re-export methods from other modules
   initializeUpdateTracking = initializeUpdateTracking;
   processVulnerability = processVulnerability;
@@ -63,6 +62,113 @@ class Neo4jService {
   getVulnerabilityStatistics = getVulnerabilityStatistics;
   getRepositoryStatistics = getRepositoryStatistics;
   getCVERepositoryData = getCVERepositoryData;
+  
+  // Graph data retrieval methods
+  async getGraphData() {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (n)
+        OPTIONAL MATCH (n)-[r]->(m)
+        RETURN collect(distinct n) as nodes, collect(distinct r) as relationships
+      `);
+      
+      if (result.records.length > 0) {
+        const nodes = result.records[0].get('nodes').map(node => {
+          return {
+            id: node.identity.toString(),
+            labels: node.labels,
+            properties: node.properties,
+            ...node.properties
+          };
+        });
+        
+        const relationships = result.records[0].get('relationships').map(rel => {
+          return {
+            id: rel.identity.toString(),
+            source: rel.start.toString(),
+            target: rel.end.toString(),
+            type: rel.type,
+            properties: rel.properties
+          };
+        });
+        
+        return { nodes, relationships };
+      }
+      return { nodes: [], relationships: [] };
+    } catch (error) {
+      console.error('Error fetching graph data:', error);
+      return { nodes: [], relationships: [] };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getOSVFiles() {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (v:Vulnerability)
+        RETURN v
+        ORDER BY v.published DESC
+        LIMIT 100
+      `);
+      
+      return result.records.map(record => {
+        const vulnerability = record.get('v');
+        return {
+          id: vulnerability.identity.toString(),
+          properties: vulnerability.properties,
+          ...vulnerability.properties
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching OSV files:', error);
+      return [];
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getASTGraph() {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (n:AST)
+        OPTIONAL MATCH (n)-[r:CHILD|SIBLING]->(m:AST)
+        RETURN collect(distinct n) as nodes, collect(distinct r) as relationships
+      `);
+      
+      if (result.records.length > 0) {
+        const nodes = result.records[0].get('nodes').map(node => {
+          return {
+            id: node.identity.toString(),
+            labels: node.labels,
+            properties: node.properties,
+            ...node.properties
+          };
+        });
+        
+        const relationships = result.records[0].get('relationships').map(rel => {
+          return {
+            id: rel.identity.toString(),
+            source: rel.start.toString(),
+            target: rel.end.toString(),
+            type: rel.type,
+            properties: rel.properties
+          };
+        });
+        
+        return { nodes, relationships };
+      }
+      return { nodes: [], relationships: [] };
+    } catch (error) {
+      console.error('Error fetching AST graph:', error);
+      return { nodes: [], relationships: [] };
+    } finally {
+      await session.close();
+    }
+  }
 
   // Add method to get update status
   getUpdateStatus() {

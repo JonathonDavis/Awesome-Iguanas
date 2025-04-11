@@ -8,8 +8,7 @@
             <span class="logo-text">Iguana's GPT</span>
           </div>
         </router-link>
-      </div>
-      <div class="nav-links">
+      </div>      <div class="nav-links">
         <router-link to="/" class="nav-link" exact>
           <i class="fas fa-chart-pie"></i>
           <span>Dashboard</span>
@@ -25,6 +24,10 @@
         <router-link to="/documentation" class="nav-link">
           <i class="fas fa-book"></i>
           <span>Documentation</span>
+        </router-link>
+        <router-link to="/llm-evaluation" class="nav-link">
+          <i class="fas fa-robot"></i>
+          <span>LLM Evaluation</span>
         </router-link>
       </div>
     </nav>
