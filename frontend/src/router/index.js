@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Analytics from '../views/Stats.vue'
 
 const routes = [
   {
@@ -10,7 +9,7 @@ const routes = [
   {
     path: '/analytics',
     name: 'Analytics',
-    component: Analytics
+    component: () => import('../views/Analytics.vue')
   },
   {
     path: '/documentation',
