@@ -26,15 +26,15 @@
     },
     {
       "id": 5,
-      "name": "Alexandar James",
-      "role": "Backend Developer",
-      "imageUrl": "https://i.imgur.com/vDIfNyL.jpeg"
-    },
-    {
-      "id": 6,
       "name": "Yesmin Hernandez",
       "role": "Frontend Developer",
       "imageUrl": "https://i.imgur.com/AzVw0Bc.jpeg"
+    },
+    {
+      "id": 6,
+      "name": "Alexandar James",
+      "role": "Backend Developer",
+      "imageUrl": "https://i.imgur.com/vDIfNyL.jpeg"
     }
   ]
 } 
