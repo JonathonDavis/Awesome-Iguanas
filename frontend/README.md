@@ -2,7 +2,7 @@
 
 Iguana's GPT is a professional Database Vulnerability Management System that helps organizations identify, track, and remediate software vulnerabilities efficiently. The system uses Neo4j graph database to store and analyze complex vulnerability relationships.
 
-![Iguana's GPT](https://via.placeholder.com/1200x600/1a2942/FFFFFF?text=DataVault+Pro)
+![Iguana's GPT](https://via.placeholder.com/1200x600/1a2942/FFFFFF?text=Iguana's_GPT)
 
 ## Overview
 
