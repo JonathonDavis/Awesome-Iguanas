@@ -4,7 +4,7 @@
       <div class="logo">
         <router-link to="/" class="logo-link" custom v-slot="{ navigate }">
           <div @click="navigate" class="logo-link">
-            <img src="/database-icon.svg" alt="Iguana's GPT" class="logo-img" />
+            <img src="/dragon-svgrepo-com.svg" alt="Iguana's GPT" class="logo-img" />
             <span class="logo-text">Iguana's GPT</span>
           </div>
         </router-link>
