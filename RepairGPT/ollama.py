@@ -11,10 +11,13 @@ import time
 import shutil
 
 # Set up logging
+log_dir = "/mnt/disk-2/logs"
+os.makedirs(log_dir, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    filename=f"{log_dir}/repairgpt.log"  # Save logs to /mnt/disk-2
 )
 logger = logging.getLogger("RepairGPT")
 
@@ -30,7 +33,7 @@ class RepairGPT_OllamaLocal:
                  neo4j_user: str = "neo4j",
                  neo4j_password: str = "jaguarai",
                  ollama_model: str = "deepseek-coder:6.7b",
-                ollama_model_dir: str = "/mnt/disk-2/.ollama/models"):
+                 base_dir: str = "/mnt/disk-2"):
         """
         Initialize RepairGPT with direct Ollama process communication.
         
@@ -39,6 +42,7 @@ class RepairGPT_OllamaLocal:
             neo4j_user: Neo4j username
             neo4j_password: Neo4j password
             ollama_model: Name of the Ollama model to use
+            base_dir: Base directory for all operations
         """
         logger.info("Initializing RepairGPT with local Ollama...")
         
@@ -47,6 +51,15 @@ class RepairGPT_OllamaLocal:
         self.max_sequence_length = 2048
         self.repair_attempts = {}
         self.repair_stats = Counter()
+        self.base_dir = base_dir
+        
+        # Create required directories
+        self.temp_dir = os.path.join(self.base_dir, "temp")
+        os.makedirs(self.temp_dir, exist_ok=True)
+        
+        # Set OLLAMA_MODELS env variable to use /mnt/disk-2
+        os.environ["OLLAMA_MODELS"] = os.path.join(self.base_dir, "ollama_models")
+        os.makedirs(os.environ["OLLAMA_MODELS"], exist_ok=True)
         
         # Initialize connections
         self._init_neo4j(neo4j_uri, neo4j_user, neo4j_password)
@@ -134,10 +147,10 @@ class RepairGPT_OllamaLocal:
         """
         temp_path = None
         try:
-            # Create a temporary prompt file
-            with tempfile.NamedTemporaryFile(mode='w+', delete=False) as f:
+            # Create a temporary prompt file in our base directory
+            temp_path = os.path.join(self.temp_dir, f"prompt_{int(time.time())}.txt")
+            with open(temp_path, 'w') as f:
                 f.write(prompt)
-                temp_path = f.name
             
             logger.info(f"Running generation with model {self.ollama_model}")
             
@@ -584,18 +597,21 @@ Return ONLY the fixed code without explanations.
         
         return report
 
-    def export_results(self, results: List[Dict[str, Any]], output_dir: str = "repairs") -> str:
+    def export_results(self, results: List[Dict[str, Any]], output_dir: str = None) -> str:
         """
         Export repair results to files.
         
         Args:
             results: Repair results from repair_cycle
-            output_dir: Directory to save results
+            output_dir: Directory to save results (defaults to base_dir/repairs)
             
         Returns:
             Path to the output directory
         """
-        # Create output directory
+        # Create output directory within base_dir
+        if output_dir is None:
+            output_dir = os.path.join(self.base_dir, "repairs")
+        
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
             
@@ -638,7 +654,10 @@ Return ONLY the fixed code without explanations.
 
 def main() -> None:
     """Main execution with direct Ollama integration."""
+    # Define base directory
+    base_dir = "/mnt/disk-2"
     repair_system = None
+    
     try:
         logger.info("=== Memory Safety Repair System (Direct Ollama) ===")
         
@@ -647,15 +666,16 @@ def main() -> None:
             logger.error("Ollama not found in PATH. Please install Ollama first.")
             return
             
-        # Initialize repair system
+        # Initialize repair system with base_dir
         repair_system = RepairGPT_OllamaLocal(
-            ollama_model="deepseek-coder:6.7b"  # or "codellama:7b" for lighter option
+            ollama_model="deepseek-coder:6.7b",  # or "codellama:7b" for lighter option
+            base_dir=base_dir
         )
         
         # Run repair cycle
         results = repair_system.repair_cycle(max_attempts=2)
         
-        # Export results
+        # Export results to base_dir
         if results:
             output_dir = repair_system.export_results(results)
             logger.info(f"Repair report and patches saved to {output_dir}")
