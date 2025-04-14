@@ -43,7 +43,7 @@ class RepairGPT:
 
     def _connect_to_neo4j(self, uri, user, password):
         """Establish connection to Neo4j database."""
-        print("Connecting to Neo4j database...")
+        logger.info("Connecting to Neo4j database...")
         try:
             self.driver = GraphDatabase.driver(uri, auth=(user, password))
             
@@ -51,7 +51,7 @@ class RepairGPT:
             with self.driver.session() as session:
                 result = session.run("MATCH (n) RETURN count(n) as count")
                 count = result.single()["count"]
-                print(f"Successfully connected to Neo4j (found {count} nodes)")
+                logger.info(f"Successfully connected to Neo4j (found {count} nodes)")
                 
         except Exception as e:
             logger.error(f"Neo4j connection error: {str(e)}")
@@ -59,7 +59,7 @@ class RepairGPT:
 
     def _discover_schema(self):
         """Discover the actual schema of the connected Neo4j database."""
-        print("Discovering database schema...")
+        logger.info("Discovering database schema...")
         
         try:
             with self.driver.session() as session:
@@ -68,13 +68,13 @@ class RepairGPT:
                 labels = [record["labels"] for record in labels_result]
                 flat_labels = [label for sublist in labels for label in sublist]
                 self.db_schema["labels"] = flat_labels
-                print(f"Found node labels: {', '.join(flat_labels)}")
+                logger.info(f"Found node labels: {', '.join(flat_labels)}")
                 
                 # Get relationship types
                 rel_result = session.run("MATCH ()-[r]->() RETURN DISTINCT type(r) AS type")
                 rel_types = [record["type"] for record in rel_result]
                 self.db_schema["relationships"] = rel_types
-                print(f"Found relationship types: {', '.join(rel_types)}")
+                logger.info(f"Found relationship types: {', '.join(rel_types)}")
                 
                 # Get property keys
                 prop_result = session.run(
@@ -82,7 +82,7 @@ class RepairGPT:
                 )
                 properties = [record["key"] for record in prop_result]
                 self.db_schema["properties"] = properties
-                print(f"Found property keys: {', '.join(properties)}")
+                logger.info(f"Found property keys: {', '.join(properties)}")
                 
                 # Get a sample node to examine its structure
                 if len(flat_labels) > 0:
@@ -92,7 +92,7 @@ class RepairGPT:
                     )
                     sample = sample_result.single()
                     if sample:
-                        print(f"Sample {sample_label} node properties: {list(sample['n'].keys())}")
+                        logger.info(f"Sample {sample_label} node properties: {list(sample['n'].keys())}")
                 
         except Exception as e:
             logger.error(f"Error discovering schema: {str(e)}")
@@ -100,11 +100,11 @@ class RepairGPT:
 
     def _initialize_model(self):
         """Initialize the language model for code repair."""
-        print(f"Initializing {self.model_name} model...")
+        logger.info(f"Initializing {self.model_name} model...")
         try:
             # Determine device based on GPU availability
             device = "auto" if torch.cuda.is_available() else "cpu"
-            print(f"Using device: {device}")
+            logger.info(f"Using device: {device}")
             
             # Load model and tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
@@ -116,7 +116,7 @@ class RepairGPT:
             
             # Set padding token
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            print("Model initialization complete")
+            logger.info("Model initialization complete")
             
         except Exception as e:
             logger.error(f"Model initialization failed: {str(e)}")
@@ -128,14 +128,14 @@ class RepairGPT:
         if hasattr(self, 'driver'):
             try:
                 self.driver.close()
-                print("Neo4j connection closed")
+                logger.info("Neo4j connection closed")
             except Exception as e:
                 logger.error(f"Error closing Neo4j connection: {str(e)}")
 
         if torch.cuda.is_available():
             try:
                 torch.cuda.empty_cache()
-                print("CUDA cache cleared")
+                logger.info("CUDA cache cleared")
             except Exception as e:
                 logger.error(f"Error clearing CUDA cache: {str(e)}")
 
@@ -146,7 +146,7 @@ class RepairGPT:
         Returns:
             List of memory safety issues found in the codebase
         """
-        print("Analyzing code for memory safety issues...")
+        logger.info("Analyzing code for memory safety issues...")
 
         # Default results if queries fail
         results = []
@@ -198,7 +198,7 @@ class RepairGPT:
                     
                     if method_related_labels:
                         label = method_related_labels[0]
-                        print(f"Trying alternative node label: {label}")
+                        logger.info(f"Trying alternative node label: {label}")
                         
                         # Find the name property - could be name, methodName, etc.
                         name_properties = [
@@ -221,7 +221,7 @@ class RepairGPT:
                             try:
                                 results = session.run(query).data()
                                 if results:
-                                    print(f"Found {len(results)} potential functions using {label}.{name_prop}")
+                                    logger.info(f"Found {len(results)} potential functions using {label}.{name_prop}")
                                     
                                     # Extract node properties for each result
                                     enhanced_results = []
@@ -243,7 +243,7 @@ class RepairGPT:
                 
                 # If still no results, try a very generic query to find any code-related nodes
                 if not results:
-                    print("Trying generic code search...")
+                    logger.info("Trying generic code search...")
                     code_related_props = [
                         prop for prop in self.db_schema.get("properties", [])
                         if any(keyword in prop.lower() for keyword in 
@@ -271,7 +271,7 @@ class RepairGPT:
                             try:
                                 pattern_results = session.run(query).data()
                                 if pattern_results:
-                                    print(f"Found {len(pattern_results)} nodes containing '{pattern}'")
+                                    logger.info(f"Found {len(pattern_results)} nodes containing '{pattern}'")
                                     
                                     # Format results to match expected structure
                                     for r in pattern_results:
@@ -294,14 +294,14 @@ class RepairGPT:
 
         # Log findings
         if results:
-            print(f"Found {len(results)} potential memory safety issues")
+            logger.info(f"Found {len(results)} potential memory safety issues")
             for r in results:
                 line = r.get('line', 'unknown')
                 function = r.get('function', 'unknown')
                 code = r.get('code', 'unknown')
-                print(f"Line {line}: {function} call - {code}")
+                logger.info(f"Line {line}: {function} call - {code}")
         else:
-            print("No memory safety issues detected")
+            logger.info("No memory safety issues detected")
 
         return results
 
@@ -312,7 +312,7 @@ class RepairGPT:
         Returns:
             Dict containing analysis of code structure
         """
-        print("Analyzing codebase structure...")
+        logger.info("Analyzing codebase structure...")
 
         analysis = {
             "includes": [],
@@ -362,10 +362,10 @@ class RepairGPT:
             logger.error(f"Error analyzing codebase: {str(e)}")
 
         # Log analysis results
-        print(f"Codebase analysis complete - found {len(analysis['node_counts'])} node types")
+        logger.info(f"Codebase analysis complete - found {len(analysis['node_counts'])} node types")
         for count in analysis.get('node_counts', []):
             type_str = ', '.join(count['type']) if isinstance(count['type'], list) else count['type']
-            print(f"  {type_str}: {count['count']} nodes")
+            logger.info(f"  {type_str}: {count['count']} nodes")
 
         return analysis
 
@@ -380,7 +380,7 @@ class RepairGPT:
         Returns:
             String containing the patched code or None if generation failed
         """
-        print(f"Generating safety patch for vulnerable code")
+        logger.info(f"Generating safety patch for vulnerable code")
         
         try:
             # Create system prompt for the LLM
@@ -429,7 +429,7 @@ Return ONLY the fixed code without explanations."""
             # Decode and clean the output
             patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
             clean_patch = self._clean_patch(patch)
-            print("Patch generation successful")
+            logger.info("Patch generation successful")
             return clean_patch
 
         except torch.cuda.OutOfMemoryError:
@@ -451,7 +451,7 @@ Return ONLY the fixed code without explanations."""
             String containing the patched code or None if generation failed
         """
         try:
-            print("Falling back to CPU generation with reduced parameters")
+            logger.info("Falling back to CPU generation with reduced parameters")
             
             # Move model to CPU
             self.model = self.model.to("cpu")
@@ -488,54 +488,56 @@ Return ONLY the fixed code without explanations."""
             if torch.cuda.is_available():
                 self.model = self.model.to("cuda")
                 torch.cuda.empty_cache()
-                print("Model moved back to GPU after fallback")
-def validate_patch(self, original_code, patched_code):
-    """
-    Validate patch using static analysis and differential testing.
-    
-    Args:
-        original_code: The original vulnerable code
-        patched_code: The generated patched code
+                logger.info("Model moved back to GPU after fallback")
+
+    def validate_patch(self, original_code, patched_code):
+        """
+        Validate patch using static analysis and differential testing.
         
-    Returns:
-        Dict containing validation results
-    """
-    if patched_code is None:
-        logger.warning("Cannot validate: patch generation failed")
-        return {
-            "sanitizers_clean": False, 
-            "semantic_equivalence": False,
-            "safety_checks": {
-                "buffer_check": False,
-                "null_check": False,
-                "bounds_check": False,
-                "has_changes": False
+        Args:
+            original_code: The original vulnerable code
+            patched_code: The generated patched code
+            
+        Returns:
+            Dict containing validation results
+        """
+        if patched_code is None:
+            logger.warning("Cannot validate: patch generation failed")
+            return {
+                "sanitizers_clean": False, 
+                "semantic_equivalence": False,
+                "safety_checks": {
+                    "buffer_check": False,
+                    "null_check": False,
+                    "bounds_check": False,
+                    "has_changes": False
+                }
             }
+
+        # Step 1: Basic semantic validation using code diffs
+        diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
+        diff_lines = list(diff)
+        semantic_valid = any(line.startswith('-') for line in diff_lines)
+
+        # Step 2: Basic safety checks
+        safety_checks = {
+            "buffer_check": "sizeof" in patched_code,
+            "null_check": "NULL" in patched_code or "null" in patched_code,
+            "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]),
+            "has_changes": len(original_code) != len(patched_code)
         }
 
-    # Step 1: Basic semantic validation using code diffs
-    diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
-    diff_lines = list(diff)
-    semantic_valid = any(line.startswith('-') for line in diff_lines)
+        validation_result = {
+            "sanitizers_clean": all(safety_checks.values()),
+            "semantic_equivalence": semantic_valid,
+            "safety_checks": safety_checks
+        }
+        
+        logger.info(f"Patch validation result: sanitizers clean={validation_result['sanitizers_clean']}, "
+                f"semantic_equivalence={validation_result['semantic_equivalence']}")
+        
+        return validation_result
 
-    # Step 2: Basic safety checks
-    safety_checks = {
-        "buffer_check": "sizeof" in patched_code,
-        "null_check": "NULL" in patched_code or "null" in patched_code,
-        "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]),
-        "has_changes": len(original_code) != len(patched_code)
-    }
-
-    validation_result = {
-        "sanitizers_clean": all(safety_checks.values()),
-        "semantic_equivalence": semantic_valid,
-        "safety_checks": safety_checks
-    }
-    
-    logger.info(f"Patch validation result: sanitizers clean={validation_result['sanitizers_clean']}, "
-               f"semantic_equivalence={validation_result['semantic_equivalence']}")
-    
-    return validation_result
     def repair_cycle(self, max_attempts=3):
         """
         Full repair process with feedback loop.
@@ -546,7 +548,7 @@ def validate_patch(self, original_code, patched_code):
         Returns:
             List of repair results
         """
-        print(f"Starting repair cycle (max attempts: {max_attempts})...")
+        logger.info(f"Starting repair cycle (max attempts: {max_attempts})...")
 
         # First analyze the codebase to understand its structure
         codebase_analysis = self.analyze_codebase()
@@ -555,12 +557,12 @@ def validate_patch(self, original_code, patched_code):
         vulnerabilities = self.detect_memory_safety_issues()
 
         if not vulnerabilities:
-            print("No vulnerabilities found to repair")
+            logger.info("No vulnerabilities found to repair")
             return []
 
         results = []
         for idx, vuln in enumerate(vulnerabilities):
-            print(f"Repairing vulnerability {idx+1}/{len(vulnerabilities)} at line {vuln.get('line', 'unknown')}...")
+            logger.info(f"Repairing vulnerability {idx+1}/{len(vulnerabilities)} at line {vuln.get('line', 'unknown')}...")
             
             # Get the code and context
             original_code = vuln.get('code', '')
@@ -579,7 +581,7 @@ def validate_patch(self, original_code, patched_code):
             
             # Try multiple repair attempts
             while attempt < max_attempts and not success:
-                print(f"Attempt {attempt + 1}/{max_attempts}...")
+                logger.info(f"Attempt {attempt + 1}/{max_attempts}...")
                 
                 # Generate patch
                 patch = self.generate_safety_patch(original_code, context)
@@ -590,19 +592,23 @@ def validate_patch(self, original_code, patched_code):
                 # Store this attempt
                 self._update_failure_context(vuln, patch, validation)
                 
+                # Calculate validation score (count True values in top-level validation)
+                current_score = sum(1 for v in validation.values() if v is True and not isinstance(v, dict))
+                
                 # Check if this is the best attempt so far
                 if patch and (best_patch is None or 
-                             sum(validation.values()) > sum(best_validation.values() if best_validation else [0])):
+                            current_score > sum(1 for v in best_validation.values() if v is True and not isinstance(v, dict)) 
+                            if best_validation else 0):
                     best_patch = patch
                     best_validation = validation
                 
                 # Check if patch is valid
                 if validation.get("sanitizers_clean") and validation.get("semantic_equivalence"):
                     success = True
-                    print(f"Successfully generated valid patch on attempt {attempt + 1}")
+                    logger.info(f"Successfully generated valid patch on attempt {attempt + 1}")
                 else:
                     attempt += 1
-                    print("Patch validation failed, trying again")
+                    logger.info("Patch validation failed, trying again")
             
             # Record results
             if success:
@@ -701,7 +707,7 @@ def validate_patch(self, original_code, patched_code):
             "details": repair_results
         }
         
-        print(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
+        logger.info(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
         return report
 
 
@@ -709,7 +715,7 @@ def main():
     """Main entry point for the RepairGPT system."""
     repair_system = None
     try:
-        print("=== RepairGPT Analysis and Repair System ===")
+        logger.info("=== RepairGPT Analysis and Repair System ===")
         repair_system = RepairGPT()
 
         # Run the repair cycle
@@ -719,21 +725,21 @@ def main():
         if results:
             report = repair_system.generate_report(results)
             
-            print("\n=== Final Results ===")
-            print(f"Total issues found: {report['summary']['total_vulnerabilities']}")
-            print(f"Successfully patched: {report['summary']['successful_repairs']}")
-            print(f"Partially patched: {report['summary']['partial_repairs']}")
-            print(f"Failed to patch: {report['summary']['failed_repairs']}")
-            print(f"Success rate: {report['summary']['success_rate']*100:.1f}%")
+            logger.info("\n=== Final Results ===")
+            logger.info(f"Total issues found: {report['summary']['total_vulnerabilities']}")
+            logger.info(f"Successfully patched: {report['summary']['successful_repairs']}")
+            logger.info(f"Partially patched: {report['summary']['partial_repairs']}")
+            logger.info(f"Failed to patch: {report['summary']['failed_repairs']}")
+            logger.info(f"Success rate: {report['summary']['success_rate']*100:.1f}%")
         else:
-            print("No issues found or no repairs attempted")
+            logger.info("No issues found or no repairs attempted")
 
     except Exception as e:
         logger.error(f"Error during execution: {str(e)}", exc_info=True)
     finally:
         if repair_system is not None:
             repair_system.close()
-        print("RepairGPT execution completed")
+        logger.info("RepairGPT execution completed")
 
 
 if __name__ == "__main__":
