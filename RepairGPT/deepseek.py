@@ -130,6 +130,11 @@ class RepairGPT:
                     logger.info("Patch validation failed, trying again")
             
             # Record results
+            print("vulnerability", vuln,
+                    "patch", best_patch,
+                    "attempts", attempt + 1,
+                    "validation", best_validation,
+                    "status", "success")
             if success:
                 results.append({
                     "vulnerability": vuln,
@@ -529,7 +534,7 @@ class RepairGPT:
                 top_p=0.9,
                 pad_token_id=self.tokenizer.eos_token_id
             )
-
+            print('output',outputs)
             # Decode and clean the output
             patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
             clean_patch = self._clean_patch(patch)
