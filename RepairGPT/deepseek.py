@@ -74,7 +74,7 @@ class RepairGPT:
 
         # Then look for specific issues
         vulnerabilities = self.detect_memory_safety_issues()
-
+        print("vulnerabilities: ",vulnerabilities)
         if not vulnerabilities:
             logger.info("No vulnerabilities found to repair")
             return []
