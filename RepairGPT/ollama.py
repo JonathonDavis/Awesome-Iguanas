@@ -29,7 +29,8 @@ class RepairGPT_OllamaLocal:
                  neo4j_uri: str = "bolt://localhost:7687",
                  neo4j_user: str = "neo4j",
                  neo4j_password: str = "jaguarai",
-                 ollama_model: str = "deepseek-coder:6.7b"):
+                 ollama_model: str = "deepseek-coder:6.7b",
+                ollama_model_dir: str = "/mnt/disk-2/.ollama/models"):
         """
         Initialize RepairGPT with direct Ollama process communication.
         
