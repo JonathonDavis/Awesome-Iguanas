@@ -489,46 +489,53 @@ Return ONLY the fixed code without explanations."""
                 self.model = self.model.to("cuda")
                 torch.cuda.empty_cache()
                 print("Model moved back to GPU after fallback")
-
-    def validate_patch(self, original_code, patched_code):
-        """
-        Validate patch using static analysis and differential testing.
+def validate_patch(self, original_code, patched_code):
+    """
+    Validate patch using static analysis and differential testing.
+    
+    Args:
+        original_code: The original vulnerable code
+        patched_code: The generated patched code
         
-        Args:
-            original_code: The original vulnerable code
-            patched_code: The generated patched code
-            
-        Returns:
-            Dict containing validation results
-        """
-        if patched_code is None:
-            logger.warning("Cannot validate: patch generation failed")
-            return {"sanitizers_clean": False, "semantic_equivalence": False}
-
-        # Step 1: Basic semantic validation using code diffs
-        diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
-        diff_lines = list(diff)
-        semantic_valid = any(line.startswith('-') for line in diff_lines)
-
-        # Step 2: Basic safety checks
-        safety_checks = {
-            "buffer_check": "sizeof" in patched_code,
-            "null_check": "NULL" in patched_code or "null" in patched_code,
-            "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]),
-            "has_changes": len(original_code) != len(patched_code)
+    Returns:
+        Dict containing validation results
+    """
+    if patched_code is None:
+        logger.warning("Cannot validate: patch generation failed")
+        return {
+            "sanitizers_clean": False, 
+            "semantic_equivalence": False,
+            "safety_checks": {
+                "buffer_check": False,
+                "null_check": False,
+                "bounds_check": False,
+                "has_changes": False
+            }
         }
 
-        validation_result = {
-            "sanitizers_clean": all(safety_checks.values()),
-            "semantic_equivalence": semantic_valid,
-            "safety_checks": safety_checks
-        }
-        
-        print(f"Patch validation result: sanitizers clean={validation_result['sanitizers_clean']}, "
-                   f"semantic_equivalence={validation_result['semantic_equivalence']}")
-        
-        return validation_result
+    # Step 1: Basic semantic validation using code diffs
+    diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
+    diff_lines = list(diff)
+    semantic_valid = any(line.startswith('-') for line in diff_lines)
 
+    # Step 2: Basic safety checks
+    safety_checks = {
+        "buffer_check": "sizeof" in patched_code,
+        "null_check": "NULL" in patched_code or "null" in patched_code,
+        "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]),
+        "has_changes": len(original_code) != len(patched_code)
+    }
+
+    validation_result = {
+        "sanitizers_clean": all(safety_checks.values()),
+        "semantic_equivalence": semantic_valid,
+        "safety_checks": safety_checks
+    }
+    
+    logger.info(f"Patch validation result: sanitizers clean={validation_result['sanitizers_clean']}, "
+               f"semantic_equivalence={validation_result['semantic_equivalence']}")
+    
+    return validation_result
     def repair_cycle(self, max_attempts=3):
         """
         Full repair process with feedback loop.
