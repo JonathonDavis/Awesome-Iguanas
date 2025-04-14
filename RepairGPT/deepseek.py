@@ -56,6 +56,110 @@ class RepairGPT:
         except Exception as e:
             logger.error(f"Neo4j connection error: {str(e)}")
             raise
+    
+    def repair_cycle(self, max_attempts=3):
+        """
+        Full repair process with feedback loop.
+        
+        Args:
+            max_attempts: Maximum number of repair attempts per vulnerability
+            
+        Returns:
+            List of repair results
+        """
+        logger.info(f"Starting repair cycle (max attempts: {max_attempts})...")
+
+        # First analyze the codebase to understand its structure
+        codebase_analysis = self.analyze_codebase()
+
+        # Then look for specific issues
+        vulnerabilities = self.detect_memory_safety_issues()
+
+        if not vulnerabilities:
+            logger.info("No vulnerabilities found to repair")
+            return []
+
+        results = []
+        for idx, vuln in enumerate(vulnerabilities):
+            logger.info(f"Repairing vulnerability {idx+1}/{len(vulnerabilities)} at line {vuln.get('line', 'unknown')}...")
+            
+            # Get the code and context
+            original_code = vuln.get('code', '')
+            context = "\n".join(vuln.get('context', [])) if vuln.get('context') else ""
+            
+            # If we don't have code to repair, skip
+            if not original_code:
+                logger.warning("Skipping vulnerability - no code available")
+                continue
+            
+            # Track repair attempts
+            attempt = 0
+            success = False
+            best_patch = None
+            best_validation = None
+            
+            # Try multiple repair attempts
+            while attempt < max_attempts and not success:
+                logger.info(f"Attempt {attempt + 1}/{max_attempts}...")
+                
+                # Generate patch
+                patch = self.generate_safety_patch(original_code, context)
+                
+                # Validate the patch
+                validation = self.validate_patch(original_code, patch)
+                
+                # Store this attempt
+                self._update_failure_context(vuln, patch, validation)
+                
+                # Calculate validation score (count True values in top-level validation)
+                current_score = sum(1 for v in validation.values() if v is True and not isinstance(v, dict))
+                
+                # Check if this is the best attempt so far
+                if patch and (best_patch is None or 
+                            current_score > sum(1 for v in best_validation.values() if v is True and not isinstance(v, dict)) 
+                            if best_validation else 0):
+                    best_patch = patch
+                    best_validation = validation
+                
+                # Check if patch is valid
+                if validation.get("sanitizers_clean") and validation.get("semantic_equivalence"):
+                    success = True
+                    logger.info(f"Successfully generated valid patch on attempt {attempt + 1}")
+                else:
+                    attempt += 1
+                    logger.info("Patch validation failed, trying again")
+            
+            # Record results
+            if success:
+                results.append({
+                    "vulnerability": vuln,
+                    "patch": best_patch,
+                    "attempts": attempt + 1,
+                    "validation": best_validation,
+                    "status": "success"
+                })
+            else:
+                # Use best attempt if we have one
+                if best_patch:
+                    results.append({
+                        "vulnerability": vuln,
+                        "patch": best_patch,
+                        "attempts": max_attempts,
+                        "validation": best_validation,
+                        "status": "partial"
+                    })
+                    logger.warning(f"Generated best-effort patch after {max_attempts} attempts")
+                else:
+                    results.append({
+                        "vulnerability": vuln,
+                        "status": "failed",
+                        "attempts": attempt
+                    })
+                    logger.error(f"Failed to generate any valid patch after {max_attempts} attempts")
+
+        return results
+
+
 
     def _discover_schema(self):
         """Discover the actual schema of the connected Neo4j database."""
@@ -385,12 +489,12 @@ class RepairGPT:
         try:
             # Create system prompt for the LLM
             system_prompt = """You are a memory safety expert. Generate a secure patch considering:
-- Buffer overflow prevention
-- Proper bounds checking
-- Memory initialization
-- Pointer validation
-- Resource cleanup
-Return ONLY the fixed code without explanations."""
+            - Buffer overflow prevention
+            - Proper bounds checking
+            - Memory initialization
+            - Pointer validation
+            - Resource cleanup
+            Return ONLY the fixed code without explanations."""
 
             # Add specific guidance based on function type
             if "fgets" in vulnerable_code:
@@ -537,109 +641,6 @@ Return ONLY the fixed code without explanations."""
                 f"semantic_equivalence={validation_result['semantic_equivalence']}")
         
         return validation_result
-
-    def repair_cycle(self, max_attempts=3):
-        """
-        Full repair process with feedback loop.
-        
-        Args:
-            max_attempts: Maximum number of repair attempts per vulnerability
-            
-        Returns:
-            List of repair results
-        """
-        logger.info(f"Starting repair cycle (max attempts: {max_attempts})...")
-
-        # First analyze the codebase to understand its structure
-        codebase_analysis = self.analyze_codebase()
-
-        # Then look for specific issues
-        vulnerabilities = self.detect_memory_safety_issues()
-
-        if not vulnerabilities:
-            logger.info("No vulnerabilities found to repair")
-            return []
-
-        results = []
-        for idx, vuln in enumerate(vulnerabilities):
-            logger.info(f"Repairing vulnerability {idx+1}/{len(vulnerabilities)} at line {vuln.get('line', 'unknown')}...")
-            
-            # Get the code and context
-            original_code = vuln.get('code', '')
-            context = "\n".join(vuln.get('context', [])) if vuln.get('context') else ""
-            
-            # If we don't have code to repair, skip
-            if not original_code:
-                logger.warning("Skipping vulnerability - no code available")
-                continue
-            
-            # Track repair attempts
-            attempt = 0
-            success = False
-            best_patch = None
-            best_validation = None
-            
-            # Try multiple repair attempts
-            while attempt < max_attempts and not success:
-                logger.info(f"Attempt {attempt + 1}/{max_attempts}...")
-                
-                # Generate patch
-                patch = self.generate_safety_patch(original_code, context)
-                
-                # Validate the patch
-                validation = self.validate_patch(original_code, patch)
-                
-                # Store this attempt
-                self._update_failure_context(vuln, patch, validation)
-                
-                # Calculate validation score (count True values in top-level validation)
-                current_score = sum(1 for v in validation.values() if v is True and not isinstance(v, dict))
-                
-                # Check if this is the best attempt so far
-                if patch and (best_patch is None or 
-                            current_score > sum(1 for v in best_validation.values() if v is True and not isinstance(v, dict)) 
-                            if best_validation else 0):
-                    best_patch = patch
-                    best_validation = validation
-                
-                # Check if patch is valid
-                if validation.get("sanitizers_clean") and validation.get("semantic_equivalence"):
-                    success = True
-                    logger.info(f"Successfully generated valid patch on attempt {attempt + 1}")
-                else:
-                    attempt += 1
-                    logger.info("Patch validation failed, trying again")
-            
-            # Record results
-            if success:
-                results.append({
-                    "vulnerability": vuln,
-                    "patch": best_patch,
-                    "attempts": attempt + 1,
-                    "validation": best_validation,
-                    "status": "success"
-                })
-            else:
-                # Use best attempt if we have one
-                if best_patch:
-                    results.append({
-                        "vulnerability": vuln,
-                        "patch": best_patch,
-                        "attempts": max_attempts,
-                        "validation": best_validation,
-                        "status": "partial"
-                    })
-                    logger.warning(f"Generated best-effort patch after {max_attempts} attempts")
-                else:
-                    results.append({
-                        "vulnerability": vuln,
-                        "status": "failed",
-                        "attempts": attempt
-                    })
-                    logger.error(f"Failed to generate any valid patch after {max_attempts} attempts")
-
-        return results
-
     def _clean_patch(self, patch):
         """
         Remove markdown formatting from generated patch.
