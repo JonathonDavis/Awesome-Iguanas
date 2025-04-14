@@ -677,7 +677,7 @@ def main() -> None:
             print("No vulnerabilities found or repaired")
         
     except Exception as e:
-        print(f"Fatal error: {str(e)}", exc_info=True)
+        print(f"Fatal error: {str(e)}")
     finally:
         if repair_system:
             repair_system.close()
