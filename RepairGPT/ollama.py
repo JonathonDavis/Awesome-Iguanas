@@ -13,13 +13,7 @@ import shutil
 # Set up logging
 log_dir = "/mnt/disk-2/logs"
 os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    filename=f"{log_dir}/repairgpt.log"  # Save logs to /mnt/disk-2
-)
-logger = logging.getLogger("RepairGPT")
+
 
 
 class RepairGPT_OllamaLocal:
@@ -44,7 +38,7 @@ class RepairGPT_OllamaLocal:
             ollama_model: Name of the Ollama model to use
             base_dir: Base directory for all operations
         """
-        logger.info("Initializing RepairGPT with local Ollama...")
+        print("Initializing RepairGPT with local Ollama...")
         
         # Store configuration
         self.ollama_model = ollama_model
@@ -77,7 +71,7 @@ class RepairGPT_OllamaLocal:
         Raises:
             RuntimeError: If Neo4j connection fails
         """
-        logger.info("Connecting to Neo4j database...")
+        print("Connecting to Neo4j database...")
         try:
             self.driver = GraphDatabase.driver(uri, auth=(user, password))
             
@@ -85,9 +79,9 @@ class RepairGPT_OllamaLocal:
             with self.driver.session() as session:
                 result = session.run("MATCH (n) RETURN count(n) as count")
                 count = result.single()["count"]
-                logger.info(f"Connected to Neo4j (found {count} nodes)")
+                print(f"Connected to Neo4j (found {count} nodes)")
         except Exception as e:
-            logger.error(f"Neo4j connection error: {str(e)}")
+            print(f"Neo4j connection error: {str(e)}")
             raise RuntimeError(f"Neo4j connection failed: {str(e)}")
 
     def _verify_ollama_installation(self) -> None:
@@ -97,7 +91,7 @@ class RepairGPT_OllamaLocal:
         Raises:
             RuntimeError: If Ollama is not installed or model cannot be pulled
         """
-        logger.info(f"Verifying Ollama installation and {self.ollama_model} availability...")
+        print(f"Verifying Ollama installation and {self.ollama_model} availability...")
         try:
             # Check if Ollama is installed
             result = subprocess.run(
@@ -108,7 +102,7 @@ class RepairGPT_OllamaLocal:
             if result.returncode != 0:
                 raise RuntimeError("Ollama not installed or not in PATH")
             
-            logger.info(f"Found Ollama: {result.stdout.strip()}")
+            print(f"Found Ollama: {result.stdout.strip()}")
             
             # Check if model exists locally
             result = subprocess.run(
@@ -118,7 +112,7 @@ class RepairGPT_OllamaLocal:
             )
             
             if self.ollama_model not in result.stdout:
-                logger.info(f"Model {self.ollama_model} not found, pulling...")
+                print(f"Model {self.ollama_model} not found, pulling...")
                 pull_result = subprocess.run(
                     ["ollama", "pull", self.ollama_model], 
                     capture_output=True,
@@ -126,9 +120,9 @@ class RepairGPT_OllamaLocal:
                 )
                 if pull_result.returncode != 0:
                     raise RuntimeError(f"Failed to pull model: {pull_result.stderr}")
-                logger.info(f"Successfully pulled {self.ollama_model}")
+                print(f"Successfully pulled {self.ollama_model}")
             else:
-                logger.info(f"Model {self.ollama_model} already available")
+                print(f"Model {self.ollama_model} already available")
                 
         except FileNotFoundError:
             raise RuntimeError("Ollama not found. Please install Ollama first.")
@@ -152,7 +146,7 @@ class RepairGPT_OllamaLocal:
             with open(temp_path, 'w') as f:
                 f.write(prompt)
             
-            logger.info(f"Running generation with model {self.ollama_model}")
+            print(f"Running generation with model {self.ollama_model}")
             
             # Run Ollama directly
             cmd = [
@@ -171,20 +165,20 @@ class RepairGPT_OllamaLocal:
             )
             
             generation_time = time.time() - start_time
-            logger.info(f"Generation completed in {generation_time:.2f}s")
+            print(f"Generation completed in {generation_time:.2f}s")
             
             if result.returncode == 0:
                 return result.stdout.strip()
             else:
-                logger.error(f"Ollama generation failed with return code {result.returncode}")
-                logger.error(f"stderr: {result.stderr}")
+                print(f"Ollama generation failed with return code {result.returncode}")
+                print(f"stderr: {result.stderr}")
                 return None
             
         except subprocess.TimeoutExpired:
-            logger.error("Ollama generation timed out after 3 minutes")
+            print("Ollama generation timed out after 3 minutes")
             return None
         except Exception as e:
-            logger.error(f"Generation failed: {str(e)}")
+            print(f"Generation failed: {str(e)}")
             return None
         finally:
             # Clean up temp file
@@ -198,7 +192,7 @@ class RepairGPT_OllamaLocal:
         Returns:
             List of memory safety issues found in the codebase
         """
-        logger.info("Analyzing code for memory safety issues...")
+        print("Analyzing code for memory safety issues...")
 
         # Query for potentially unsafe memory functions
         query = """
@@ -223,11 +217,11 @@ class RepairGPT_OllamaLocal:
 
         # Log findings
         if results:
-            logger.info(f"Found {len(results)} potential memory safety issues")
+            print(f"Found {len(results)} potential memory safety issues")
             for r in results:
-                logger.info(f"File: {r.get('file', 'unknown')}, Line {r['line']}: {r['function']} call")
+                print(f"File: {r.get('file', 'unknown')}, Line {r['line']}: {r['function']} call")
         else:
-            logger.info("No memory safety issues detected")
+            print("No memory safety issues detected")
 
         return results
 
@@ -238,7 +232,7 @@ class RepairGPT_OllamaLocal:
         Returns:
             Dict containing analysis of includes and function calls
         """
-        logger.info("Analyzing codebase structure...")
+        print("Analyzing codebase structure...")
 
         queries = {
             "includes": """
@@ -269,14 +263,14 @@ class RepairGPT_OllamaLocal:
 
         # Log analysis results
         if analysis.get('files'):
-            logger.info(f"Found {len(analysis['files'])} source files")
+            print(f"Found {len(analysis['files'])} source files")
         
         if analysis.get('includes'):
-            logger.info(f"Found {len(analysis['includes'])} project dependencies")
+            print(f"Found {len(analysis['includes'])} project dependencies")
         
         if analysis.get('function_calls'):
             top_functions = ", ".join([f"{c['function']}" for c in analysis['function_calls'][:5]])
-            logger.info(f"Top functions by usage: {top_functions}")
+            print(f"Top functions by usage: {top_functions}")
 
         return analysis
 
@@ -295,7 +289,7 @@ class RepairGPT_OllamaLocal:
         Returns:
             String containing the patched code or None if generation failed
         """
-        logger.info(f"Generating patch for code using {function_name}")
+        print(f"Generating patch for code using {function_name}")
         
         # Customize system prompt based on function
         system_prompt = """[INST] <<SYS>>
@@ -385,7 +379,7 @@ Return ONLY the fixed code without explanations.
             Dict containing validation results
         """
         if not patched_code:
-            logger.warning("Cannot validate: patch generation failed")
+            print("Cannot validate: patch generation failed")
             return {"sanitizers_clean": False, "semantic_change": False}
 
         # Step 1: Basic semantic validation using code diffs
@@ -408,7 +402,7 @@ Return ONLY the fixed code without explanations.
             "has_basic_protections": "if" in patched_code and not "if" in original_code
         }
         
-        logger.info(f"Patch validation: sanitizers={validation_result['sanitizers_clean']}, "
+        print(f"Patch validation: sanitizers={validation_result['sanitizers_clean']}, "
                    f"semantic_change={validation_result['semantic_change']}")
         
         return validation_result
@@ -423,7 +417,7 @@ Return ONLY the fixed code without explanations.
         Returns:
             List of repair results
         """
-        logger.info(f"Starting repair cycle (max attempts: {max_attempts})...")
+        print(f"Starting repair cycle (max attempts: {max_attempts})...")
 
         # First analyze the codebase
         self.analyze_codebase()
@@ -432,12 +426,12 @@ Return ONLY the fixed code without explanations.
         vulnerabilities = self.detect_memory_safety_issues()
 
         if not vulnerabilities:
-            logger.info("No vulnerabilities found to repair")
+            print("No vulnerabilities found to repair")
             return []
 
         results = []
         for idx, vuln in enumerate(vulnerabilities, 1):
-            logger.info(f"Repairing vulnerability {idx}/{len(vulnerabilities)} at line {vuln['line']}...")
+            print(f"Repairing vulnerability {idx}/{len(vulnerabilities)} at line {vuln['line']}...")
             
             # Extract vulnerability details
             original_code = vuln['code']
@@ -452,7 +446,7 @@ Return ONLY the fixed code without explanations.
             
             # Try multiple repair attempts
             while attempt < max_attempts and not success:
-                logger.info(f"Attempt {attempt + 1}/{max_attempts}...")
+                print(f"Attempt {attempt + 1}/{max_attempts}...")
                 
                 # Generate patch
                 patch = self.generate_safety_patch(
@@ -477,10 +471,10 @@ Return ONLY the fixed code without explanations.
                 if validation.get("sanitizers_clean") and validation.get("semantic_change"):
                     success = True
                     self.repair_stats["success"] += 1
-                    logger.info(f"Successfully generated valid patch on attempt {attempt + 1}")
+                    print(f"Successfully generated valid patch on attempt {attempt + 1}")
                 else:
                     attempt += 1
-                    logger.info("Patch validation failed, trying again")
+                    print("Patch validation failed, trying again")
             
             # Record results
             if success:
@@ -502,7 +496,7 @@ Return ONLY the fixed code without explanations.
                         "validation": best_validation,
                         "status": "partial"
                     })
-                    logger.warning(f"Generated best-effort patch after {max_attempts} attempts")
+                    print(f"Generated best-effort patch after {max_attempts} attempts")
                 else:
                     self.repair_stats["failed"] += 1
                     results.append({
@@ -510,7 +504,7 @@ Return ONLY the fixed code without explanations.
                         "status": "failed",
                         "attempts": attempt
                     })
-                    logger.error(f"Failed to generate any valid patch after {max_attempts} attempts")
+                    print(f"Failed to generate any valid patch after {max_attempts} attempts")
 
         return results
 
@@ -592,8 +586,8 @@ Return ONLY the fixed code without explanations.
             "stats": dict(self.repair_stats)
         }
         
-        logger.info(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
-        logger.info(f"Success rate: {report['summary']['success_rate']}%")
+        print(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
+        print(f"Success rate: {report['summary']['success_rate']}%")
         
         return report
 
@@ -639,7 +633,7 @@ Return ONLY the fixed code without explanations.
                     f.write(f"Original:\n{vuln['code']}\n\n")
                     f.write(f"Patched:\n{result['patch']}\n")
                     
-        logger.info(f"Exported results to {output_dir}")
+        print(f"Exported results to {output_dir}")
         return output_dir
 
     def close(self) -> None:
@@ -647,9 +641,9 @@ Return ONLY the fixed code without explanations.
         if hasattr(self, 'driver'):
             try:
                 self.driver.close()
-                logger.info("Neo4j connection closed")
+                print("Neo4j connection closed")
             except Exception as e:
-                logger.error(f"Error closing Neo4j: {str(e)}")
+                print(f"Error closing Neo4j: {str(e)}")
 
 
 def main() -> None:
@@ -659,11 +653,11 @@ def main() -> None:
     repair_system = None
     
     try:
-        logger.info("=== Memory Safety Repair System (Direct Ollama) ===")
+        print("=== Memory Safety Repair System (Direct Ollama) ===")
         
         # Check Ollama availability
         if not shutil.which("ollama"):
-            logger.error("Ollama not found in PATH. Please install Ollama first.")
+            print("Ollama not found in PATH. Please install Ollama first.")
             return
             
         # Initialize repair system with base_dir
@@ -678,16 +672,16 @@ def main() -> None:
         # Export results to base_dir
         if results:
             output_dir = repair_system.export_results(results)
-            logger.info(f"Repair report and patches saved to {output_dir}")
+            print(f"Repair report and patches saved to {output_dir}")
         else:
-            logger.info("No vulnerabilities found or repaired")
+            print("No vulnerabilities found or repaired")
         
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}", exc_info=True)
+        print(f"Fatal error: {str(e)}", exc_info=True)
     finally:
         if repair_system:
             repair_system.close()
-        logger.info("System shutdown complete")
+        print("System shutdown complete")
 
 
 if __name__ == "__main__":
