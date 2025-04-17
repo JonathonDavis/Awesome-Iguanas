@@ -237,7 +237,7 @@ def main():
     neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
     neo4j_password = os.environ.get("NEO4J_PASSWORD", "password")
     model_name = os.environ.get("MODEL_NAME", "deepseek-ai/deepseek-coder-1.3b-instruct")
-    severity_threshold = float(os.environ.get("SEVERITY_THRESHOLD", "5.0"))
+    severity_threshold = float(os.environ.get("SEVERITY_THRESHOLD", "2.0"))
     
     repair_gpt = RepairGPT(
         neo4j_uri=neo4j_uri,
