@@ -1,9 +1,16 @@
 from neo4j import GraphDatabase
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
-import difflib
-from collections import Counter
 import logging
+import json
+import os
+import re
+import requests
+from urllib.parse import urlparse
+from tempfile import TemporaryDirectory
+import subprocess
+from pathlib import Path
+import time
 
 # Set up logging
 logging.basicConfig(
@@ -16,13 +23,15 @@ logger = logging.getLogger("RepairGPT")
 
 class RepairGPT:
     """
-    A system that uses Neo4j graph database and LLMs to detect and repair memory safety issues in code.
+    A system that uses Neo4j vulnerability database and LLMs to generate security advisories
+    and suggest patches for memory safety issues.
     """
     
     def __init__(self, neo4j_uri="bolt://localhost:7687",
                  neo4j_user="neo4j",
                  neo4j_password="jaguarai",
-                 model_name="deepseek-ai/deepseek-coder-1.3b-instruct"):
+                 model_name="deepseek-ai/deepseek-coder-1.3b-instruct",
+                 github_token=None):
         """
         Initialize RepairGPT with Neo4j connection and Deepseek Coder model.
         
@@ -31,19 +40,20 @@ class RepairGPT:
             neo4j_user: Neo4j username
             neo4j_password: Neo4j password
             model_name: Name of the Hugging Face model to use
+            github_token: Optional GitHub API token for fetching repository code
         """
         self.model_name = model_name
-        self.repair_attempts = {}
         self.max_sequence_length = 2048
         self.db_schema = {}
+        self.github_token = github_token or os.environ.get("GITHUB_TOKEN")
         
         self._connect_to_neo4j(neo4j_uri, neo4j_user, neo4j_password)
-        self._discover_schema()  # New method to discover actual schema
+        self._discover_schema()
         self._initialize_model()
 
     def _connect_to_neo4j(self, uri, user, password):
         """Establish connection to Neo4j database."""
-        logger.info("Connecting to Neo4j database...")
+        logger.info("Connecting to Neo4j vulnerability database...")
         try:
             self.driver = GraphDatabase.driver(uri, auth=(user, password))
             
@@ -56,119 +66,10 @@ class RepairGPT:
         except Exception as e:
             logger.error(f"Neo4j connection error: {str(e)}")
             raise
-    
-    def repair_cycle(self, max_attempts=3):
-        """
-        Full repair process with feedback loop.
-        
-        Args:
-            max_attempts: Maximum number of repair attempts per vulnerability
-            
-        Returns:
-            List of repair results
-        """
-        logger.info(f"Starting repair cycle (max attempts: {max_attempts})...")
-
-        # First analyze the codebase to understand its structure
-        codebase_analysis = self.analyze_codebase()
-
-        # Then look for specific issues
-        vulnerabilities = self.detect_memory_safety_issues()
-        print("vulnerabilities: ",vulnerabilities)
-        if not vulnerabilities:
-            logger.info("No vulnerabilities found to repair")
-            return []
-
-        results = []
-        for idx, vuln in enumerate(vulnerabilities):
-            logger.info(f"Repairing vulnerability {idx+1}/{len(vulnerabilities)} at line {vuln.get('line', 'unknown')}...")
-            
-            # Get the code and context
-            original_code = vuln.get('code', '')
-            context = "\n".join(vuln.get('context', [])) if vuln.get('context') else ""
-            
-            # If we don't have code to repair, skip
-            if not original_code:
-                logger.warning("Skipping vulnerability - no code available")
-                continue
-            
-            # Track repair attempts
-            attempt = 0
-            success = False
-            best_patch = None
-            best_validation = None
-            
-            # Try multiple repair attempts
-            while attempt < max_attempts and not success:
-                logger.info(f"Attempt {attempt + 1}/{max_attempts}...")
-                
-                # Generate patch
-                patch = self.generate_safety_patch(original_code, context)
-                
-                # Validate the patch
-                validation = self.validate_patch(original_code, patch)
-                
-                # Store this attempt
-                self._update_failure_context(vuln, patch, validation)
-                
-                # Calculate validation score (count True values in top-level validation)
-                current_score = sum(1 for v in validation.values() if v is True and not isinstance(v, dict))
-                
-                # Check if this is the best attempt so far
-                if patch and (best_patch is None or 
-                            current_score > sum(1 for v in best_validation.values() if v is True and not isinstance(v, dict)) 
-                            if best_validation else 0):
-                    best_patch = patch
-                    best_validation = validation
-                
-                # Check if patch is valid
-                if validation.get("sanitizers_clean") and validation.get("semantic_equivalence"):
-                    success = True
-                    logger.info(f"Successfully generated valid patch on attempt {attempt + 1}")
-                else:
-                    attempt += 1
-                    logger.info("Patch validation failed, trying again")
-            
-            # Record results
-            print("vulnerability", vuln,
-                    "patch", best_patch,
-                    "attempts", attempt + 1,
-                    "validation", best_validation,
-                    "status", "success")
-            if success:
-                results.append({
-                    "vulnerability": vuln,
-                    "patch": best_patch,
-                    "attempts": attempt + 1,
-                    "validation": best_validation,
-                    "status": "success"
-                })
-            else:
-                # Use best attempt if we have one
-                if best_patch:
-                    results.append({
-                        "vulnerability": vuln,
-                        "patch": best_patch,
-                        "attempts": max_attempts,
-                        "validation": best_validation,
-                        "status": "partial"
-                    })
-                    logger.warning(f"Generated best-effort patch after {max_attempts} attempts")
-                else:
-                    results.append({
-                        "vulnerability": vuln,
-                        "status": "failed",
-                        "attempts": attempt
-                    })
-                    logger.error(f"Failed to generate any valid patch after {max_attempts} attempts")
-
-        return results
-
-
 
     def _discover_schema(self):
         """Discover the actual schema of the connected Neo4j database."""
-        logger.info("Discovering database schema...")
+        logger.info("Discovering vulnerability database schema...")
         
         try:
             with self.driver.session() as session:
@@ -193,22 +94,21 @@ class RepairGPT:
                 self.db_schema["properties"] = properties
                 logger.info(f"Found property keys: {', '.join(properties)}")
                 
-                # Get a sample node to examine its structure
-                if len(flat_labels) > 0:
-                    sample_label = flat_labels[0]
+                # Get sample nodes to understand structure better
+                for label in flat_labels[:3]:  # Sample first 3 labels
                     sample_result = session.run(
-                        f"MATCH (n:{sample_label}) RETURN n LIMIT 1"
+                        f"MATCH (n:{label}) RETURN n LIMIT 1"
                     )
                     sample = sample_result.single()
                     if sample:
-                        logger.info(f"Sample {sample_label} node properties: {list(sample['n'].keys())}")
+                        logger.info(f"Sample {label} node properties: {list(sample['n'].keys())}")
                 
         except Exception as e:
             logger.error(f"Error discovering schema: {str(e)}")
-            logger.warning("Will proceed with default schema assumptions, but queries may fail")
+            self.db_schema = {}
 
     def _initialize_model(self):
-        """Initialize the language model for code repair."""
+        """Initialize the language model for advisory generation."""
         logger.info(f"Initializing {self.model_name} model...")
         try:
             # Determine device based on GPU availability
@@ -223,8 +123,10 @@ class RepairGPT:
                 trust_remote_code=True
             )
             
-            # Set padding token
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            # Set padding token (properly this time)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                
             logger.info("Model initialization complete")
             
         except Exception as e:
@@ -248,472 +150,583 @@ class RepairGPT:
             except Exception as e:
                 logger.error(f"Error clearing CUDA cache: {str(e)}")
 
-    def detect_memory_safety_issues(self):
+    def get_top_vulnerabilities(self, limit=10, min_severity=7.0):
         """
-        Query Neo4j to detect memory safety issues using adaptive queries based on discovered schema.
-        
-        Returns:
-            List of memory safety issues found in the codebase
-        """
-        logger.info("Analyzing code for memory safety issues...")
-
-        # Default results if queries fail
-        results = []
-        
-        try:
-            with self.driver.session() as session:
-                # Try different query patterns based on discovered schema
-                if "CALL" in self.db_schema.get("labels", []):
-                    # Try original query first
-                    try:
-                        query = """
-                        MATCH (c:CALL)
-                        WHERE c.METHOD_FULL_NAME IN [
-                            'malloc', 'free', 'strcpy', 'strncpy', 'sprintf',
-                            'gets', 'memcpy', 'realloc', 'alloca', 'fgets'
-                        ]
-                        OPTIONAL MATCH (c)-[:AST*]->(b:BLOCK)
-                        OPTIONAL MATCH (c)-[:CONTAINS]->(param:IDENTIFIER)
-                        RETURN c.METHOD_FULL_NAME as function,
-                               c.CODE as code,
-                               c.LINE_NUMBER as line,
-                               collect(DISTINCT b.CODE) as context,
-                               collect(DISTINCT param.CODE) as parameters
-                        """
-                        results = session.run(query).data()
-                    except Exception as e:
-                        logger.warning(f"Original query failed: {str(e)}")
-                        # Fallback to simpler query
-                        query = """
-                        MATCH (c:CALL)
-                        RETURN c.METHOD_FULL_NAME as function,
-                               c.CODE as code,
-                               c.LINE_NUMBER as line
-                        LIMIT 10
-                        """
-                        try:
-                            results = session.run(query).data()
-                        except:
-                            logger.warning("Fallback query also failed")
-                
-                # If we couldn't find CALL nodes, try looking for methods/functions with any available label
-                if not results:
-                    # Look for nodes that might represent function calls
-                    method_related_labels = [
-                        label for label in self.db_schema.get("labels", [])
-                        if any(keyword in label.lower() for keyword in 
-                              ["call", "method", "function", "invocation"])
-                    ]
-                    
-                    if method_related_labels:
-                        label = method_related_labels[0]
-                        logger.info(f"Trying alternative node label: {label}")
-                        
-                        # Find the name property - could be name, methodName, etc.
-                        name_properties = [
-                            prop for prop in self.db_schema.get("properties", [])
-                            if any(keyword in prop.lower() for keyword in 
-                                  ["name", "method", "function", "code"])
-                        ]
-                        
-                        if name_properties:
-                            name_prop = name_properties[0]
-                            query = f"""
-                            MATCH (c:{label})
-                            WHERE c.{name_prop} IS NOT NULL
-                            RETURN c.{name_prop} as function, 
-                                   c as node,
-                                   id(c) as id
-                            LIMIT 10
-                            """
-                            
-                            try:
-                                results = session.run(query).data()
-                                if results:
-                                    logger.info(f"Found {len(results)} potential functions using {label}.{name_prop}")
-                                    
-                                    # Extract node properties for each result
-                                    enhanced_results = []
-                                    for r in results:
-                                        node_props = dict(r["node"])
-                                        enhanced_results.append({
-                                            "function": r["function"],
-                                            "id": r["id"],
-                                            "properties": node_props,
-                                            # Add these for compatibility with original code
-                                            "code": node_props.get("code", "Unknown"),
-                                            "line": node_props.get("lineNumber", 0),
-                                            "context": [],
-                                            "parameters": []
-                                        })
-                                    results = enhanced_results
-                            except Exception as e:
-                                logger.warning(f"Alternative query failed: {str(e)}")
-                
-                # If still no results, try a very generic query to find any code-related nodes
-                if not results:
-                    logger.info("Trying generic code search...")
-                    code_related_props = [
-                        prop for prop in self.db_schema.get("properties", [])
-                        if any(keyword in prop.lower() for keyword in 
-                              ["code", "text", "source", "content"])
-                    ]
-                    
-                    if code_related_props:
-                        code_prop = code_related_props[0]
-                        dangerous_patterns = [
-                            "malloc(", "free(", "strcpy(", "memcpy(", "sprintf(",
-                            "gets(", "fgets(", "realloc(", "alloca("
-                        ]
-                        
-                        for pattern in dangerous_patterns:
-                            query = f"""
-                            MATCH (n)
-                            WHERE n.{code_prop} CONTAINS '{pattern}'
-                            RETURN n.{code_prop} as code, 
-                                   id(n) as id,
-                                   labels(n) as labels,
-                                   n as node
-                            LIMIT 5 
-                            """
-                            
-                            try:
-                                pattern_results = session.run(query).data()
-                                if pattern_results:
-                                    logger.info(f"Found {len(pattern_results)} nodes containing '{pattern}'")
-                                    
-                                    # Format results to match expected structure
-                                    for r in pattern_results:
-                                        node_props = dict(r["node"])
-                                        results.append({
-                                            "function": pattern,
-                                            "code": r["code"],
-                                            "line": node_props.get("lineNumber", 0),
-                                            "id": r["id"],
-                                            "labels": r["labels"],
-                                            "context": [],
-                                            "parameters": []
-                                        })
-                            except Exception as e:
-                                logger.warning(f"Pattern search failed for '{pattern}': {str(e)}")
-
-        except Exception as e:
-            logger.error(f"Error in memory safety analysis: {str(e)}")
-            return []
-
-        # Log findings
-        if results:
-            logger.info(f"Found {len(results)} potential memory safety issues")
-            for r in results:
-                line = r.get('line', 'unknown')
-                function = r.get('function', 'unknown')
-                code = r.get('code', 'unknown')
-                logger.info(f"Line {line}: {function} call - {code}")
-        else:
-            logger.info("No memory safety issues detected")
-
-        return results
-
-    def analyze_codebase(self):
-        """
-        Analyze overall codebase structure from Neo4j using discovered schema.
-        
-        Returns:
-            Dict containing analysis of code structure
-        """
-        logger.info("Analyzing codebase structure...")
-
-        analysis = {
-            "includes": [],
-            "function_calls": [],
-            "schema": self.db_schema
-        }
-        
-        try:
-            with self.driver.session() as session:
-                # Count node types
-                query = "MATCH (n) RETURN labels(n) as type, count(*) as count ORDER BY count DESC LIMIT 10"
-                node_counts = session.run(query).data()
-                analysis["node_counts"] = node_counts
-                
-                # Try to find includes/imports if relevant labels exist
-                import_labels = [
-                    label for label in self.db_schema.get("labels", [])
-                    if any(keyword in label.lower() for keyword in ["import", "include"])
-                ]
-                
-                if import_labels:
-                    label = import_labels[0]
-                    query = f"MATCH (i:{label}) RETURN i as import LIMIT 10"
-                    try:
-                        imports = session.run(query).data()
-                        analysis["includes"] = [dict(i["import"]) for i in imports]
-                    except Exception as e:
-                        logger.warning(f"Import query failed: {str(e)}")
-                
-                # Try to find function calls
-                function_labels = [
-                    label for label in self.db_schema.get("labels", [])
-                    if any(keyword in label.lower() for keyword in 
-                          ["function", "method", "call", "procedure"])
-                ]
-                
-                if function_labels:
-                    label = function_labels[0]
-                    query = f"MATCH (f:{label}) RETURN labels(f) as type, count(*) as count LIMIT 10"
-                    try:
-                        functions = session.run(query).data()
-                        analysis["function_calls"] = functions
-                    except Exception as e:
-                        logger.warning(f"Function query failed: {str(e)}")
-                        
-        except Exception as e:
-            logger.error(f"Error analyzing codebase: {str(e)}")
-
-        # Log analysis results
-        logger.info(f"Codebase analysis complete - found {len(analysis['node_counts'])} node types")
-        for count in analysis.get('node_counts', []):
-            type_str = ', '.join(count['type']) if isinstance(count['type'], list) else count['type']
-            logger.info(f"  {type_str}: {count['count']} nodes")
-
-        return analysis
-
-    def generate_safety_patch(self, vulnerable_code, context):
-        """
-        Generate a memory-safe patch using Deepseek Coder.
+        Query the vulnerability database for high-severity issues.
         
         Args:
-            vulnerable_code: The code containing the vulnerability
-            context: Surrounding code context for better understanding
+            limit: Maximum number of vulnerabilities to return
+            min_severity: Minimum severity score threshold
             
         Returns:
-            String containing the patched code or None if generation failed
+            List of vulnerability records
         """
-        logger.info(f"Generating safety patch for vulnerable code")
+        logger.info(f"Finding top vulnerabilities with severity >= {min_severity}...")
+        
+        vulnerabilities = []
+        try:
+            with self.driver.session() as session:
+                # Check if we have severity_score property
+                has_severity_score = "severity_score" in self.db_schema.get("properties", [])
+                severity_field = "severity_score" if has_severity_score else "severity"
+                
+                # Construct appropriate query based on schema
+                query = f"""
+                MATCH (v:Vulnerability)
+                WHERE v.{severity_field} IS NOT NULL AND v.{severity_field} >= $min_severity
+                RETURN 
+                    v.{severity_field} AS severity,
+                    v.id AS id,
+                    v.summary AS summary,
+                    v.details AS details,
+                    elementId(v) AS elementId,
+                    v.headline AS headline
+                ORDER BY v.{severity_field} DESC
+                LIMIT $limit
+                """
+                
+                results = session.run(query, min_severity=min_severity, limit=limit)
+                
+                for record in results:
+                    vuln = {k: v for k, v in record.items()}
+                    vulnerabilities.append(vuln)
+                    
+                logger.info(f"Found {len(vulnerabilities)} high-severity vulnerabilities")
+                
+                # Enrich with function data if available
+                for vuln in vulnerabilities:
+                    vuln["functions"] = self._get_affected_functions(vuln["elementId"], session)
+                    vuln["cves"] = self._get_related_cves(vuln["elementId"], session)
+                    vuln["repos"] = self._get_affected_repos(vuln["elementId"], session)
+                
+        except Exception as e:
+            logger.error(f"Error retrieving vulnerabilities: {str(e)}")
+        
+        return vulnerabilities
+
+    def _get_affected_functions(self, vuln_id, session):
+        """Get functions affected by this vulnerability."""
+        functions = []
+        try:
+            query = """
+            MATCH (v)-[:CONCERNS_FUNCTION]->(f:Function)
+            WHERE elementId(v) = $id
+            RETURN f.name AS name
+            LIMIT 5
+            """
+            results = session.run(query, id=vuln_id)
+            functions = [record["name"] for record in results]
+        except Exception as e:
+            logger.error(f"Error retrieving affected functions: {str(e)}")
+        return functions
+
+    def _get_related_cves(self, vuln_id, session):
+        """Get CVEs associated with this vulnerability."""
+        cves = []
+        try:
+            query = """
+            MATCH (v)-[:IDENTIFIED_AS]->(c:CVE)
+            WHERE elementId(v) = $id
+            RETURN c.cve AS cve, c.published AS published
+            """
+            results = session.run(query, id=vuln_id)
+            cves = [{"cve": record["cve"], "published": record["published"]} for record in results]
+        except Exception as e:
+            logger.error(f"Error retrieving CVEs: {str(e)}")
+        return cves
+
+    def _get_affected_repos(self, vuln_id, session):
+        """Get repositories affected by this vulnerability."""
+        repos = []
+        try:
+            query = """
+            MATCH (v)-[:FOUND_IN]->(r:Repository)
+            WHERE elementId(v) = $id
+            RETURN r.name AS name, r.url AS url
+            LIMIT 5
+            """
+            results = session.run(query, id=vuln_id)
+            repos = [{"name": record["name"], "url": record["url"]} for record in results]
+        except Exception as e:
+            logger.error(f"Error retrieving repositories: {str(e)}")
+        return repos
+
+    def analyze_security_pattern(self, vulnerability):
+        """
+        Analyze vulnerability to identify security pattern and vulnerability class.
+        
+        Args:
+            vulnerability: Vulnerability data from Neo4j
+            
+        Returns:
+            Dictionary with security pattern analysis
+        """
+        logger.info(f"Analyzing security pattern for vulnerability {vulnerability.get('id')}")
+        
+        # Combine all relevant vulnerability information
+        vuln_text = f"""
+        ID: {vulnerability.get('id', 'Unknown')}
+        Headline: {vulnerability.get('headline', 'Unknown')}
+        Summary: {vulnerability.get('summary', 'Unknown')}
+        Details: {vulnerability.get('details', 'Unknown')}
+        Severity: {vulnerability.get('severity', 'Unknown')}
+        Affected Functions: {', '.join(vulnerability.get('functions', []))}
+        """
+        
+        # Prepare prompt for the model
+        system_prompt = """You are a security expert tasked with analyzing vulnerability data.
+        Based on the vulnerability description, identify:
+        1. The vulnerability class (e.g., buffer overflow, use-after-free, etc.)
+        2. The root cause of the vulnerability
+        3. Common patterns that lead to this vulnerability
+        4. Recommended remediation approaches
+        
+        Format your response as JSON with the following structure:
+        {
+            "vulnerability_class": "...",
+            "root_cause": "...",
+            "common_patterns": ["...", "..."],
+            "remediation_approaches": ["...", "..."]
+        }
+        """
         
         try:
-            # Create system prompt for the LLM
-            system_prompt = """You are a memory safety expert. Generate a secure patch considering:
-            - Buffer overflow prevention
-            - Proper bounds checking
-            - Memory initialization
-            - Pointer validation
-            - Resource cleanup
-            Return ONLY the fixed code without explanations."""
-
-            # Add specific guidance based on function type
-            if "fgets" in vulnerable_code:
-                system_prompt += "\nFor fgets calls, ensure:\n- Buffer size is checked\n- Newline handling is safe\n- Input validation"
-            elif "malloc" in vulnerable_code:
-                system_prompt += "\nFor malloc calls, ensure:\n- Null pointer checks\n- Proper size calculation\n- Error handling"
-
-            # Truncate inputs to fit within sequence limits
-            context = context[:self.max_sequence_length//2]
-            vulnerable_code = vulnerable_code[:self.max_sequence_length//2]
-
-            # Prepare messages for the model
+            # Use the model to analyze the vulnerability
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Vulnerable code:\n```c\n{vulnerable_code}\n```\nCode context:\n```c\n{context}\n```\nProvide safe version:"}
+                {"role": "user", "content": f"Analyze this vulnerability:\n{vuln_text}"}
             ]
-
-            # Tokenize the input
+            
+            # Tokenize input with attention mask properly set
             inputs = self.tokenizer.apply_chat_template(
                 messages,
                 return_tensors="pt",
+                padding=True,
                 max_length=self.max_sequence_length,
-                truncation=True
+                truncation=True,
+                add_special_tokens=True
             ).to(self.model.device)
-
-            # Generate with conservative parameters
+            
+            attention_mask = torch.ones_like(inputs)
+            
+            # Generate analysis
             outputs = self.model.generate(
                 inputs,
+                attention_mask=attention_mask,
                 max_new_tokens=512,
                 do_sample=True,
-                temperature=0.3,
-                top_p=0.9,
-                pad_token_id=self.tokenizer.eos_token_id
+                temperature=0.7,
+                top_p=0.95
             )
-            print('output',outputs)
-            # Decode and clean the output
-            patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-            clean_patch = self._clean_patch(patch)
-            logger.info("Patch generation successful")
-            return clean_patch
-
-        except torch.cuda.OutOfMemoryError:
-            logger.warning("GPU out of memory, retrying with CPU...")
-            return self._fallback_cpu_generation(vulnerable_code, context)
+            
+            analysis_text = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+            
+            # Extract JSON from response
+            json_match = re.search(r'({.*})', analysis_text.replace('\n', ' '), re.DOTALL)
+            if json_match:
+                analysis_json = json.loads(json_match.group(0))
+                logger.info(f"Successfully generated security pattern analysis")
+                return analysis_json
+            else:
+                # Fallback if no JSON is found
+                logger.warning("Could not extract JSON from model response, returning text analysis")
+                return {
+                    "vulnerability_class": "Unknown",
+                    "analysis_text": analysis_text
+                }
+            
         except Exception as e:
-            logger.error(f"Error generating patch: {str(e)}")
-            return None
+            logger.error(f"Error generating security pattern analysis: {str(e)}")
+            return {
+                "vulnerability_class": "Error",
+                "error": str(e)
+            }
 
-    def _fallback_cpu_generation(self, vulnerable_code, context):
+    def fetch_repository_code(self, repo_url, function_name=None):
         """
-        Fallback generation on CPU with reduced parameters when GPU OOM occurs.
+        Fetch code from a repository, optionally focusing on a specific function.
         
         Args:
-            vulnerable_code: The code containing the vulnerability
-            context: Surrounding code context
+            repo_url: URL of the repository
+            function_name: Optional name of function to look for
             
         Returns:
-            String containing the patched code or None if generation failed
+            Dictionary with repository code information
         """
+        if not repo_url:
+            return {"error": "No repository URL provided"}
+        
         try:
-            logger.info("Falling back to CPU generation with reduced parameters")
+            # Parse the URL to get owner and repo name
+            parsed_url = urlparse(repo_url)
+            path_parts = parsed_url.path.strip('/').split('/')
             
-            # Move model to CPU
-            self.model = self.model.to("cpu")
+            if len(path_parts) < 2 or 'github.com' not in parsed_url.netloc:
+                return {"error": f"Not a valid GitHub repository URL: {repo_url}"}
+            
+            owner, repo = path_parts[0], path_parts[1]
+            
+            with TemporaryDirectory() as temp_dir:
+                logger.info(f"Cloning repository {owner}/{repo}...")
+                
+                # Clone the repository
+                clone_cmd = f"git clone --depth 1 https://github.com/{owner}/{repo}.git {temp_dir}"
+                if self.github_token:
+                    clone_cmd = f"git clone --depth 1 https://{self.github_token}@github.com/{owner}/{repo}.git {temp_dir}"
+                
+                process = subprocess.run(clone_cmd, shell=True, capture_output=True, text=True)
+                if process.returncode != 0:
+                    return {"error": f"Failed to clone repository: {process.stderr}"}
+                
+                # If function name is provided, try to find it
+                code_files = []
+                if function_name:
+                    logger.info(f"Searching for function {function_name}...")
+                    
+                    # Use grep to find the function
+                    grep_patterns = [
+                        f"function {function_name}",
+                        f"def {function_name}",
+                        f"{function_name}\\s*\\(",
+                        f"void {function_name}",
+                        f"int {function_name}"
+                    ]
+                    
+                    for pattern in grep_patterns:
+                        grep_cmd = f"grep -r '{pattern}' --include='*.c' --include='*.cpp' --include='*.h' --include='*.py' --include='*.js' {temp_dir}"
+                        process = subprocess.run(grep_cmd, shell=True, capture_output=True, text=True)
+                        
+                        if process.returncode == 0:
+                            lines = process.stdout.strip().split('\n')
+                            for line in lines:
+                                if ':' in line:
+                                    file_path, _ = line.split(':', 1)
+                                    if os.path.exists(file_path):
+                                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                            code_content = f.read()
+                                        
+                                        rel_path = os.path.relpath(file_path, temp_dir)
+                                        code_files.append({
+                                            "file_path": rel_path,
+                                            "content": code_content,
+                                            "lang": os.path.splitext(file_path)[1][1:]
+                                        })
+                
+                # If no function found or no function specified, get some representative files
+                if not code_files:
+                    logger.info("Getting representative code files...")
+                    extensions = ['.c', '.cpp', '.h', '.py', '.js']
+                    
+                    for ext in extensions:
+                        files = list(Path(temp_dir).rglob(f"*{ext}"))
+                        for file_path in files[:2]:  # Get up to 2 files of each type
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                code_content = f.read()
+                            
+                            rel_path = os.path.relpath(file_path, temp_dir)
+                            code_files.append({
+                                "file_path": rel_path,
+                                "content": code_content,
+                                "lang": os.path.splitext(file_path)[1][1:]
+                            })
+                            
+                            if len(code_files) >= 5:  # Limit to at most 5 files
+                                break
+                
+                return {
+                    "owner": owner,
+                    "repo": repo,
+                    "url": repo_url,
+                    "code_files": code_files
+                }
+                
+        except Exception as e:
+            logger.error(f"Error fetching repository code: {str(e)}")
+            return {"error": str(e)}
 
-            # Regenerate with smaller inputs and parameters
+    def generate_security_advisory(self, vulnerability, repo_code=None):
+        """
+        Generate a security advisory for a vulnerability.
+        
+        Args:
+            vulnerability: Vulnerability data from Neo4j
+            repo_code: Optional repository code for context
+            
+        Returns:
+            Security advisory text
+        """
+        logger.info(f"Generating security advisory for vulnerability {vulnerability.get('id')}")
+        
+        # Create a security pattern analysis if we don't have one
+        security_analysis = self.analyze_security_pattern(vulnerability)
+        
+        # Build context from repository code if available
+        code_context = ""
+        if repo_code and not isinstance(repo_code.get("error", None), str):
+            code_files = repo_code.get("code_files", [])
+            if code_files:
+                code_context = "Code samples from the repository:\n\n"
+                for i, file in enumerate(code_files[:2]):  # Only use first two files to keep prompt reasonable
+                    file_path = file.get("file_path", "unknown")
+                    content = file.get("content", "")
+                    # Truncate very large files
+                    if len(content) > 1000:
+                        content = content[:1000] + "...[truncated]"
+                    code_context += f"File: {file_path}\n```\n{content}\n```\n\n"
+        
+        # Build comprehensive vulnerability context
+        vuln_context = f"""
+        # Vulnerability Information
+        ID: {vulnerability.get('id', 'Unknown')}
+        Headline: {vulnerability.get('headline', 'Unknown')}
+        Summary: {vulnerability.get('summary', 'Unknown')}
+        Details: {vulnerability.get('details', 'Unknown')}
+        Severity: {vulnerability.get('severity', 'Unknown')}
+        
+        # Affected Components
+        Affected Functions: {', '.join(vulnerability.get('functions', ['Unknown']))}
+        Repositories: {', '.join([r.get('name', 'Unknown') for r in vulnerability.get('repos', [])])}
+        
+        # CVEs
+        {', '.join([cve.get('cve', 'Unknown') for cve in vulnerability.get('cves', [])])}
+        
+        # Security Analysis
+        Vulnerability Class: {security_analysis.get('vulnerability_class', 'Unknown')}
+        Root Cause: {security_analysis.get('root_cause', 'Unknown')}
+        
+        # Code Context
+        {code_context}
+        """
+        
+        # Define system prompt for advisory generation
+        system_prompt = """You are a security advisory expert. Create a comprehensive security advisory document for the provided vulnerability.
+        The advisory should include:
+        
+        1. Executive Summary (brief overview)
+        2. Vulnerability Details
+           - Vulnerability type
+           - Affected components
+           - Attack vectors
+           - Potential impact
+        3. Technical Analysis
+           - Root cause analysis
+           - Code patterns leading to the vulnerability
+        4. Remediation Recommendations
+           - Specific code changes or patterns to implement
+           - Alternative approaches
+           - Verification steps
+        5. Timeline and References
+        
+        Format the advisory using markdown for readability.
+        """
+        
+        try:
+            # Generate advisory using the model
             messages = [
-                {"role": "system", "content": "Generate secure patch (CPU fallback)"},
-                {"role": "user", "content": f"Vulnerable code:\n{vulnerable_code}\nContext:\n{context}"}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Please create a security advisory based on this information:\n{vuln_context}"}
             ]
-
+            
+            # Tokenize with proper attention handling
             inputs = self.tokenizer.apply_chat_template(
                 messages,
                 return_tensors="pt",
-                max_length=1024,
-                truncation=True
-            )
-
+                padding=True,
+                max_length=self.max_sequence_length,
+                truncation=True,
+                add_special_tokens=True
+            ).to(self.model.device)
+            
+            attention_mask = torch.ones_like(inputs)
+            
+            # Generate advisory with more creativity
             outputs = self.model.generate(
                 inputs,
-                max_new_tokens=256,
+                attention_mask=attention_mask,
+                max_new_tokens=1024,
                 do_sample=True,
-                temperature=0.2,
-                top_p=0.85
+                temperature=0.8,
+                top_p=0.95
             )
-
-            patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-            return self._clean_patch(patch)
-
+            
+            advisory = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+            logger.info(f"Successfully generated security advisory ({len(advisory)} chars)")
+            
+            return advisory
+            
         except Exception as e:
-            logger.error(f"Error in CPU fallback: {str(e)}")
-            return None
-        finally:
-            # Move model back to CUDA if available
-            if torch.cuda.is_available():
-                self.model = self.model.to("cuda")
-                torch.cuda.empty_cache()
-                logger.info("Model moved back to GPU after fallback")
+            logger.error(f"Error generating security advisory: {str(e)}")
+            return f"Error generating security advisory: {str(e)}"
 
-    def validate_patch(self, original_code, patched_code):
+    def generate_patch_recommendation(self, vulnerability, code_context):
         """
-        Validate patch using static analysis and differential testing.
+        Generate recommended code patch patterns for a vulnerability.
         
         Args:
-            original_code: The original vulnerable code
-            patched_code: The generated patched code
+            vulnerability: Vulnerability data from Neo4j
+            code_context: Code context from repository
             
         Returns:
-            Dict containing validation results
+            Patch recommendations and code examples
         """
-        if patched_code is None:
-            logger.warning("Cannot validate: patch generation failed")
-            return {
-                "sanitizers_clean": False, 
-                "semantic_equivalence": False,
-                "safety_checks": {
-                    "buffer_check": False,
-                    "null_check": False,
-                    "bounds_check": False,
-                    "has_changes": False
-                }
-            }
-
-        # Step 1: Basic semantic validation using code diffs
-        diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
-        diff_lines = list(diff)
-        semantic_valid = any(line.startswith('-') for line in diff_lines)
-
-        # Step 2: Basic safety checks
-        safety_checks = {
-            "buffer_check": "sizeof" in patched_code,
-            "null_check": "NULL" in patched_code or "null" in patched_code,
-            "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]),
-            "has_changes": len(original_code) != len(patched_code)
-        }
-
-        validation_result = {
-            "sanitizers_clean": all(safety_checks.values()),
-            "semantic_equivalence": semantic_valid,
-            "safety_checks": safety_checks
-        }
-        
-        logger.info(f"Patch validation result: sanitizers clean={validation_result['sanitizers_clean']}, "
-                f"semantic_equivalence={validation_result['semantic_equivalence']}")
-        
-        return validation_result
-    def _clean_patch(self, patch):
-        """
-        Remove markdown formatting from generated patch.
-        
-        Args:
-            patch: Raw patch text from model
+        if not code_context or not code_context.get("code_files"):
+            return "Unable to generate patch recommendations: No code context available"
             
-        Returns:
-            Cleaned patch code
-        """
-        # Remove code block markers and extra whitespace
-        cleaned = patch.replace("```c", "").replace("```cpp", "").replace("```", "").strip()
+        logger.info(f"Generating patch recommendations for vulnerability {vulnerability.get('id')}")
         
-        # Remove common explanation prefixes
-        prefixes = ["Here's the fixed code:", "Fixed code:", "Secure version:"]
-        for prefix in prefixes:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
+        # Get security pattern analysis
+        security_analysis = self.analyze_security_pattern(vulnerability)
+        
+        # Find the most relevant file to patch
+        relevant_file = None
+        relevant_functions = vulnerability.get('functions', [])
+        
+        for file in code_context.get("code_files", []):
+            content = file.get("content", "")
+            # Look for any of the functions in this file
+            for func in relevant_functions:
+                if func and func in content:
+                    relevant_file = file
+                    break
+            if relevant_file:
+                break
                 
-        return cleaned
-
-    def _update_failure_context(self, vuln, patch, validation):
-        """
-        Store failure context for model feedback.
+        # If no match found, use the first file
+        if not relevant_file and code_context.get("code_files"):
+            relevant_file = code_context["code_files"][0]
         
-        Args:
-            vuln: The vulnerability info
-            patch: The generated patch
-            validation: Validation results
-        """
-        if not hasattr(self, 'repair_attempts'):
-            self.repair_attempts = {}
+        if not relevant_file:
+            return "Unable to identify relevant code to patch"
             
-        # Store attempt data keyed by line number or ID
-        line_key = vuln.get('line', vuln.get('id', 'unknown'))
-        self.repair_attempts.setdefault(line_key, []).append({
-            "patch": patch,
-            "validation": validation
-        })
-
-    def generate_report(self, repair_results):
+        # Prepare file context
+        file_path = relevant_file.get("file_path", "unknown")
+        file_content = relevant_file.get("content", "")
+        language = relevant_file.get("lang", "c")
+        
+        # Truncate very large files for the context
+        if len(file_content) > 2000:
+            file_content = file_content[:2000] + "...[truncated]"
+            
+        # Create a custom prompt for the patch recommendation
+        system_prompt = f"""You are a secure coding expert specializing in {language} development.
+        
+        You're analyzing a vulnerability with the following characteristics:
+        - Type: {security_analysis.get('vulnerability_class', 'Unknown')}
+        - Root cause: {security_analysis.get('root_cause', 'Unknown')}
+        
+        Based on the code provided, suggest specific patches to fix the vulnerability.
+        
+        For each suggestion:
+        1. Identify the problematic pattern in the code
+        2. Show the vulnerable code snippet
+        3. Show the fixed code with comments explaining the changes
+        4. Explain why the fix addresses the root cause
+        
+        Focus on practical, minimal changes that fix the security issue without changing functionality.
         """
-        Generate a comprehensive report of repair actions.
+            
+        try:
+            # Generate patch recommendations
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"File: {file_path}\n\n```{language}\n{file_content}\n```\n\nPlease suggest secure patches for this code based on the vulnerability description: {vulnerability.get('summary', '')}"}
+            ]
+            
+            # Tokenize with proper attention handling
+            inputs = self.tokenizer.apply_chat_template(
+                messages,
+                return_tensors="pt",
+                padding=True,
+                max_length=self.max_sequence_length,
+                truncation=True,
+                add_special_tokens=True
+            ).to(self.model.device)
+            
+            attention_mask = torch.ones_like(inputs)
+            
+            # Generate advisory
+            outputs = self.model.generate(
+                inputs,
+                attention_mask=attention_mask,
+                max_new_tokens=1024,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9
+            )
+            
+            recommendations = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+            logger.info(f"Successfully generated patch recommendations ({len(recommendations)} chars)")
+            
+            return recommendations
+            
+        except Exception as e:
+            logger.error(f"Error generating patch recommendations: {str(e)}")
+            return f"Error generating patch recommendations: {str(e)}"
+
+    def run_vulnerability_assessment(self, num_vulnerabilities=5, include_code=True):
+        """
+        Run a complete vulnerability assessment process.
         
         Args:
-            repair_results: Results from the repair cycle
+            num_vulnerabilities: Number of vulnerabilities to assess
+            include_code: Whether to attempt to fetch repository code
             
         Returns:
-            Dict containing report data
+            Assessment report with advisories and recommendations
         """
-        total = len(repair_results)
-        successful = sum(1 for r in repair_results if r.get('status') == 'success')
-        partial = sum(1 for r in repair_results if r.get('status') == 'partial')
-        failed = sum(1 for r in repair_results if r.get('status') == 'failed')
+        logger.info(f"Starting vulnerability assessment for {num_vulnerabilities} vulnerabilities")
+        start_time = time.time()
+        
+        # Get top vulnerabilities
+        vulnerabilities = self.get_top_vulnerabilities(limit=num_vulnerabilities)
+        if not vulnerabilities:
+            return {"error": "No vulnerabilities found for assessment"}
+            
+        assessment_results = []
+        
+        for i, vuln in enumerate(vulnerabilities):
+            logger.info(f"Assessing vulnerability {i+1}/{len(vulnerabilities)}: {vuln.get('id', 'Unknown')}")
+            
+            result = {
+                "vulnerability": vuln,
+                "security_analysis": self.analyze_security_pattern(vuln)
+            }
+            
+            # Fetch repository code if available and requested
+            repo_code = None
+            if include_code and vuln.get("repos"):
+                for repo in vuln.get("repos", []):
+                    if repo.get("url"):
+                        repo_code = self.fetch_repository_code(
+                            repo.get("url"),
+                            vuln.get("functions")[0] if vuln.get("functions") else None
+                        )
+                        if repo_code and not repo_code.get("error"):
+                            break
+                
+                result["repository_code"] = repo_code
+                
+                # Generate patch recommendations if we have code
+                if repo_code and not repo_code.get("error"):
+                    result["patch_recommendations"] = self.generate_patch_recommendation(vuln, repo_code)
+            
+            # Generate security advisory
+            result["security_advisory"] = self.generate_security_advisory(vuln, repo_code)
+            
+            assessment_results.append(result)
+        
+        execution_time = time.time() - start_time
         
         report = {
             "summary": {
-                "total_vulnerabilities": total,
-                "successful_repairs": successful,
-                "partial_repairs": partial,
-                "failed_repairs": failed,
-                "success_rate": successful / total if total > 0 else 0,
-                "database_schema": self.db_schema
+                "vulnerabilities_assessed": len(assessment_results),
+                "execution_time_seconds": execution_time,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
             },
-            "details": repair_results
+            "results": assessment_results
         }
         
-        logger.info(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
+        logger.info(f"Vulnerability assessment completed in {execution_time:.2f} seconds")
         return report
 
 
@@ -721,24 +734,35 @@ def main():
     """Main entry point for the RepairGPT system."""
     repair_system = None
     try:
-        logger.info("=== RepairGPT Analysis and Repair System ===")
+        logger.info("=== RepairGPT Vulnerability Assessment System ===")
         repair_system = RepairGPT()
 
-        # Run the repair cycle
-        results = repair_system.repair_cycle(max_attempts=2)
+        # Run vulnerability assessment for 3 vulnerabilities
+        results = repair_system.run_vulnerability_assessment(num_vulnerabilities=3)
         
-        # Generate and display report
-        if results:
-            report = repair_system.generate_report(results)
+        # Generate and display summary
+        if results and not results.get("error"):
+            print("\n=== Vulnerability Assessment Results ===")
+            print(f"Vulnerabilities assessed: {results['summary']['vulnerabilities_assessed']}")
+            print(f"Execution time: {results['summary']['execution_time_seconds']:.2f} seconds")
             
-            logger.info("\n=== Final Results ===")
-            logger.info(f"Total issues found: {report['summary']['total_vulnerabilities']}")
-            logger.info(f"Successfully patched: {report['summary']['successful_repairs']}")
-            logger.info(f"Partially patched: {report['summary']['partial_repairs']}")
-            logger.info(f"Failed to patch: {report['summary']['failed_repairs']}")
-            logger.info(f"Success rate: {report['summary']['success_rate']*100:.1f}%")
+            for i, result in enumerate(results["results"]):
+                vuln = result["vulnerability"]
+                print(f"\n--- Vulnerability {i+1}: {vuln.get('id')} ---")
+                print(f"Headline: {vuln.get('headline', 'Unknown')}")
+                print(f"Severity: {vuln.get('severity', 'Unknown')}")
+                print(f"Type: {result['security_analysis'].get('vulnerability_class', 'Unknown')}")
+                
+                if result.get("repository_code") and not result["repository_code"].get("error"):
+                    print(f"Code analyzed: {result['repository_code'].get('url', 'Unknown')}")
+                else:
+                    print("No repository code analyzed")
+                
+                print("\nSecurity Advisory Preview:")
+                advisory = result.get("security_advisory", "")
+                print(advisory[:200] + "..." if len(advisory) > 200 else advisory)
         else:
-            logger.info("No issues found or no repairs attempted")
+            print(f"Error: {results.get('error', 'Unknown error')}")
 
     except Exception as e:
         logger.error(f"Error during execution: {str(e)}", exc_info=True)
