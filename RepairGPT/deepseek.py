@@ -35,6 +35,7 @@ class RepairGPT:
         self.severity_threshold = severity_threshold
         self.driver = None
         self.model = None
+        self.severity_property = None  # Will be dynamically determined
 
     def connect_to_neo4j(self):
         """Connect to Neo4j database and verify connection"""
@@ -50,6 +51,7 @@ class RepairGPT:
                 logger.info(f"Successfully connected to Neo4j (found {node_count} nodes)")
                 
             self.discover_database_schema()
+            self.run_diagnostics()
             return True
         except Exception as e:
             logger.error(f"Failed to connect to Neo4j: {e}")
@@ -83,6 +85,86 @@ class RepairGPT:
         except Exception as e:
             logger.error(f"Error discovering schema: {e}")
 
+    def run_diagnostics(self):
+        """Run diagnostic queries to understand data availability and structure"""
+        try:
+            with self.driver.session() as session:
+                # Check if there are any Vulnerability nodes
+                vuln_count = session.run("""
+                    MATCH (v:Vulnerability) 
+                    RETURN count(v) as count
+                """).single()["count"]
+                logger.info(f"Total Vulnerability nodes found: {vuln_count}")
+                
+                if vuln_count == 0:
+                    logger.warning("No Vulnerability nodes found in database!")
+                    return
+                
+                # Check common severity property names
+                severity_props = [
+                    "severity", 
+                    "severity_score", 
+                    "cvss_score", 
+                    "cvss", 
+                    "score"
+                ]
+                
+                for prop in severity_props:
+                    result = session.run(f"""
+                        MATCH (v:Vulnerability) 
+                        WHERE v.{prop} IS NOT NULL 
+                        RETURN count(v) as count
+                    """).single()
+                    
+                    if result and result["count"] > 0:
+                        logger.info(f"Found {result['count']} vulnerabilities with '{prop}' property")
+                        if not self.severity_property:
+                            self.severity_property = prop
+                
+                # If we found a valid severity property, sample some values
+                if self.severity_property:
+                    samples = session.run(f"""
+                        MATCH (v:Vulnerability) 
+                        WHERE v.{self.severity_property} IS NOT NULL 
+                        RETURN v.id as id, v.{self.severity_property} as score 
+                        LIMIT 3
+                    """).data()
+                    
+                    if samples:
+                        logger.info(f"Sample vulnerability scores using '{self.severity_property}': " + 
+                                   ", ".join([f"{s['id']}: {s['score']}" for s in samples]))
+                else:
+                    logger.warning("Could not find any severity property with values")
+                    
+                # Examine the actual properties on Vulnerability nodes
+                sample_props = session.run("""
+                    MATCH (v:Vulnerability) 
+                    WITH v LIMIT 5 
+                    RETURN keys(v) as properties
+                """).value()
+                
+                if sample_props:
+                    logger.info(f"Properties found on Vulnerability nodes:")
+                    for i, props in enumerate(sample_props):
+                        logger.info(f"  Sample {i+1}: {', '.join(props)}")
+                
+                # Try to find alternative ways to identify severe vulnerabilities
+                if not self.severity_property:
+                    # Check if CVE nodes have severity info
+                    cve_count = session.run("""
+                        MATCH (v:Vulnerability)-[:IDENTIFIED_AS]->(cve:CVE)
+                        WHERE cve.severity IS NOT NULL OR cve.cvss IS NOT NULL
+                        RETURN count(v) as count
+                    """).single()
+                    
+                    if cve_count and cve_count["count"] > 0:
+                        logger.info(f"Found {cve_count['count']} vulnerabilities linked to CVEs with severity info")
+                        # Try tracking severity through CVE relations
+                        self.severity_property = "cve_related"
+                
+        except Exception as e:
+            logger.error(f"Error running diagnostics: {e}")
+
     def initialize_model(self):
         """Initialize the AI model for vulnerability analysis"""
         try:
@@ -93,11 +175,6 @@ class RepairGPT:
             logger.info(f"Using device: {device}")
             
             # Here you would initialize your actual model
-            # For example with transformers:
-            # from transformers import AutoModelForCausalLM, AutoTokenizer
-            # self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            # self.model = AutoModelForCausalLM.from_pretrained(self.model_name).to(device)
-            
             # Simulating model initialization for this example
             time.sleep(2)  # Simulate model loading time
             self.model = {"name": self.model_name, "device": device}
@@ -117,56 +194,111 @@ class RepairGPT:
         """
         try:
             with self.driver.session() as session:
-                # First check if severity property exists on vulnerabilities
-                has_severity = session.run("""
-                    MATCH (v:Vulnerability) 
-                    WHERE v.severity IS NOT NULL 
-                    RETURN count(v) > 0 as has_severity
-                """).single()["has_severity"]
+                vulnerabilities = []
                 
-                if not has_severity:
-                    logger.warning("No vulnerabilities with severity property found. Checking for alternate fields...")
-                    # Try to find vulnerabilities using different criteria if severity isn't available
+                # If we couldn't determine a severity property during diagnostics
+                if not self.severity_property:
+                    logger.warning("No severity property found. Using fallback query.")
+                    # Fallback - get any vulnerabilities regardless of severity
                     vulnerabilities = session.run("""
                         MATCH (v:Vulnerability)
-                        RETURN v.id as id, v.headline as headline, 
-                               v.cve as cve, v.published as published, 
+                        OPTIONAL MATCH (v)-[:IDENTIFIED_AS]->(cve:CVE)
+                        RETURN v.id as id, 
+                               v.headline as headline, 
+                               cve.id as cve,
+                               v.published as published, 
                                COALESCE(v.classification, 'unknown') as classification
                         LIMIT $limit
                     """, limit=limit).data()
-                else:
-                    # Find vulnerabilities based on severity threshold
-                    logger.info(f"Finding top vulnerabilities with severity >= {self.severity_threshold}...")
-                    vulnerabilities = session.run("""
+                
+                # If we're using standard severity property
+                elif self.severity_property != "cve_related":
+                    logger.info(f"Finding vulnerabilities with {self.severity_property} >= {self.severity_threshold}...")
+                    
+                    # We need to handle potentially different data types (numeric vs string)
+                    # Try numeric comparison first
+                    vulnerabilities = session.run(f"""
                         MATCH (v:Vulnerability)
-                        WHERE v.severity >= $threshold
-                        RETURN v.id as id, v.headline as headline, 
-                               v.severity as severity, v.cve as cve,
+                        WHERE toFloat(v.{self.severity_property}) >= $threshold
+                        OPTIONAL MATCH (v)-[:IDENTIFIED_AS]->(cve:CVE)
+                        RETURN v.id as id, 
+                               v.headline as headline, 
+                               v.{self.severity_property} as severity, 
+                               cve.id as cve,
                                v.published as published, 
                                COALESCE(v.classification, 'unknown') as classification
-                        ORDER BY v.severity DESC
+                        ORDER BY toFloat(v.{self.severity_property}) DESC
                         LIMIT $limit
                     """, threshold=self.severity_threshold, limit=limit).data()
                 
-                if not vulnerabilities:
-                    # If no results with current threshold, try with a lower threshold as fallback
+                # If we need to use CVE relations for severity
+                else:
+                    logger.info(f"Finding vulnerabilities via CVE severity relationship...")
+                    vulnerabilities = session.run("""
+                        MATCH (v:Vulnerability)-[:IDENTIFIED_AS]->(cve:CVE)
+                        WHERE cve.severity >= $threshold OR cve.cvss >= $threshold
+                        RETURN v.id as id, 
+                               v.headline as headline, 
+                               COALESCE(cve.severity, cve.cvss) as severity, 
+                               cve.id as cve,
+                               v.published as published, 
+                               COALESCE(v.classification, 'unknown') as classification
+                        ORDER BY COALESCE(cve.severity, cve.cvss) DESC
+                        LIMIT $limit
+                    """, threshold=self.severity_threshold, limit=limit).data()
+                
+                # If nothing found and using severity filtering, try a lower threshold
+                if not vulnerabilities and self.severity_property:
                     fallback_threshold = max(0.0, self.severity_threshold - 2.0)
                     logger.info(f"No vulnerabilities found at threshold {self.severity_threshold}. " +
                               f"Trying with lower threshold {fallback_threshold}...")
                     
+                    # Rerun the appropriate query with lower threshold
+                    if self.severity_property != "cve_related":
+                        vulnerabilities = session.run(f"""
+                            MATCH (v:Vulnerability)
+                            WHERE toFloat(v.{self.severity_property}) >= $threshold
+                            OPTIONAL MATCH (v)-[:IDENTIFIED_AS]->(cve:CVE)
+                            RETURN v.id as id, 
+                                   v.headline as headline, 
+                                   v.{self.severity_property} as severity, 
+                                   cve.id as cve,
+                                   v.published as published, 
+                                   COALESCE(v.classification, 'unknown') as classification
+                            ORDER BY toFloat(v.{self.severity_property}) DESC
+                            LIMIT $limit
+                        """, threshold=fallback_threshold, limit=limit).data()
+                    else:
+                        vulnerabilities = session.run("""
+                            MATCH (v:Vulnerability)-[:IDENTIFIED_AS]->(cve:CVE)
+                            WHERE cve.severity >= $threshold OR cve.cvss >= $threshold
+                            RETURN v.id as id, 
+                                   v.headline as headline, 
+                                   COALESCE(cve.severity, cve.cvss) as severity, 
+                                   cve.id as cve,
+                                   v.published as published, 
+                                   COALESCE(v.classification, 'unknown') as classification
+                            ORDER BY COALESCE(cve.severity, cve.cvss) DESC
+                            LIMIT $limit
+                        """, threshold=fallback_threshold, limit=limit).data()
+                
+                # As a last resort, if we still have no vulnerabilities, try ignoring severity completely
+                if not vulnerabilities:
+                    logger.warning("No vulnerabilities found with severity filters. Getting any vulnerabilities...")
                     vulnerabilities = session.run("""
                         MATCH (v:Vulnerability)
-                        WHERE v.severity >= $threshold
-                        RETURN v.id as id, v.headline as headline, 
-                               v.severity as severity, v.cve as cve,
+                        OPTIONAL MATCH (v)-[:IDENTIFIED_AS]->(cve:CVE)
+                        RETURN v.id as id, 
+                               v.headline as headline, 
+                               cve.id as cve,
                                v.published as published, 
                                COALESCE(v.classification, 'unknown') as classification
-                        ORDER BY v.severity DESC
                         LIMIT $limit
-                    """, threshold=fallback_threshold, limit=limit).data()
+                    """, limit=limit).data()
                 
                 logger.info(f"Found {len(vulnerabilities)} vulnerabilities")
                 return vulnerabilities
+                
         except Exception as e:
             logger.error(f"Error finding vulnerabilities: {e}")
             return None
@@ -218,7 +350,7 @@ class RepairGPT:
                 # Additional processing would happen here
             else:
                 logger.warning("No vulnerabilities to assess - system continuing with other tasks")
-                # Additional tasks could be performed here
+                # Consider querying other parts of the graph that don't depend on vulnerabilities
                 
             return True
             
@@ -237,7 +369,7 @@ def main():
     neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
     neo4j_password = os.environ.get("NEO4J_PASSWORD", "password")
     model_name = os.environ.get("MODEL_NAME", "deepseek-ai/deepseek-coder-1.3b-instruct")
-    severity_threshold = float(os.environ.get("SEVERITY_THRESHOLD", "2.0"))
+    severity_threshold = float(os.environ.get("SEVERITY_THRESHOLD", "5.0"))
     
     repair_gpt = RepairGPT(
         neo4j_uri=neo4j_uri,
