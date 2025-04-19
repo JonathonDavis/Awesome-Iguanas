@@ -17,17 +17,17 @@
           <i class="fas fa-code-branch"></i>
           <span>Database Analytics</span>
         </router-link>
-        <router-link to="/visualizations" class="nav-link">
-          <i class="fas fa-shield-alt"></i>
-          <span>Visualization</span>
-        </router-link>
-        <router-link to="/documentation" class="nav-link">
-          <i class="fas fa-book"></i>
-          <span>Documentation</span>
-        </router-link>
         <router-link to="/llm-evaluation" class="nav-link">
           <i class="fas fa-robot"></i>
           <span>LLM Evaluation</span>
+        </router-link>
+        <!-- <router-link to="/visualizations" class="nav-link">
+          <i class="fas fa-shield-alt"></i>
+          <span>Visualization</span>
+        </router-link> -->
+        <router-link to="/documentation" class="nav-link">
+          <i class="fas fa-book"></i>
+          <span>Documentation</span>
         </router-link>
       </div>
     </nav>
