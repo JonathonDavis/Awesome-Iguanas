@@ -11,6 +11,31 @@
             class="search-input"
           />
         </div>
+        
+        <!-- Severity Filter Dropdown -->
+        <div class="filter-dropdown">
+          <button class="filter-button" @click="toggleSeverityFilter">
+            <i class="fas fa-filter"></i>
+            <span>{{ selectedSeverity || 'Filter by Severity' }}</span>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          <div class="dropdown-menu" v-if="showSeverityFilter">
+            <div 
+              v-for="severity in severityOptions" 
+              :key="severity.value"
+              class="dropdown-item"
+              :class="{ active: selectedSeverity === severity.value }"
+              @click="selectSeverity(severity.value)"
+            >
+              <span 
+                class="severity-indicator"
+                :class="severity.value ? severity.value.toLowerCase() : 'all'"
+              ></span>
+              {{ severity.label }}
+            </div>
+          </div>
+        </div>
+        
         <button 
           @click="expandAllCVEs" 
           class="action-button"
@@ -27,6 +52,17 @@
           <i :class="updatingSeverity ? 'fas fa-circle-notch fa-spin' : 'fas fa-sync-alt'"></i>
           {{ updatingSeverity ? 'Updating...' : 'Update Severity' }}
         </button>
+      </div>
+      
+      <!-- Filter tags/pills to show active filters -->
+      <div class="active-filters" v-if="selectedSeverity">
+        <div class="filter-tag">
+          <span class="tag-label">Severity:</span>
+          <span class="tag-value" :class="selectedSeverity.toLowerCase()">{{ selectedSeverity }}</span>
+          <button class="tag-remove" @click="clearSeverityFilter">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
       </div>
     </div>
     
@@ -158,7 +194,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import neo4jService from '../services/neo4j/neo4jService'
 import { useRoute } from 'vue-router'
 
@@ -178,22 +214,72 @@ const notification = ref({
   timeout: null
 })
 
+// Severity filter state
+const showSeverityFilter = ref(false)
+const selectedSeverity = ref('')
+const severityOptions = [
+  { value: '', label: 'All Severities' },
+  { value: 'CRITICAL', label: 'Critical' },
+  { value: 'HIGH', label: 'High' },
+  { value: 'MEDIUM', label: 'Medium' },
+  { value: 'LOW', label: 'Low' },
+  { value: 'UNKNOWN', label: 'Unknown' }
+]
+
+// Toggle severity filter dropdown
+const toggleSeverityFilter = () => {
+  showSeverityFilter.value = !showSeverityFilter.value
+}
+
+// Select a severity level for filtering
+const selectSeverity = (severity) => {
+  selectedSeverity.value = severity
+  showSeverityFilter.value = false
+}
+
+// Clear the severity filter
+const clearSeverityFilter = () => {
+  selectedSeverity.value = ''
+}
+
+// Click outside to close dropdown
+const handleClickOutside = (event) => {
+  const dropdown = document.querySelector('.filter-dropdown')
+  if (dropdown && !dropdown.contains(event.target)) {
+    showSeverityFilter.value = false
+  }
+}
+
+// Add and remove click outside event listener
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
+
 const filteredCVEs = computed(() => {
-  if (!searchQuery.value) {
-    return showAll.value ? cves.value : cves.value.slice(0, displayLimit.value);
+  // First apply severity filter if selected
+  let filtered = selectedSeverity.value
+    ? cves.value.filter(cve => cve.severity === selectedSeverity.value)
+    : cves.value
+  
+  // Then apply search filter if query exists
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    filtered = filtered.filter(cve => {
+      const cveId = cve.cveId.toLowerCase()
+      const repoMatches = cve.repositories.some(repo => 
+        repo.toLowerCase().includes(query)
+      )
+      return cveId.includes(query) || repoMatches
+    })
   }
   
-  const query = searchQuery.value.toLowerCase();
-  const filtered = cves.value.filter(cve => {
-    const cveId = cve.cveId.toLowerCase();
-    const repoMatches = cve.repositories.some(repo => 
-      repo.toLowerCase().includes(query)
-    );
-    return cveId.includes(query) || repoMatches;
-  });
-  
-  return showAll.value ? filtered : filtered.slice(0, displayLimit.value);
-});
+  // Apply pagination
+  return showAll.value ? filtered : filtered.slice(0, displayLimit.value)
+})
 
 const getRepoName = (url) => {
   try {
@@ -809,5 +895,178 @@ async function updateSeverity() {
   margin-left: 0.5rem;
   color: var(--accent-color);
   font-size: 0.9rem;
+}
+
+.filter-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.filter-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 180px;
+}
+
+.filter-button i:last-child {
+  margin-left: auto;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.filter-button:hover {
+  background-color: var(--background-color);
+  border-color: var(--accent-color);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  min-width: 180px;
+  background-color: white;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+  margin-top: 0.5rem;
+  overflow: hidden;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.dropdown-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.dropdown-item.active {
+  background-color: var(--background-color);
+  font-weight: 500;
+}
+
+.severity-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 0.75rem;
+}
+
+.severity-indicator.critical {
+  background-color: #F56565;
+}
+
+.severity-indicator.high {
+  background-color: #ED8936;
+}
+
+.severity-indicator.medium {
+  background-color: #ECC94B;
+}
+
+.severity-indicator.low {
+  background-color: #48BB78;
+}
+
+.severity-indicator.unknown {
+  background-color: #CBD5E0;
+}
+
+.severity-indicator.all {
+  background: linear-gradient(to right, #F56565, #ED8936, #ECC94B, #48BB78);
+}
+
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.filter-tag {
+  display: flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.tag-label {
+  color: var(--light-text);
+  margin-right: 0.5rem;
+}
+
+.tag-value {
+  font-weight: 500;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  margin-right: 0.5rem;
+}
+
+.tag-value.critical {
+  background-color: #F56565;
+  color: white;
+}
+
+.tag-value.high {
+  background-color: #ED8936;
+  color: white;
+}
+
+.tag-value.medium {
+  background-color: #ECC94B;
+  color: #744210;
+}
+
+.tag-value.low {
+  background-color: #48BB78;
+  color: white;
+}
+
+.tag-value.unknown {
+  background-color: #CBD5E0;
+  color: #2D3748;
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--light-text);
+  padding: 0.15rem;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.tag-remove:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--text-color);
 }
 </style>

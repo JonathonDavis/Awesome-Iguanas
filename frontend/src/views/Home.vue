@@ -149,20 +149,24 @@
         <div class="section-content">
           <div class="stat-cards">
             <div class="stat-card severity-critical">
-              <h3>Critical</h3>
-              <p class="stat-value">{{ stats.severityCounts?.Critical || 0 }}</p>
+              <h3>CRITICAL</h3>
+              <p class="stat-value">{{ stats.severityCounts?.CRITICAL || 0 }}</p>
             </div>
             <div class="stat-card severity-high">
-              <h3>High</h3>
-              <p class="stat-value">{{ stats.severityCounts?.High || 0 }}</p>
+              <h3>HIGH</h3>
+              <p class="stat-value">{{ stats.severityCounts?.HIGH || 0 }}</p>
             </div>
             <div class="stat-card severity-medium">
-              <h3>Medium</h3>
-              <p class="stat-value">{{ stats.severityCounts?.Medium || 0 }}</p>
+              <h3>MEDIUM</h3>
+              <p class="stat-value">{{ stats.severityCounts?.MEDIUM || 0 }}</p>
             </div>
             <div class="stat-card severity-low">
-              <h3>Low</h3>
-              <p class="stat-value">{{ stats.severityCounts?.Low || 0 }}</p>
+              <h3>LOW</h3>
+              <p class="stat-value">{{ stats.severityCounts?.LOW || 0 }}</p>
+            </div>
+            <div class="stat-card severity-unknown">
+              <h3>UNKNOWN</h3>
+              <p class="stat-value">{{ stats.severityCounts?.UNKNOWN || 0 }}</p>
             </div>
           </div>
           
@@ -250,11 +254,11 @@ const stats = reactive({
   versionCount: 0,
   lastUpdate: null,
   severityCounts: {
-    Critical: 0,
-    High: 0,
-    Medium: 0,
-    Low: 0,
-    Unknown: 0
+    CRITICAL: 0,
+    HIGH: 0,
+    MEDIUM: 0,
+    LOW: 0,
+    UNKNOWN: 0
   }
 });
 
@@ -330,15 +334,16 @@ async function fetchDashboardData() {
     
     // Count severity levels
     const sevCounts = {
-      Critical: 0,
-      High: 0,
-      Medium: 0,
-      Low: 0,
-      Unknown: 0
+      CRITICAL: 0,
+      HIGH: 0,
+      MEDIUM: 0,
+      LOW: 0,
+      UNKNOWN: 0
     };
     
     cveData.forEach(cve => {
-      const severity = cve.severity || 'Unknown';
+      // Normalize severity to uppercase
+      const severity = cve.severity ? cve.severity.toUpperCase() : 'UNKNOWN';
       sevCounts[severity] = (sevCounts[severity] || 0) + 1;
     });
     
@@ -347,7 +352,7 @@ async function fetchDashboardData() {
     // Set recent CVEs
     recentCVEs.value = cveData.slice(0, 5).map(cve => ({
       id: cve.cveId,
-      severity: cve.severity || 'Unknown',
+      severity: cve.severity ? cve.severity.toUpperCase() : 'UNKNOWN',
       affectedRepos: cve.repositories ? cve.repositories.length : 0
     }));
     
@@ -651,6 +656,10 @@ async function refreshData() {
 
 .stat-card.severity-low {
   border-top-color: #48BB78;
+}
+
+.stat-card.severity-unknown {
+  border-top-color: #CBD5E0;
 }
 
 .stat-card h3 {
