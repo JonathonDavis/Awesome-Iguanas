@@ -521,6 +521,13 @@ async function refreshData() {
     isLoading.value = true;
     showNotification('Refreshing data and updating vulnerabilities...', 'info');
     
+    // Get the initial node count before any updates
+    const initialNodeCount = await neo4jService.getTotalNodeCount();
+    console.log(`Initial node count: ${initialNodeCount}`);
+    
+    // Track if any severities were updated
+    let severitiesUpdated = false;
+    
     // First fetch all CVE data
     const cveData = await neo4jService.getCVERepositoryData();
     
@@ -535,6 +542,7 @@ async function refreshData() {
         console.log('Severity update completed');
         
         if (result && result.updatedCount) {
+          severitiesUpdated = true;
           showNotification(
             `Successfully updated ${result.updatedCount} CVE severities from NVD API.`,
             'success'
@@ -552,6 +560,40 @@ async function refreshData() {
     
     // Finally fetch updated dashboard data
     await fetchDashboardData();
+    
+    // Get the final node count after all updates
+    const finalNodeCount = await neo4jService.getTotalNodeCount();
+    console.log(`Final node count: ${finalNodeCount}`);
+    
+    // Update the tracking node with the new count
+    await neo4jService.updateTrackingWithNodeCount(finalNodeCount);
+    
+    // Show notification about data changes based on node count difference
+    if (finalNodeCount > initialNodeCount) {
+      const newNodes = finalNodeCount - initialNodeCount;
+      showNotification(
+        `Database updated with ${newNodes} new nodes added.`,
+        'success'
+      );
+    } else if (finalNodeCount < initialNodeCount) {
+      const removedNodes = initialNodeCount - finalNodeCount;
+      showNotification(
+        `Database updated with ${removedNodes} nodes removed.`,
+        'warning'
+      );
+    } else if (severitiesUpdated) {
+      // If node count didn't change but we updated severities, show that
+      showNotification(
+        'Database nodes unchanged, but severity information was updated.',
+        'info'
+      );
+    } else {
+      // No changes detected
+      showNotification(
+        'No changes detected in the database.',
+        'info'
+      );
+    }
   } catch (error) {
     console.error('Error refreshing data:', error);
     dbConnected.value = false;
