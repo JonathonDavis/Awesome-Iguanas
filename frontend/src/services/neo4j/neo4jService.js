@@ -43,7 +43,8 @@ class Neo4jService {
       lastFailedUpdate: null,
       totalVulnerabilities: 0,
       lastUpdateCount: 0,
-      updateErrors: []
+      updateErrors: [],
+      totalNodes: 0
     };
     
     // Initialize the database with update tracking
@@ -171,13 +172,59 @@ class Neo4jService {
     }
   }
 
-  // Add method to get update status
+  // Get update status
   getUpdateStatus() {
     return {
       ...this.updateStatus,
       lastUpdateTime: this.lastUpdateTime,
       isUpdating: this.updateTimer !== null || this.continuousUpdateTimer !== null
     };
+  }
+
+  // Get total node count from the database
+  async getTotalNodeCount() {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(`
+        MATCH (n)
+        RETURN count(n) as totalNodes
+      `);
+      
+      if (result.records.length > 0) {
+        return result.records[0].get('totalNodes').toNumber();
+      }
+      return 0;
+    } catch (error) {
+      console.error('Error getting total node count:', error);
+      return 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Update the update tracking with total node count
+  async updateTrackingWithNodeCount(nodeCount) {
+    const session = this.driver.session();
+    try {
+      // Update the UpdateTracking node with the new count
+      await session.run(`
+        MATCH (t:UpdateTracking)
+        SET t.last_update = datetime(),
+            t.total_nodes = $nodeCount
+        RETURN t
+      `, { nodeCount });
+      
+      // Update local update status
+      this.updateStatus.totalNodes = nodeCount;
+      this.updateStatus.lastUpdate = new Date().toISOString();
+      
+      return true;
+    } catch (error) {
+      console.error('Error updating tracking with node count:', error);
+      return false;
+    } finally {
+      await session.close();
+    }
   }
 
   // Get the timestamp of the most recently modified vulnerability

@@ -7,6 +7,7 @@ export async function initializeUpdateTracking() {
       ON CREATE SET 
         t.last_update = datetime(),
         t.total_vulnerabilities = 0,
+        t.total_nodes = 0,
         t.update_history = [],
         t.last_successful_update = datetime(),
         t.last_failed_update = null,
@@ -21,14 +22,31 @@ export async function initializeUpdateTracking() {
     
     this.updateStatus.totalVulnerabilities = result.records[0].get('totalVulns').low;
     
-    // Get last update time
+    // Get total node count
+    const nodeResult = await session.run(`
+      MATCH (n)
+      RETURN count(n) as totalNodes
+    `);
+    
+    this.updateStatus.totalNodes = nodeResult.records[0].get('totalNodes').low;
+    
+    // Get last update time and node count
     const trackingResult = await session.run(`
       MATCH (t:UpdateTracking)
-      RETURN t.last_update as lastUpdate
+      RETURN t.last_update as lastUpdate, t.total_nodes as totalNodes
     `);
     
     if (trackingResult.records.length > 0) {
       this.lastUpdateTime = trackingResult.records[0].get('lastUpdate');
+      
+      // If totalNodes is not in the database yet, update it
+      const storedTotalNodes = trackingResult.records[0].get('totalNodes');
+      if (storedTotalNodes === null) {
+        await session.run(`
+          MATCH (t:UpdateTracking)
+          SET t.total_nodes = $totalNodes
+        `, { totalNodes: this.updateStatus.totalNodes });
+      }
     }
   } catch (error) {
     console.error('Error initializing update tracking:', error);
