@@ -19,7 +19,28 @@
           <i :class="expandedCVEs.length === cves.length ? 'fas fa-compress-alt' : 'fas fa-expand-alt'"></i>
           {{ expandedCVEs.length === cves.length ? 'Collapse All' : 'Expand All' }}
         </button>
+        <button 
+          @click="updateSeverity" 
+          class="action-button update-button"
+          :disabled="!cves.length || updatingSeverity"
+        >
+          <i :class="updatingSeverity ? 'fas fa-circle-notch fa-spin' : 'fas fa-sync-alt'"></i>
+          {{ updatingSeverity ? 'Updating...' : 'Update Severity' }}
+        </button>
       </div>
+    </div>
+    
+    <!-- Notification component -->
+    <div 
+      v-if="notification.show" 
+      class="notification"
+      :class="notification.type"
+    >
+      <i :class="getNotificationIcon()"></i>
+      <p>{{ notification.message }}</p>
+      <button @click="closeNotification" class="notification-close">
+        <i class="fas fa-times"></i>
+      </button>
     </div>
     
     <div v-if="loading" class="loading-state">
@@ -54,6 +75,9 @@
               >
                 {{ cve.cveId }}
               </a>
+              <span v-if="updatingCVEs.includes(cve.cveId)" class="updating-indicator">
+                <i class="fas fa-sync-alt fa-spin"></i>
+              </span>
             </div>
             <div class="severity-badge" :class="cve.severity.toLowerCase()">
               {{ cve.severity }}
@@ -145,6 +169,14 @@ const searchQuery = ref('')
 const loading = ref(true)
 const displayLimit = ref(10)
 const showAll = ref(false)
+const updatingSeverity = ref(false)
+const updatingCVEs = ref([])
+const notification = ref({
+  show: false,
+  message: '',
+  type: 'info',
+  timeout: null
+})
 
 const filteredCVEs = computed(() => {
   if (!searchQuery.value) {
@@ -210,6 +242,44 @@ const showLessCVEs = () => {
   displayLimit.value = Math.max(10, displayLimit.value - 10);
 }
 
+const closeNotification = () => {
+  notification.value.show = false
+  if (notification.value.timeout) {
+    clearTimeout(notification.value.timeout)
+    notification.value.timeout = null
+  }
+}
+
+const showNotification = (message, type = 'info', duration = 5000) => {
+  // Clear existing notification if any
+  if (notification.value.timeout) {
+    clearTimeout(notification.value.timeout)
+  }
+  
+  // Set new notification
+  notification.value = {
+    show: true,
+    message,
+    type,
+    timeout: setTimeout(() => {
+      notification.value.show = false
+    }, duration)
+  }
+}
+
+const getNotificationIcon = () => {
+  switch (notification.value.type) {
+    case 'success':
+      return 'fas fa-check-circle'
+    case 'error':
+      return 'fas fa-exclamation-circle'
+    case 'warning':
+      return 'fas fa-exclamation-triangle'
+    default:
+      return 'fas fa-info-circle'
+  }
+}
+
 onMounted(async () => {
   // Check for CVE search parameter and populate search field
   if (route.query.cveSearch) {
@@ -242,6 +312,53 @@ async function fetchCVEs() {
     console.error('Error fetching CVE data:', error)
   } finally {
     loading.value = false
+  }
+}
+
+async function updateSeverity() {
+  try {
+    updatingSeverity.value = true
+    
+    // Get all CVE IDs from the current list
+    const cveIds = cves.value.map(cve => cve.cveId)
+    updatingCVEs.value = [...cveIds] // Mark all CVEs as updating
+    
+    // Call service to update severity with progress callback
+    const result = await neo4jService.updateCVESeverities(cveIds, (processedCveId) => {
+      // Remove the processed CVE from the updating list
+      updatingCVEs.value = updatingCVEs.value.filter(id => id !== processedCveId)
+    })
+    
+    // Check if the update was successful
+    if (result.success) {
+      // Show success notification with any warnings
+      const warningText = result.failedCount > 0 
+        ? ` ${result.failedCount} CVEs could not be updated.` 
+        : '';
+        
+      showNotification(
+        `Successfully updated ${result.updatedCount} CVE severities from NVD API.${warningText}`,
+        result.failedCount > 0 ? 'warning' : 'success'
+      )
+    } else {
+      // Show warning notification with error message
+      showNotification(
+        result.message || 'Failed to update CVE severities',
+        'warning'
+      )
+    }
+    
+    // Refresh the CVE data after update
+    await fetchCVEs()
+  } catch (error) {
+    console.error('Error updating CVE severities:', error)
+    showNotification(
+      `Error updating CVE severities: ${error.message || 'Unknown error'}`,
+      'error'
+    )
+  } finally {
+    updatingSeverity.value = false
+    updatingCVEs.value = [] // Clear updating status for any remaining CVEs
   }
 }
 </script>
@@ -581,6 +698,17 @@ async function fetchCVEs() {
   color: white;
 }
 
+.update-button {
+  background-color: var(--secondary-color);
+  color: white;
+  border-color: var(--secondary-color);
+}
+
+.update-button:hover:not(:disabled) {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
 @media (max-width: 768px) {
   .cve-header-main {
     flex-direction: column;
@@ -600,5 +728,86 @@ async function fetchCVEs() {
   .show-all-button {
     margin-left: 0;
   }
+}
+
+.notification {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 6px;
+  border-left: 4px solid;
+  position: relative;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.notification.info {
+  background-color: #EBF8FF;
+  border-left-color: #4299E1;
+  color: #2A4365;
+}
+
+.notification.success {
+  background-color: #F0FFF4;
+  border-left-color: #48BB78;
+  color: #22543D;
+}
+
+.notification.warning {
+  background-color: #FFFAF0;
+  border-left-color: #ED8936;
+  color: #7B341E;
+}
+
+.notification.error {
+  background-color: #FFF5F5;
+  border-left-color: #F56565;
+  color: #822727;
+}
+
+.notification i {
+  font-size: 1.25rem;
+  margin-right: 0.75rem;
+}
+
+.notification p {
+  flex: 1;
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.notification-close:hover {
+  opacity: 1;
+}
+
+.updating-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.5rem;
+  color: var(--accent-color);
+  font-size: 0.9rem;
 }
 </style>
