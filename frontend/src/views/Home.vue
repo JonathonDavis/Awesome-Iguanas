@@ -1,5 +1,18 @@
 <template>
   <div class="dashboard">
+    <!-- Notification component -->
+    <div 
+      v-if="notification.show" 
+      class="notification"
+      :class="notification.type"
+    >
+      <i :class="getNotificationIcon()"></i>
+      <p>{{ notification.message }}</p>
+      <button @click="closeNotification" class="notification-close">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
     <div class="welcome-banner">
       <h1>Welcome to Iguana's GPT</h1>
       <p>Enterprise Database Vulnerability Management Solution</p>
@@ -230,9 +243,9 @@
           <i class="fas fa-book"></i>
           <span>Documentation</span>
         </button>
-        <button class="action-button refresh" @click="refreshData">
-          <i class="fas fa-sync-alt"></i>
-          <span>Refresh Data</span>
+        <button class="action-button refresh" @click="refreshData" :disabled="isLoading">
+          <i :class="isLoading ? 'fas fa-circle-notch fa-spin' : 'fas fa-sync-alt'"></i>
+          <span>{{ isLoading ? 'Refreshing...' : 'Refresh Data' }}</span>
         </button>
       </div>
     </div>
@@ -247,6 +260,55 @@ import neo4jService from '../services/neo4j/neo4jService';
 const router = useRouter();
 const isLoading = ref(true);
 const dbConnected = ref(true);
+
+// Notification system
+const notification = ref({
+  show: false,
+  message: '',
+  type: 'info',
+  timeout: null
+});
+
+// Close notification
+const closeNotification = () => {
+  notification.value.show = false;
+  if (notification.value.timeout) {
+    clearTimeout(notification.value.timeout);
+    notification.value.timeout = null;
+  }
+};
+
+// Show notification
+const showNotification = (message, type = 'info', duration = 5000) => {
+  // Clear existing notification if any
+  if (notification.value.timeout) {
+    clearTimeout(notification.value.timeout);
+  }
+  
+  // Set new notification
+  notification.value = {
+    show: true,
+    message,
+    type,
+    timeout: setTimeout(() => {
+      notification.value.show = false;
+    }, duration)
+  };
+};
+
+// Get notification icon based on type
+const getNotificationIcon = () => {
+  switch (notification.value.type) {
+    case 'success':
+      return 'fas fa-check-circle';
+    case 'error':
+      return 'fas fa-exclamation-circle';
+    case 'warning':
+      return 'fas fa-exclamation-triangle';
+    default:
+      return 'fas fa-info-circle';
+  }
+};
 
 const stats = reactive({
   cveCount: 0,
@@ -454,7 +516,49 @@ function goToDocumentation() {
 }
 
 async function refreshData() {
-  await fetchDashboardData();
+  try {
+    // Show a loading state
+    isLoading.value = true;
+    showNotification('Refreshing data and updating vulnerabilities...', 'info');
+    
+    // First fetch all CVE data
+    const cveData = await neo4jService.getCVERepositoryData();
+    
+    // Then update severity information for all CVEs
+    if (cveData && cveData.length > 0) {
+      const cveIds = cveData.map(cve => cve.cveId);
+      console.log(`Updating severity for ${cveIds.length} CVEs...`);
+      
+      try {
+        // Update severities - we're not tracking individual progress here
+        const result = await neo4jService.updateCVESeverities(cveIds);
+        console.log('Severity update completed');
+        
+        if (result && result.updatedCount) {
+          showNotification(
+            `Successfully updated ${result.updatedCount} CVE severities from NVD API.`,
+            'success'
+          );
+        }
+      } catch (error) {
+        console.error('Error updating severities:', error);
+        showNotification(
+          `Error updating CVE severities: ${error.message || 'Unknown error'}`,
+          'error'
+        );
+        // Continue with dashboard refresh even if severity update fails
+      }
+    }
+    
+    // Finally fetch updated dashboard data
+    await fetchDashboardData();
+  } catch (error) {
+    console.error('Error refreshing data:', error);
+    dbConnected.value = false;
+    showNotification('Error refreshing data. Please try again.', 'error');
+  } finally {
+    isLoading.value = false;
+  }
 }
 </script>
 
@@ -975,5 +1079,87 @@ async function refreshData() {
     width: 100%;
     flex: unset;
   }
+}
+
+/* Notification styles */
+.notification {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 6px;
+  border-left: 4px solid;
+  position: relative;
+  animation: slideIn 0.3s ease;
+  background-color: white;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.notification.info {
+  background-color: #EBF8FF;
+  border-left-color: #4299E1;
+  color: #2A4365;
+}
+
+.notification.success {
+  background-color: #F0FFF4;
+  border-left-color: #48BB78;
+  color: #22543D;
+}
+
+.notification.warning {
+  background-color: #FFFAF0;
+  border-left-color: #ED8936;
+  color: #7B341E;
+}
+
+.notification.error {
+  background-color: #FFF5F5;
+  border-left-color: #F56565;
+  color: #822727;
+}
+
+.notification i {
+  font-size: 1.25rem;
+  margin-right: 0.75rem;
+}
+
+.notification p {
+  flex: 1;
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.notification-close:hover {
+  opacity: 1;
+}
+
+/* Disabled button styles */
+.action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 </style>
