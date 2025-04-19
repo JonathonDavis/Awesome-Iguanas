@@ -6,6 +6,7 @@ import { createOSVFetcher } from './osvFetcher';
 import { getStatistics, getNodeDistribution, getVulnerabilityStatistics } from './statisticsService';
 import { getRepositoryStatistics, getCVERepositoryData } from './repositoryService';
 import { startUpdateSystem } from './updateSystem';
+import nvdService from './nvdService';
 
 class Neo4jService {
   constructor() {
@@ -262,6 +263,102 @@ class Neo4jService {
     } catch (error) {
       console.error('Error starting update system:', error);
       this.updateStatus.updateErrors.push(error.message);
+    }
+  }
+
+  // Add method to update CVE severities from NVD API
+  async updateCVESeverities(cveIds, progressCallback) {
+    console.log(`Updating severities for ${cveIds.length} CVEs from NVD API`);
+    
+    if (!cveIds || cveIds.length === 0) {
+      console.warn('No CVE IDs provided for severity update');
+      return { success: false, updatedCount: 0, message: 'No CVE IDs provided' };
+    }
+    
+    try {
+      // Fetch updated severity data from NVD API
+      const severityData = await nvdService.batchFetchCVESeverities(cveIds, (processedCveId) => {
+        // Report individual CVE completion if callback provided
+        if (progressCallback && typeof progressCallback === 'function') {
+          progressCallback(processedCveId);
+        }
+      });
+      
+      if (!severityData || Object.keys(severityData).length === 0) {
+        console.warn('No severity data returned from NVD API');
+        return { 
+          success: false, 
+          updatedCount: 0, 
+          message: 'No severity data returned from NVD API' 
+        };
+      }
+      
+      // Update each CVE in Neo4j database
+      const session = this.driver.session();
+      let updatedCount = 0;
+      let failedCves = [];
+      
+      try {
+        for (const [cveId, severity] of Object.entries(severityData)) {
+          try {
+            // Skip CVEs with no valid severity level
+            if (!severity || !severity.level) {
+              failedCves.push(cveId);
+              continue;
+            }
+            
+            const result = await session.run(`
+              MATCH (c:CVE {id: $cveId})-[:IDENTIFIED_AS]->(v:Vulnerability)
+              SET v.severity = $severityLevel,
+                  v.severityScore = $severityScore,
+                  v.modified = datetime()
+              RETURN c, v
+            `, {
+              cveId,
+              severityLevel: severity.level,
+              severityScore: severity.score
+            });
+            
+            if (result.records.length > 0) {
+              updatedCount++;
+            } else {
+              console.warn(`No matching CVE found in database for ${cveId}`);
+              failedCves.push(cveId);
+            }
+          } catch (error) {
+            console.error(`Error updating CVE ${cveId} in Neo4j:`, error.message);
+            failedCves.push(cveId);
+          } finally {
+            // Report progress on each individual CVE update
+            if (progressCallback && typeof progressCallback === 'function') {
+              progressCallback(cveId);
+            }
+          }
+        }
+        
+        const message = failedCves.length > 0 
+          ? `Updated ${updatedCount} CVEs, failed to update ${failedCves.length} CVEs` 
+          : `Successfully updated ${updatedCount} CVEs with new severity data`;
+        
+        console.log(message);
+        return { 
+          success: updatedCount > 0, 
+          updatedCount, 
+          failedCount: failedCves.length,
+          failedCves,
+          message
+        };
+      } finally {
+        await session.close();
+      }
+    } catch (error) {
+      console.error('Error updating CVE severities:', error.message);
+      return {
+        success: false,
+        updatedCount: 0,
+        message: `Failed to update CVE severities: ${error.message}`,
+        error: error.message
+      };
     }
   }
 }
