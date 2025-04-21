@@ -1,7 +1,7 @@
 {
-  "name": "frontend",
+  "name": "datavault-pro",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "dotenv": "^16.5.0",
     "vite": "^6.2.3"
   }
 }

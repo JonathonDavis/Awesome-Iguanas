@@ -27,32 +27,61 @@ export default {
         datasets: [{
           data: distribution.map(item => item.count),
           backgroundColor: [
-            '#FF6384',
-            '#36A2EB',
-            '#FFCE56',
-            '#4BC0C0',
-            '#9966FF', 
-            '#FF9F40',
-            '#FF6384',
-            '#36A2EB',
-            '#FFCE56',
-            '#4BC0C0',
-            '#9966FF' 
+            '#4299E1', // accent-color
+            '#2C5282', // secondary-color
+            '#48BB78', // success-color
+            '#ED8936', // warning-color
+            '#E53E3E', // error-color
+            '#805AD5', // purple
+            '#DD6B20', // orange
+            '#3182CE', // blue
+            '#38B2AC', // teal
+            '#D53F8C', // pink
+            '#718096'  // light-text
           ]
         }]
       },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         plugins: {
           title: {
             display: true,
-            text: 'Node Distribution',
-            color: 'white'
+            text: 'Database Node Distribution',
+            color: '#2D3748', // text-color
+            font: {
+              size: 16,
+              weight: 'bold',
+              family: "'Inter', sans-serif"
+            },
+            padding: {
+              top: 0,
+              bottom: 10
+            }
           },
           legend: {
+            position: 'right',
             labels: {
-              color: 'white'
+              color: '#2D3748', // text-color
+              font: {
+                family: "'Inter', sans-serif",
+                size: 14
+              },
+              padding: 15
             }
+          },
+          tooltip: {
+            backgroundColor: '#1A2942', // primary-color
+            titleFont: {
+              family: "'Inter', sans-serif",
+              size: 14
+            },
+            bodyFont: {
+              family: "'Inter', sans-serif",
+              size: 13
+            },
+            padding: 12,
+            cornerRadius: 6
           }
         }
       }
@@ -69,8 +98,16 @@ export default {
 
 <style scoped>
 .chart-container {
-  width: 400px;
+  width: 100%;
   height: 400px;
-  margin: auto;
+  margin: 0 auto;
+  position: relative;
+}
+
+/* Make chart responsive */
+@media (max-width: 768px) {
+  .chart-container {
+    height: 300px;
+  }
 }
 </style> 
