@@ -4,11 +4,12 @@ from dataclasses import dataclass
 import json
 import time
 import argparse
+import datetime
+import re
+from collections import Counter
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError
-from ollama import chat
-from ollama import ChatResponse
 
 @dataclass
 class VulnerabilityInfo:
@@ -31,15 +32,13 @@ class SecurityInsight:
     exploitation_likelihood: str
     recommendation: str
 
-class OllamaNeo4jSecurityAnalyzer:
+class Neo4jSecurityAnalyzer:
     def __init__(
         self,
         neo4j_uri: str = "bolt://localhost:7687",
         neo4j_user: str = "neo4j",
         neo4j_password: str = "jaguarai",
-        model: str = "llama2",
         log_level: str = "INFO"
-        
     ):
         """Initialize the security analyzer with connection parameters."""
         # Setup logging
@@ -62,25 +61,6 @@ class OllamaNeo4jSecurityAnalyzer:
             self.logger.error(f"Failed to connect to Neo4j: {str(e)}")
             raise
         
-        # Ollama configuration
-        self.model = model
-        self.logger.info(f"Configured to use Ollama model: {model}")
-        
-    def _test_ollama_connection(self) -> None:
-        """Test the connection to Ollama service."""
-        try:
-            print(f"Attempting to connect with model: {self.model}") # Add this line
-            response = chat(model=self.model, messages=[
-                {
-                    "role": "user",
-                    "content": "Hello"
-                }
-            ])
-            self.logger.info(f"Ollama response: {response}")
-            self.logger.info("Successfully connected to Ollama service")
-        except Exception as e:
-            raise ConnectionError(f"Failed to connect to Ollama service: {str(e)}")
-        
     def close(self) -> None:
         """Safely close the Neo4j connection."""
         if hasattr(self, 'driver'):
@@ -95,29 +75,6 @@ class OllamaNeo4jSecurityAnalyzer:
                 return result.data()
         except Exception as e:
             self.logger.error(f"Neo4j query error: {str(e)}")
-            raise
-
-    def analyze_with_ollama(self, prompt: str, system_prompt: str = None) -> Dict:
-        """Send data to Ollama for analysis using the Python client."""
-        messages = []
-        
-        if system_prompt:
-            messages.append({
-                "role": "system",
-                "content": system_prompt
-            })
-            
-        messages.append({
-            "role": "user",
-            "content": prompt
-        })
-        
-        try:
-            self.logger.info(f"Sending prompt to Ollama (length: {len(prompt)})")
-            response = chat(model=self.model, messages=messages)
-            return {"response": response["message"]["content"]}
-        except Exception as e:
-            self.logger.error(f"Ollama request error: {str(e)}")
             raise
 
     def get_database_schema(self) -> Dict:
@@ -396,472 +353,683 @@ class OllamaNeo4jSecurityAnalyzer:
                     
         return results
 
-    def _extract_json_from_response(self, text: str) -> Dict:
-        """Extract JSON from Ollama's response text."""
-        try:
-            # Try to parse the entire text as JSON first
-            return json.loads(text)
-        except json.JSONDecodeError:
-            # Look for a JSON block in the response
-            try:
-                json_start = text.find('{')
-                json_end = text.rfind('}') + 1
+    # New local analysis methods replacing Ollama API
+
+    def _determine_vulnerability_type(self, summary: str, details: str = None) -> str:
+        """Determine vulnerability type based on text analysis."""
+        text = (summary or "") + " " + (details or "")
+        text = text.lower()
+        
+        vulnerability_types = {
+            "buffer overflow": ["buffer overflow", "stack overflow", "heap overflow", "buffer over-read"],
+            "sql injection": ["sql injection", "sqli", "database injection"],
+            "cross-site scripting": ["xss", "cross-site scripting", "script injection"],
+            "cross-site request forgery": ["csrf", "cross-site request forgery"],
+            "path traversal": ["path traversal", "directory traversal", "../", "..\\"],
+            "command injection": ["command injection", "command execution", "code execution", "rce", "remote code execution"],
+            "denial of service": ["denial of service", "dos", "crash", "resource exhaustion"],
+            "information disclosure": ["information disclosure", "information leak", "data leak", "sensitive data"],
+            "authentication bypass": ["auth bypass", "authentication bypass", "privilege escalation"],
+            "memory corruption": ["memory corruption", "use-after-free", "double free"],
+            "improper input validation": ["input validation", "improper validation", "improper sanitization"]
+        }
+        
+        for vuln_type, patterns in vulnerability_types.items():
+            for pattern in patterns:
+                if pattern in text:
+                    return vuln_type.title()
+                    
+        return "Unknown"
+
+    def _determine_severity(self, summary: str, details: str = None, packages: List[Dict] = None) -> str:
+        """Determine vulnerability severity based on text analysis."""
+        text = (summary or "") + " " + (details or "")
+        text = text.lower()
+        
+        # Check for explicit severity mentions
+        if "critical" in text or "severe" in text:
+            return "CRITICAL"
+        elif "high" in text or "important" in text:
+            return "HIGH"
+        elif "medium" in text or "moderate" in text:
+            return "MEDIUM"
+        elif "low" in text:
+            return "LOW"
+            
+        # Check for high severity indicators
+        high_severity_indicators = [
+            "remote code execution", "rce", "arbitrary code execution",
+            "command execution", "privilege escalation", "authentication bypass",
+            "sql injection", "arbitrary file read", "arbitrary file write"
+        ]
+        
+        for indicator in high_severity_indicators:
+            if indicator in text:
+                return "HIGH"
                 
-                if json_start >= 0 and json_end > json_start:
-                    json_str = text[json_start:json_end]
-                    return json.loads(json_str)
-                else:
-                    # Return raw analysis if no JSON block found
-                    return {"raw_analysis": text}
-            except json.JSONDecodeError:
-                # Return raw analysis if JSON block parsing fails
-                return {"raw_analysis": text}
+        # Check package count as a heuristic
+        if packages and len(packages) > 5:
+            return "HIGH"
+        elif packages and len(packages) > 2:
+            return "MEDIUM"
+            
+        return "MEDIUM"  # Default to medium if uncertain
+
+    def _generate_remediation_steps(self, vuln_type: str, packages: List[Dict] = None) -> str:
+        """Generate remediation steps based on vulnerability type."""
+        general_advice = "Update to the latest patched version of the affected software components."
+        
+        if not packages:
+            return general_advice
+            
+        remediation = general_advice + " Specifically:\n"
+        
+        for pkg in packages:
+            pkg_name = pkg.get("name", "unknown")
+            eco = pkg.get("ecosystem", "unknown")
+            remediation += f"- Update {pkg_name} ({eco}) to the latest secure version\n"
+            
+        type_specific_advice = {
+            "Buffer Overflow": "Implement proper bounds checking and input validation.",
+            "SQL Injection": "Use parameterized queries and input validation.",
+            "Cross-Site Scripting": "Implement proper output encoding and content security policies.",
+            "Path Traversal": "Validate and sanitize file paths, use path canonicalization.",
+            "Command Injection": "Avoid passing user input to command interpreters, use allow-lists.",
+            "Denial Of Service": "Implement rate limiting and resource consumption controls.",
+            "Information Disclosure": "Audit information leakage vectors and implement proper access controls.",
+            "Authentication Bypass": "Review authentication mechanisms and implement multi-factor authentication where possible.",
+            "Memory Corruption": "Update to versions with memory safety improvements or consider memory-safe alternatives."
+        }
+        
+        if vuln_type in type_specific_advice:
+            remediation += "\nAdditional recommendation: " + type_specific_advice[vuln_type]
+            
+        return remediation
+
+    def _extract_affected_ecosystems(self, packages: List[Dict]) -> List[str]:
+        """Extract unique affected ecosystems from package list."""
+        ecosystems = set()
+        for pkg in packages:
+            eco = pkg.get("ecosystem")
+            if eco:
+                ecosystems.add(eco)
+        return list(ecosystems)
+
+    def _determine_exploitation_likelihood(self, vuln_type: str, references: List[Dict] = None) -> str:
+        """Determine exploitation likelihood based on vulnerability type and references."""
+        # Higher risk vulnerability types
+        high_risk_types = ["Remote Code Execution", "SQL Injection", "Authentication Bypass", 
+                         "Command Injection", "Cross-Site Scripting"]
+        
+        # Medium risk vulnerability types
+        medium_risk_types = ["Information Disclosure", "Path Traversal", "Cross-Site Request Forgery",
+                           "Denial Of Service"]
+        
+        # Look for exploit references
+        has_exploit = False
+        if references:
+            for ref in references:
+                url = ref.get("url", "").lower()
+                ref_type = ref.get("type", "").lower()
+                if "exploit" in url or "exploit" in ref_type or "poc" in url or "proof of concept" in url:
+                    has_exploit = True
+                    break
+        
+        if vuln_type in high_risk_types or has_exploit:
+            return "HIGH"
+        elif vuln_type in medium_risk_types:
+            return "MEDIUM"
+        else:
+            return "LOW"
+
+    def _generate_impact_analysis(self, vuln_type: str, summary: str, packages: List[Dict] = None) -> str:
+        """Generate impact analysis based on vulnerability type and affected packages."""
+        impact = f"This {vuln_type.lower()} vulnerability could potentially "
+        
+        type_impacts = {
+            "Buffer Overflow": "lead to arbitrary code execution, application crashes, or memory corruption.",
+            "SQL Injection": "allow attackers to read, modify, or delete database content, potentially accessing sensitive information or bypassing authentication.",
+            "Cross-Site Scripting": "enable attackers to execute malicious scripts in users' browsers, potentially leading to session hijacking, credential theft, or defacement.",
+            "Cross-Site Request Forgery": "trick users into performing unwanted actions while authenticated, potentially leading to account compromise or unauthorized data modification.",
+            "Path Traversal": "allow attackers to access files outside intended directories, potentially exposing sensitive configuration or system files.",
+            "Command Injection": "enable execution of arbitrary system commands with the privileges of the application, potentially leading to complete system compromise.",
+            "Denial Of Service": "allow attackers to disrupt service availability by exhausting system resources or causing application crashes.",
+            "Information Disclosure": "expose sensitive information such as internal system details, user data, or authentication credentials.",
+            "Authentication Bypass": "allow unauthorized access to protected functionality or data, potentially leading to privilege escalation.",
+            "Memory Corruption": "cause application instability, crashes, or potentially lead to arbitrary code execution.",
+            "Improper Input Validation": "lead to various attacks including injection attacks, bypassing security controls, or application logic errors."
+        }
+        
+        if vuln_type in type_impacts:
+            impact += type_impacts[vuln_type]
+        else:
+            impact += "compromise affected systems in various ways depending on the specific context of deployment."
+        
+        # Add ecosystem/package specific impact
+        if packages and len(packages) > 0:
+            ecosystems = self._extract_affected_ecosystems(packages)
+            package_count = len(packages)
+            
+            impact += f"\n\nThe vulnerability affects {package_count} package(s) across {len(ecosystems)} ecosystem(s)"
+            if ecosystems:
+                impact += f" ({', '.join(ecosystems)})"
+            impact += "."
+            
+            # Add more specific impact based on summary
+            if summary:
+                impact += f"\n\nAccording to the vulnerability summary: \"{summary}\""
+        
+        return impact
+
+    def _generate_recommendation(self, severity: str, vuln_type: str, remediation_steps: str) -> str:
+        """Generate a security recommendation based on severity and type."""
+        if severity == "CRITICAL":
+            return f"URGENT: Immediately patch this {vuln_type.lower()} vulnerability. {remediation_steps} Consider temporarily isolating affected systems if immediate patching is not possible."
+        elif severity == "HIGH":
+            return f"HIGH PRIORITY: This {vuln_type.lower()} vulnerability should be addressed as soon as possible. {remediation_steps}"
+        elif severity == "MEDIUM":
+            return f"MEDIUM PRIORITY: Schedule remediation of this {vuln_type.lower()} vulnerability within your normal patch cycle. {remediation_steps}"
+        else:
+            return f"LOW PRIORITY: Address this {vuln_type.lower()} vulnerability as resources permit. {remediation_steps}"
 
     def analyze_vulnerability(self, vuln_id: str) -> SecurityInsight:
-        """Analyze a specific vulnerability using Ollama."""
+        """Analyze a specific vulnerability using local analysis."""
         vuln_data = self.get_vulnerability_details(vuln_id)
         if not vuln_data:
             raise ValueError(f"Vulnerability {vuln_id} not found in database")
         
         vuln_info = vuln_data[0]
         
-        # Format data for Ollama
-        system_prompt = """
-        You are a security vulnerability analyst specializing in CVE analysis and threat intelligence.
-        Provide detailed security insights about the vulnerability information provided.
-        Format your output strictly as valid JSON with the following keys:
-        - severity (string: LOW, MEDIUM, HIGH, or CRITICAL)
-        - vulnerability_type (string: brief categorization like "Buffer Overflow", "SQL Injection", etc.)
-        - affected_ecosystems (array of strings)
-        - impact_analysis (string: comprehensive analysis of potential impacts)
-        - remediation_steps (string: specific steps for remediation)
-        - exploitation_likelihood (string: LOW, MEDIUM, or HIGH with rationale)
-        - recommendation (string: security recommendation)
+        # Extract basic vulnerability information
+        vuln_summary = vuln_info.get("summary", "")
+        vuln_details = vuln_info.get("details", "")
+        affected_packages = vuln_info.get("affected_packages", [])
+        references = vuln_info.get("references", [])
         
-        Be technical, precise, and focused on actionable security insights.
-        """
+        # Perform analysis
+        vuln_type = self._determine_vulnerability_type(vuln_summary, vuln_details)
+        severity = self._determine_severity(vuln_summary, vuln_details, affected_packages)
+        affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
+        exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
+        impact_analysis = self._generate_impact_analysis(vuln_type, vuln_summary, affected_packages)
+        remediation_steps = self._generate_remediation_steps(vuln_type, affected_packages)
+        recommendation = self._generate_recommendation(severity, vuln_type, remediation_steps)
         
-        # Use json.dumps for complex data structures within the prompt to ensure correct formatting
-        prompt = f"""
-        Please analyze the following vulnerability information and provide detailed security insights:
-        
-        Vulnerability ID: {vuln_info.get('id')}
-        Summary: {vuln_info.get('summary')}
-        Details: {vuln_info.get('details')}
-        Publication Date: {vuln_info.get('published')}
-        Last Modified: {vuln_info.get('modified')}
-        
-        Affected Components:
-        {json.dumps(vuln_info.get('affected_packages', []), indent=2)}
-        
-        Associated CVEs:
-        {json.dumps(vuln_info.get('cve_ids', []), indent=2)}
-        
-        References:
-        {json.dumps(vuln_info.get('references', []), indent=2)}
-        
-        Additional JSON Data:
-        {vuln_info.get('affected_json', '{}')}
-        """
-        
-        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
-        response_text = analysis_result.get("response", "{}")
-        analysis = self._extract_json_from_response(response_text)
-        
-        # Create a structured insight object
+        # Create and return a structured insight object
         return SecurityInsight(
             vulnerability_id=vuln_id,
-            severity=analysis.get("severity", "Unknown"),
-            affected_ecosystems=analysis.get("affected_ecosystems", []),
-            vulnerability_type=analysis.get("vulnerability_type", "Unknown"),
-            impact_analysis=analysis.get("impact_analysis", "No analysis available"),
-            remediation_steps=analysis.get("remediation_steps", "No remediation steps available"),
-            exploitation_likelihood=analysis.get("exploitation_likelihood", "Unknown"),
-            recommendation=analysis.get("recommendation", "No recommendation available")
+            severity=severity,
+            affected_ecosystems=affected_ecosystems,
+            vulnerability_type=vuln_type,
+            impact_analysis=impact_analysis,
+            remediation_steps=remediation_steps,
+            exploitation_likelihood=exploitation_likelihood,
+            recommendation=recommendation
         )
 
     def analyze_cve(self, cve_id: str) -> Dict:
-        """Analyze a specific CVE using Ollama."""
+        """Analyze a specific CVE using local analysis."""
         cve_data = self.get_cve_details(cve_id)
         if not cve_data:
             raise ValueError(f"CVE {cve_id} not found in database")
-            
-        # Format data for Ollama
-        system_prompt = """
-        You are a security vulnerability analyst specializing in CVE analysis and threat intelligence.
-        Based on the CVE information provided, generate a detailed security analysis in JSON format.
-        Include technical details, severity assessment, vulnerability type classification, and remediation options.
-        Format your output strictly as valid JSON.
-        """
         
-        # Use json.dumps for the data sent to Ollama
-        prompt = f"""
-        Analyze the following CVE information and provide detailed security insights:
+        cve_info = cve_data[0]
+        vulnerabilities = cve_info.get("vulnerabilities", [])
+        affected_packages = cve_info.get("affected_packages", [])
+        references = cve_info.get("references", [])
         
-        CVE ID: {cve_id}
+        # Extract text from vulnerabilities for analysis
+        summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
+        detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
         
-        Vulnerability Details: {json.dumps(cve_data, indent=2)}
+        # Combine texts for analysis
+        combined_summary = " ".join(summary_texts)
+        combined_details = " ".join(detail_texts)
         
-        Please provide your analysis in JSON format with the following structure:
-        {{
-          "severity": "LOW|MEDIUM|HIGH|CRITICAL",
-          "vulnerability_type": "...",
-          "potential_impact": "...",
-          "affected_systems": [...],
-          "exploitation_vectors": [...],
-          "recommended_mitigations": [...],
-          "technical_analysis": "..."
-        }}
-        """
+        # Perform analysis
+        vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
+        severity = self._determine_severity(combined_summary, combined_details, affected_packages)
+        affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
+        exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
         
-        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
-        response_text = analysis_result.get("response", "{}")
+        # Extract affected systems
+        affected_systems = []
+        for pkg in affected_packages:
+            name = pkg.get("name")
+            eco = pkg.get("ecosystem")
+            if name and eco:
+                affected_systems.append(f"{name} ({eco})")
         
-        return self._extract_json_from_response(response_text)
+        # Generate exploitation vectors
+        exploitation_vectors = []
+        if "remote" in combined_summary.lower() or "remote" in combined_details.lower():
+            exploitation_vectors.append("Remote exploitation")
+        if "local" in combined_summary.lower() or "local" in combined_details.lower():
+            exploitation_vectors.append("Local exploitation")
+        if "authentication" in combined_summary.lower() or "authentication" in combined_details.lower():
+            exploitation_vectors.append("Authentication bypass")
+        if not exploitation_vectors:
+            exploitation_vectors.append("Unknown exploitation vector")
+        
+        # Generate recommended mitigations
+        remediation_steps = self._generate_remediation_steps(vuln_type, affected_packages)
+        mitigations = remediation_steps.split("\n")
+        
+        # Generate technical analysis
+        technical_analysis = f"CVE {cve_id} is a {vuln_type.lower()} vulnerability that affects {len(affected_systems)} known packages. "
+        if summary_texts:
+            technical_analysis += f"The vulnerability is described as: {summary_texts[0]} "
+        if detail_texts:
+            technical_analysis += f"Technical details include: {detail_texts[0][:200]}..."
+        
+        return {
+            "severity": severity,
+            "vulnerability_type": vuln_type,
+            "potential_impact": self._generate_impact_analysis(vuln_type, combined_summary, affected_packages),
+            "affected_systems": affected_systems,
+            "exploitation_vectors": exploitation_vectors,
+            "recommended_mitigations": mitigations,
+            "technical_analysis": technical_analysis
+        }
 
     def analyze_ecosystem_security(self, ecosystem: str) -> Dict:
         """Analyze security posture of a particular ecosystem."""
         eco_data = self.get_ecosystem_vulnerabilities(ecosystem, limit=25)
         
-        system_prompt = """
-        You are a security ecosystem analyst. Provide a comprehensive security analysis of the ecosystem
-        based on its vulnerability profile. Focus on identifying patterns, common vulnerability types,
-        and systemic security issues. Format output as valid JSON.
-        """
+        if not eco_data:
+            return {
+                "ecosystem_name": ecosystem,
+                "overall_security_rating": "UNKNOWN",
+                "common_vulnerability_patterns": [],
+                "highest_risk_packages": [],
+                "systemic_security_issues": [],
+                "recommended_security_improvements": [],
+                "security_trend_analysis": f"No vulnerability data found for ecosystem {ecosystem}."
+            }
         
-        # Use json.dumps for the data sent to Ollama
-        prompt = f"""
-        Analyze the security posture of the '{ecosystem}' ecosystem based on this vulnerability data:
+        # Collect all vulnerabilities
+        all_vulns = []
+        packages_with_vulns = {}
         
-        {json.dumps(eco_data, indent=2)}
+        for item in eco_data:
+            pkg_name = item.get("package_name")
+            vulns = item.get("vulnerabilities", [])
+            
+            # Count vulnerabilities per package
+            if pkg_name and vulns:
+                if pkg_name not in packages_with_vulns:
+                    packages_with_vulns[pkg_name] = 0
+                packages_with_vulns[pkg_name] += len(vulns)
+            
+            all_vulns.extend(vulns)
         
-        Generate a comprehensive security assessment in JSON format with the following structure:
-        {{
-          "ecosystem_name": "{ecosystem}",
-          "overall_security_rating": "GOOD|FAIR|POOR",
-          "common_vulnerability_patterns": [], // array of strings or objects
-          "highest_risk_packages": [], // array of strings or objects
-          "systemic_security_issues": [], // array of strings or objects
-          "recommended_security_improvements": [], // array of strings or objects
-          "security_trend_analysis": "..." // string
-        }}
-        """
+        # Analyze vulnerability types
+        vuln_types = {}
+        for vuln in all_vulns:
+            summary = vuln.get("summary", "")
+            details = vuln.get("details", "")
+            vuln_type = self._determine_vulnerability_type(summary, details)
+            
+            if vuln_type not in vuln_types:
+                vuln_types[vuln_type] = 0
+            vuln_types[vuln_type] += 1
         
-        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
-        response_text = analysis_result.get("response", "{}")
+        # Get highest risk packages
+        highest_risk_packages = []
+        for pkg, count in sorted(packages_with_vulns.items(), key=lambda x: x[1], reverse=True)[:5]:
+            highest_risk_packages.append(f"{pkg} ({count} vulnerabilities)")
         
-        return self._extract_json_from_response(response_text)
+        # Determine common vulnerability patterns
+        common_vulnerability_patterns = []
+        for vuln_type, count in sorted(vuln_types.items(), key=lambda x: x[1], reverse=True)[:5]:
+            if count > 1:
+                common_vulnerability_patterns.append(f"{vuln_type} ({count} instances)")
         
-    def analyze_repository_security(self, repository_url: str) -> Dict:
-        """Analyze the security profile of a specific repository."""
-        # Query for repository info
-        query = """
-        MATCH (repo:Repository {url: $url})
-        OPTIONAL MATCH (repo)<-[]-(pkg:Package)<-[]-(vuln:Vulnerability)
-        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
-        OPTIONAL MATCH (pkg)-[]-(ver:Version)
-        RETURN repo.url as repository_url,
-               collect(DISTINCT {
-                 name: pkg.name, 
-                 ecosystem: pkg.ecosystem
-               }) as packages,
-               collect(DISTINCT {
-                 id: vuln.id, 
-                 summary: vuln.summary, 
-                 details: vuln.details
-               }) as vulnerabilities,
-               collect(DISTINCT cve.id) as cves,
-               collect(DISTINCT {
-                 version: ver.version, 
-                 size: ver.size, 
-                 primary_language: ver.primary_language
-               }) as versions
-        """
+        # Generate systemic security issues
+        systemic_security_issues = []
+        total_vulns = len(all_vulns)
+        total_packages = len(eco_data)
         
-        repo_data = self.query_neo4j(query, {"url": repository_url})
+        if total_vulns / max(1, total_packages) > 2:
+            systemic_security_issues.append(f"High vulnerability density ({total_vulns} vulnerabilities across {total_packages} packages)")
         
-        if not repo_data or not repo_data[0].get("repository_url"):
-            raise ValueError(f"Repository {repository_url} not found in database")
+        for vuln_type, count in vuln_types.items():
+            if count / max(1, total_vulns) > 0.3:  # If over 30% of vulnerabilities are of this type
+                systemic_security_issues.append(f"High prevalence of {vuln_type.lower()} vulnerabilities")
         
-        system_prompt = """
-        You are a repository security auditor. Analyze the security profile of the repository
-        based on its associated vulnerabilities, packages, and versions. Provide actionable
-        security recommendations. Format output as valid JSON.
-        """
+        # Generate recommended improvements
+        recommended_security_improvements = [
+            f"Prioritize updates for high-risk packages: {', '.join(highest_risk_packages[:3])}" if highest_risk_packages else "Conduct regular security audits of dependent packages",
+            f"Implement security scanning for {ecosystem} dependencies in CI/CD pipelines",
+            "Establish regular vulnerability monitoring for critical dependencies"
+        ]
         
-        # Use json.dumps for the data sent to Ollama
-        prompt = f"""
-        Analyze the security posture of repository: {repository_url}
+        # Add type-specific
+        # Add type-specific recommendations based on prevalent vulnerability types
+        for vuln_type, count in vuln_types.items():
+            if count > 1:
+                if vuln_type == "Cross-Site Scripting":
+                    recommended_security_improvements.append("Implement Content Security Policy (CSP) headers for web applications")
+                elif vuln_type == "SQL Injection":
+                    recommended_security_improvements.append("Use parameterized queries and ORM libraries with automatic escaping")
+                elif vuln_type == "Buffer Overflow":
+                    recommended_security_improvements.append("Consider memory-safe language alternatives for critical components")
+                elif vuln_type == "Command Injection":
+                    recommended_security_improvements.append("Implement strict input validation and command argument sanitization")
         
-        Repository data: {json.dumps(repo_data, indent=2)}
+        # Determine overall security rating
+        vulns_per_package = total_vulns / max(1, total_packages)
+        if vulns_per_package > 3:
+            overall_rating = "POOR"
+        elif vulns_per_package > 1.5:
+            overall_rating = "CONCERNING"
+        elif vulns_per_package > 0.5:
+            overall_rating = "MODERATE"
+        else:
+            overall_rating = "GOOD"
+            
+        # Generate security trend analysis
+        security_trend_analysis = f"Analysis of {ecosystem} ecosystem reveals {total_vulns} vulnerabilities across {total_packages} packages. "
+        security_trend_analysis += f"The most prevalent vulnerability type is {list(vuln_types.keys())[0] if vuln_types else 'Unknown'}. "
+        security_trend_analysis += f"Overall security posture is rated as {overall_rating}."
         
-        Generate a comprehensive security assessment in JSON format with the following structure:
-        {{
-          "repository_url": "{repository_url}",
-          "security_rating": "GOOD|FAIR|POOR",
-          "critical_vulnerabilities": [], // array of vulnerability summaries or IDs
-          "vulnerable_dependencies": [], // array of package names and versions
-          "security_improvement_recommendations": [], // array of strings
-          "dependency_update_priorities": [], // array of package names and suggested versions
-          "security_architecture_recommendations": "..." // string
-        }}
-        """
-        
-        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
-        response_text = analysis_result.get("response", "{}")
-        
-        return self._extract_json_from_response(response_text)
-    
-    def analyze_vulnerability_trends(self, limit: int = 100) -> Dict:
-        """Analyze vulnerability trends in the database."""
-        # Get recent vulnerabilities
-        query = """
-        MATCH (vuln:Vulnerability)
-        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
-        OPTIONAL MATCH (vuln)-[]->(pkg:Package)
-        RETURN vuln.id as id, 
-               vuln.summary as summary,
-               vuln.published as published, 
-               collect(DISTINCT cve.id) as cve_ids,
-               collect(DISTINCT pkg.ecosystem) as ecosystems
-        ORDER BY vuln.published DESC
-        LIMIT $limit
-        """
-        
-        vuln_data = self.query_neo4j(query, {"limit": limit})
-        
-        system_prompt = """
-        You are a security trend analyst specializing in vulnerability intelligence.
-        Based on the vulnerability data provided, identify important security trends, patterns,
-        and emerging threats. Format your analysis as valid JSON.
-        """
-        
-        # Use json.dumps for the data sent to Ollama
-        prompt = f"""
-        Analyze the following vulnerability dataset ({len(vuln_data)} records) and identify important trends:
-        
-        {json.dumps(vuln_data[:25], indent=2)}
-        
-        {json.dumps(vuln_data[25:], indent=2) if len(vuln_data) > 25 else ""}
-        
-        Generate a comprehensive trend analysis in JSON format with the following structure:
-        {{
-          "most_affected_ecosystems": [], // array of strings
-          "common_vulnerability_patterns": [], // array of strings or objects
-          "trending_vulnerability_types": [], // array of strings
-          "emerging_threats": [], // array of strings
-          "security_focus_recommendations": [], // array of strings
-          "temporal_trends": "..." // string analysis over time
-        }}
-        """
-        
-        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
-        response_text = analysis_result.get("response", "{}")
-        
-        return self._extract_json_from_response(response_text)
+        return {
+            "ecosystem_name": ecosystem,
+            "overall_security_rating": overall_rating,
+            "common_vulnerability_patterns": common_vulnerability_patterns,
+            "highest_risk_packages": highest_risk_packages,
+            "systemic_security_issues": systemic_security_issues,
+            "recommended_security_improvements": recommended_security_improvements,
+            "security_trend_analysis": security_trend_analysis
+        }
 
-    def generate_comprehensive_security_report(self) -> Dict:
-        """Generate a comprehensive security report across the database."""
-        # Gather data for report
-        database_stats = self.count_nodes_by_label()
-        top_vulns = self.get_vulnerability_details(limit=10)
-        top_repos = self.get_repositories_with_vulnerabilities(limit=10)
-        schema = self.get_database_schema()
+    def get_vulnerability_statistics(self) -> Dict:
+        """Get overall vulnerability statistics from the database."""
+        stats = {}
         
-        # Prepare simplified vulnerability data for the report prompt
-        simplified_top_vulns = [{
-            "id": v.get("id"),
-            "summary": v.get("summary"),
-            "cves": v.get("cve_ids"),
-            "package_count": len(v.get("affected_packages", []))
-        } for v in top_vulns]
-
-        report_data = {
-            "database_statistics": database_stats,
-            "schema_overview": schema,
-            "top_vulnerabilities": simplified_top_vulns,
-            "vulnerable_repositories": top_repos
+        # Count total vulnerabilities
+        vuln_count_query = "MATCH (v:Vulnerability) RETURN count(v) as count"
+        vuln_count = self.query_neo4j(vuln_count_query)[0]["count"]
+        stats["total_vulnerabilities"] = vuln_count
+        
+        # Count total CVEs
+        cve_count_query = "MATCH (c:CVE) RETURN count(c) as count"
+        cve_count = self.query_neo4j(cve_count_query)[0]["count"]
+        stats["total_cves"] = cve_count
+        
+        # Count affected packages
+        pkg_count_query = "MATCH (p:Package) RETURN count(p) as count"
+        pkg_count = self.query_neo4j(pkg_count_query)[0]["count"]
+        stats["total_packages"] = pkg_count
+        
+        # Count vulnerabilities by ecosystem
+        ecosystem_query = """
+        MATCH (p:Package)<-[]-(v:Vulnerability)
+        RETURN p.ecosystem as ecosystem, count(DISTINCT v) as vuln_count
+        ORDER BY vuln_count DESC
+        """
+        ecosystem_stats = self.query_neo4j(ecosystem_query)
+        stats["vulnerabilities_by_ecosystem"] = {
+            item["ecosystem"]: item["vuln_count"] for item in ecosystem_stats if item["ecosystem"]
         }
         
-        system_prompt = """
-        You are a chief security officer providing an executive summary of security vulnerabilities.
-        Based on the comprehensive security data provided, generate a detailed security assessment
-        report with clear, actionable insights. Format your report as valid JSON with organized sections.
+        # Get recent vulnerabilities (published in the last 90 days)
+        recent_query = """
+        MATCH (v:Vulnerability)
+        WHERE v.published IS NOT NULL AND datetime(v.published) > datetime() - duration('P90D')
+        RETURN count(v) as count
         """
+        recent_count = self.query_neo4j(recent_query)
+        stats["recent_vulnerabilities"] = recent_count[0]["count"] if recent_count else 0
         
-        # Use json.dumps for the data sent to Ollama
-        prompt = f"""
-        Generate a comprehensive security assessment report based on this database overview:
-        
-        {json.dumps(report_data, indent=2)}
-        
-        Generate a comprehensive executive security report in JSON format that includes:
-        - executive_summary (string)
-        - critical_vulnerability_assessment (string)
-        - ecosystem_security_analysis (string)
-        - prioritized_remediation_recommendations (array of strings)
-        - long_term_security_strategy (string)
-        - key_metrics_and_indicators (object with relevant counts/stats)
+        # Get most common vulnerability types by keyword analysis
+        all_vulns_query = """
+        MATCH (v:Vulnerability)
+        RETURN v.id as id, v.summary as summary, v.details as details
+        LIMIT 1000
         """
+        all_vulns = self.query_neo4j(all_vulns_query)
         
-        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
-        response_text = analysis_result.get("response", "{}")
+        # Extract vulnerability types
+        vuln_types = []
+        for vuln in all_vulns:
+            summary = vuln.get("summary", "")
+            details = vuln.get("details", "")
+            vuln_type = self._determine_vulnerability_type(summary, details)
+            vuln_types.append(vuln_type)
         
-        return self._extract_json_from_response(response_text)
+        # Count frequency of each type
+        type_counter = Counter(vuln_types)
+        stats["vulnerability_types"] = {k: v for k, v in type_counter.most_common(10)}
+        
+        return stats
+
+    def find_related_vulnerabilities(self, vuln_id: str) -> List[Dict]:
+        """Find vulnerabilities related to a specific vulnerability."""
+        query = """
+        MATCH (v1:Vulnerability {id: $vuln_id})
+        MATCH (v1)-[]->(p:Package)<-[]-(v2:Vulnerability)
+        WHERE v1 <> v2
+        RETURN DISTINCT v2.id as id, v2.summary as summary, p.name as package_name, p.ecosystem as ecosystem
+        LIMIT 10
+        """
+        params = {"vuln_id": vuln_id}
+        
+        related_vulns = self.query_neo4j(query, params)
+        return related_vulns
+
+    def generate_security_report(self, target: str, target_type: str) -> Dict:
+        """Generate a comprehensive security report for a package, ecosystem, or vulnerability."""
+        report = {
+            "report_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "target": target,
+            "target_type": target_type,
+            "summary": "",
+            "details": {},
+            "recommendations": []
+        }
+        
+        if target_type == "vulnerability":
+            try:
+                insight = self.analyze_vulnerability(target)
+                report["summary"] = f"Analysis of vulnerability {target} ({insight.vulnerability_type})"
+                report["details"] = {
+                    "severity": insight.severity,
+                    "affected_ecosystems": insight.affected_ecosystems,
+                    "vulnerability_type": insight.vulnerability_type,
+                    "impact_analysis": insight.impact_analysis,
+                    "exploitation_likelihood": insight.exploitation_likelihood
+                }
+                report["recommendations"] = [
+                    insight.remediation_steps,
+                    insight.recommendation
+                ]
+                
+                # Add related vulnerabilities
+                related = self.find_related_vulnerabilities(target)
+                if related:
+                    report["related_vulnerabilities"] = related
+                    
+            except ValueError as e:
+                report["summary"] = f"Error: {str(e)}"
+                
+        elif target_type == "cve":
+            try:
+                analysis = self.analyze_cve(target)
+                report["summary"] = f"Analysis of CVE {target} ({analysis['vulnerability_type']})"
+                report["details"] = {
+                    "severity": analysis["severity"],
+                    "vulnerability_type": analysis["vulnerability_type"],
+                    "potential_impact": analysis["potential_impact"],
+                    "affected_systems": analysis["affected_systems"],
+                    "exploitation_vectors": analysis["exploitation_vectors"],
+                    "technical_analysis": analysis["technical_analysis"]
+                }
+                report["recommendations"] = analysis["recommended_mitigations"]
+                
+            except ValueError as e:
+                report["summary"] = f"Error: {str(e)}"
+                
+        elif target_type == "package":
+            # Assume target format is "name@ecosystem"
+            if "@" in target:
+                name, ecosystem = target.split("@", 1)
+                vulns = self.get_package_vulnerabilities(name, ecosystem)
+            else:
+                vulns = self.get_package_vulnerabilities(target)
+                
+            if vulns:
+                package_info = vulns[0]
+                package_name = package_info.get("package_name", target)
+                ecosystem = package_info.get("ecosystem", "unknown")
+                vulnerabilities = package_info.get("vulnerabilities", [])
+                
+                report["summary"] = f"Security analysis of package {package_name} ({ecosystem})"
+                report["details"] = {
+                    "package_name": package_name,
+                    "ecosystem": ecosystem,
+                    "vulnerability_count": len(vulnerabilities),
+                    "repositories": package_info.get("repositories", []),
+                    "versions": package_info.get("versions", [])
+                }
+                
+                if vulnerabilities:
+                    vulnerability_summaries = []
+                    for v in vulnerabilities:
+                        if "id" in v and "summary" in v:
+                            vulnerability_summaries.append({
+                                "id": v["id"],
+                                "summary": v["summary"]
+                            })
+                    report["details"]["vulnerabilities"] = vulnerability_summaries
+                    
+                    # Generate recommendations based on vulnerabilities
+                    report["recommendations"] = [
+                        "Update to the latest version of the package which contains security fixes",
+                        "Implement security scanning in your dependency management workflow",
+                        "Consider alternative packages if this package has many unresolved vulnerabilities"
+                    ]
+                else:
+                    report["recommendations"] = [
+                        "No known vulnerabilities found, but continue to monitor for new security advisories",
+                        "Implement automated dependency security scanning as a precaution"
+                    ]
+            else:
+                report["summary"] = f"No data found for package {target}"
+                
+        elif target_type == "ecosystem":
+            analysis = self.analyze_ecosystem_security(target)
+            report["summary"] = f"Security analysis of {target} ecosystem"
+            report["details"] = {
+                "ecosystem_name": analysis["ecosystem_name"],
+                "overall_security_rating": analysis["overall_security_rating"],
+                "common_vulnerability_patterns": analysis["common_vulnerability_patterns"],
+                "highest_risk_packages": analysis["highest_risk_packages"],
+                "systemic_security_issues": analysis["systemic_security_issues"],
+                "security_trend_analysis": analysis["security_trend_analysis"]
+            }
+            report["recommendations"] = analysis["recommended_security_improvements"]
+            
+        else:
+            report["summary"] = f"Unknown target type: {target_type}"
+            
+        return report
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Ollama Neo4j Security Analyzer')
-    parser.add_argument('--neo4j-uri', default='bolt://localhost:7687', help='Neo4j connection URI')
-    parser.add_argument('--neo4j-user', default='neo4j', help='Neo4j username')
-    parser.add_argument('--neo4j-password', default='jaguarai', help='Neo4j password')
-    parser.add_argument('--model', default='llama3', help='Ollama model name')
-    parser.add_argument('--log-level', default='INFO', help='Logging level')
-    parser.add_argument('--action', choices=['overview', 'cve', 'vulnerability', 'ecosystem', 'repository', 'trends', 'report'], 
-                        default='overview', help='Analysis action to perform')
-    parser.add_argument('--id', help='ID for specific CVE or vulnerability analysis')
-    parser.add_argument('--ecosystem', help='Ecosystem name for ecosystem analysis')
-    parser.add_argument('--repository-url', help='Repository URL for repository analysis')
-    parser.add_argument('--output', help='Output file for JSON results')
+    """Main function to run the Neo4j Security Analyzer."""
+    parser = argparse.ArgumentParser(description="Neo4j Security Vulnerability Analyzer")
+    parser.add_argument("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j connection URI")
+    parser.add_argument("--neo4j-user", default="neo4j", help="Neo4j username")
+    parser.add_argument("--neo4j-password", default="jaguarai", help="Neo4j password")
+    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument("--command", required=True, choices=[
+        "schema", "stats", "vuln", "cve", "package", "ecosystem", "repo", "report"
+    ], help="Command to execute")
+    parser.add_argument("--target", help="Target ID for the command (vuln ID, CVE ID, package name, etc.)")
+    parser.add_argument("--limit", type=int, default=10, help="Limit for result count")
+    parser.add_argument("--output", help="Output file path for JSON results")
     
     args = parser.parse_args()
     
-    analyzer = None
+    analyzer = Neo4jSecurityAnalyzer(
+        neo4j_uri=args.neo4j_uri,
+        neo4j_user=args.neo4j_user,
+        neo4j_password=args.neo4j_password,
+        log_level=args.log_level
+    )
+    
     try:
-        # Initialize the analyzer
-        analyzer = OllamaNeo4jSecurityAnalyzer(
-            neo4j_uri=args.neo4j_uri,
-            neo4j_user=args.neo4j_user,
-            neo4j_password=args.neo4j_password,
-            model=args.model,
-            log_level=args.log_level
-        )
-        
-        # Test Ollama connection early
-        analyzer._test_ollama_connection()
-        
-        print("=== Neo4j Security Analyzer with Ollama ===\n")
-        
-        # Execute requested action
         result = None
         
-        if args.action == 'overview':
-            print("Generating database overview...")
-            db_stats = analyzer.count_nodes_by_label()
-            print(f"\nDatabase Statistics:")
-            for label, count in db_stats.items():
-                print(f"- {label}: {count}")
+        if args.command == "schema":
+            result = analyzer.get_database_schema()
+            
+        elif args.command == "stats":
+            result = analyzer.get_vulnerability_statistics()
+            
+        elif args.command == "vuln":
+            if args.target:
+                result = analyzer.get_vulnerability_details(args.target)
+            else:
+                result = analyzer.get_vulnerability_details(limit=args.limit)
                 
-            schema = analyzer.get_database_schema()
-            print(f"\nDatabase Schema:")
-            print(f"- Node labels: {', '.join(schema['node_labels'])}")
-            print(f"- Relationship types: {', '.join(schema['relationship_types'])}")
-            # Optionally
-            # Optionally print relationship patterns
-            print("\nCommon Relationship Patterns:")
-            for rel in schema['relationships'][:5]:  # Show top 5 patterns
-                print(f"- {rel.get('source_label', 'Unknown')} --[{rel.get('relationship', 'Unknown')}]--> {rel.get('target_label', 'Unknown')} (Count: {rel.get('frequency', 0)})")
+        elif args.command == "cve":
+            if args.target:
+                result = analyzer.get_cve_details(args.target)
+            else:
+                result = analyzer.get_cve_details(limit=args.limit)
+                
+        elif args.command == "package":
+            if "@" in args.target:
+                name, ecosystem = args.target.split("@", 1)
+                result = analyzer.get_package_vulnerabilities(name, ecosystem)
+            elif args.target:
+                result = analyzer.get_package_vulnerabilities(args.target)
+            else:
+                result = analyzer.get_package_vulnerabilities(limit=args.limit)
+                
+        elif args.command == "ecosystem":
+            if not args.target:
+                print("Error: --target ecosystem_name is required for ecosystem command")
+                return 1
+            result = analyzer.get_ecosystem_vulnerabilities(args.target, args.limit)
             
-            # Overview is already complete, no result to save
-            result = {
-                "stats": db_stats,
-                "schema": schema
-            }
+        elif args.command == "repo":
+            result = analyzer.get_repositories_with_vulnerabilities(args.limit)
             
-        elif args.action == 'cve':
-            if not args.id:
-                print("Error: --id parameter is required for CVE analysis")
-                return
-            print(f"Analyzing CVE: {args.id}...")
-            result = analyzer.analyze_cve(args.id)
-            print(f"\nCVE Analysis:")
-            print(f"- Severity: {result.get('severity', 'Unknown')}")
-            print(f"- Type: {result.get('vulnerability_type', 'Unknown')}")
-            print(f"- Potential Impact: {result.get('potential_impact', 'Unknown')[:100]}...")
-            print(f"- Recommended Mitigations: {len(result.get('recommended_mitigations', []))} items")
-            
-        elif args.action == 'vulnerability':
-            if not args.id:
-                print("Error: --id parameter is required for vulnerability analysis")
-                return
-            print(f"Analyzing vulnerability: {args.id}...")
-            insight = analyzer.analyze_vulnerability(args.id)
-            print(f"\nVulnerability Analysis:")
-            print(f"- Severity: {insight.severity}")
-            print(f"- Type: {insight.vulnerability_type}")
-            print(f"- Affected Ecosystems: {', '.join(insight.affected_ecosystems)}")
-            print(f"- Exploitation Likelihood: {insight.exploitation_likelihood}")
-            print(f"- Recommendation: {insight.recommendation[:100]}...")
-            
-            # Convert dataclass to dict for JSON output
-            result = {
-                "vulnerability_id": insight.vulnerability_id,
-                "severity": insight.severity,
-                "affected_ecosystems": insight.affected_ecosystems,
-                "vulnerability_type": insight.vulnerability_type,
-                "impact_analysis": insight.impact_analysis,
-                "remediation_steps": insight.remediation_steps,
-                "exploitation_likelihood": insight.exploitation_likelihood,
-                "recommendation": insight.recommendation
-            }
-            
-        elif args.action == 'ecosystem':
-            if not args.ecosystem:
-                print("Error: --ecosystem parameter is required for ecosystem analysis")
-                return
-            print(f"Analyzing ecosystem: {args.ecosystem}...")
-            result = analyzer.analyze_ecosystem_security(args.ecosystem)
-            print(f"\nEcosystem Security Analysis:")
-            print(f"- Name: {result.get('ecosystem_name', args.ecosystem)}")
-            print(f"- Overall Security Rating: {result.get('overall_security_rating', 'Unknown')}")
-            print(f"- Systemic Issues: {len(result.get('systemic_security_issues', []))} items")
-            print(f"- Highest Risk Packages: {len(result.get('highest_risk_packages', []))} items")
-            
-        elif args.action == 'repository':
-            if not args.repository_url:
-                print("Error: --repository-url parameter is required for repository analysis")
-                return
-            print(f"Analyzing repository: {args.repository_url}...")
-            result = analyzer.analyze_repository_security(args.repository_url)
-            print(f"\nRepository Security Analysis:")
-            print(f"- URL: {result.get('repository_url', args.repository_url)}")
-            print(f"- Security Rating: {result.get('security_rating', 'Unknown')}")
-            print(f"- Critical Vulnerabilities: {len(result.get('critical_vulnerabilities', []))} items")
-            print(f"- Vulnerable Dependencies: {len(result.get('vulnerable_dependencies', []))} items")
-            
-        elif args.action == 'trends':
-            print("Analyzing vulnerability trends...")
-            result = analyzer.analyze_vulnerability_trends()
-            print(f"\nVulnerability Trend Analysis:")
-            print(f"- Most Affected Ecosystems: {', '.join(result.get('most_affected_ecosystems', [])[:3])}")
-            print(f"- Trending Vulnerability Types: {len(result.get('trending_vulnerability_types', []))} items")
-            print(f"- Emerging Threats: {len(result.get('emerging_threats', []))} items")
-            
-        elif args.action == 'report':
-            print("Generating comprehensive security report...")
-            result = analyzer.generate_comprehensive_security_report()
-            print(f"\nExecutive Security Report:")
-            print(f"- Executive Summary: {result.get('executive_summary', 'Not available')[:100]}...")
-            print(f"- Critical Vulnerabilities: {result.get('critical_vulnerability_assessment', 'Not available')[:100]}...")
-            print(f"- Remediation Recommendations: {len(result.get('prioritized_remediation_recommendations', []))} items")
+        elif args.command == "report":
+            if not args.target or ":" not in args.target:
+                print("Error: --target must be in format type:id (e.g., vulnerability:CVE-2021-44228)")
+                return 1
+                
+            target_type, target_id = args.target.split(":", 1)
+            if target_type not in ["vulnerability", "cve", "package", "ecosystem"]:
+                print(f"Error: Unknown target type {target_type}")
+                return 1
+                
+            result = analyzer.generate_security_report(target_id, target_type)
         
-        # Save results to file if specified
-        if args.output and result:
-            print(f"\nSaving results to {args.output}...")
-            with open(args.output, 'w') as f:
-                json.dump(result, f, indent=2)
-            print("Save complete!")
+        # Output results
+        if result:
+            result_json = json.dumps(result, indent=2, default=str)
+            if args.output:
+                with open(args.output, 'w') as f:
+                    f.write(result_json)
+                print(f"Results written to {args.output}")
+            else:
+                print(result_json)
+        else:
+            print("No results returned")
             
-        print("\nAnalysis complete!")
-        
     except Exception as e:
         print(f"Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        return 1
     finally:
-        # Clean up resources
-        if analyzer:
-            analyzer.close()
+        analyzer.close()
+    
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    exit(main())
