@@ -374,22 +374,23 @@ class OllamaNeo4jSecurityAnalyzer:
 
     def count_nodes_by_label(self) -> Dict[str, int]:
         """Count nodes by label in the database."""
-        query = """
-        CALL db.labels() YIELD label
-        MATCH (n) WHERE n:$label
-        RETURN $label as label, count(n) as count
-        """
-        
         results = {}
         labels = [label["label"] for label in self.query_neo4j("CALL db.labels()")]
         
         for label in labels:
-            count_result = self.query_neo4j(query, {"label": label})
+            # Instead of parameter substitution for the label, use string formatting
+            # This is safe since the labels come from db.labels()
+            query = f"""
+            MATCH (n:{label})
+            RETURN count(n) as count
+            """
+            
+            count_result = self.query_neo4j(query)
             if count_result:
                 results[label] = count_result[0]["count"]
             else:
                 results[label] = 0
-                
+                    
         return results
 
     def _extract_json_from_response(self, text: str) -> Dict:
