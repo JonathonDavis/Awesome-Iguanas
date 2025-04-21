@@ -37,8 +37,9 @@ class OllamaNeo4jSecurityAnalyzer:
         neo4j_uri: str = "bolt://localhost:7687",
         neo4j_user: str = "neo4j",
         neo4j_password: str = "jaguarai",
-        model: str = "llama3",
+        model: str = "llama2",
         log_level: str = "INFO"
+        
     ):
         """Initialize the security analyzer with connection parameters."""
         # Setup logging
@@ -65,21 +66,21 @@ class OllamaNeo4jSecurityAnalyzer:
         self.model = model
         self.logger.info(f"Configured to use Ollama model: {model}")
         
-
     def _test_ollama_connection(self) -> None:
         """Test the connection to Ollama service."""
         try:
-            # Try a simple message to test connectivity
+            print(f"Attempting to connect with model: {self.model}") # Add this line
             response = chat(model=self.model, messages=[
                 {
                     "role": "user",
                     "content": "Hello"
                 }
             ])
+            self.logger.info(f"Ollama response: {response}")
             self.logger.info("Successfully connected to Ollama service")
         except Exception as e:
             raise ConnectionError(f"Failed to connect to Ollama service: {str(e)}")
-
+        
     def close(self) -> None:
         """Safely close the Neo4j connection."""
         if hasattr(self, 'driver'):
