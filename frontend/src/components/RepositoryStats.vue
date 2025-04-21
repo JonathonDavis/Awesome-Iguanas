@@ -1,159 +1,397 @@
 <template>
   <div class="repository-explorer">
-    <div class="explorer-container">
+    <div class="explorer-header">
       <div class="search-container">
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search repositories..."
-          class="search-input"
-        />
+        <div class="search-input-wrapper">
+          <i class="fas fa-search search-icon"></i>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search repositories..."
+            class="search-input"
+          />
+        </div>
         <button 
-          @click="expandAllRepositories" 
-          class="expand-all-button"
+          @click="expandAllRepos" 
+          class="action-button"
+          :disabled="!repositories.length"
         >
+          <i :class="expandedRepos.length === repositories.length ? 'fas fa-compress-alt' : 'fas fa-expand-alt'"></i>
           {{ expandedRepos.length === repositories.length ? 'Collapse All' : 'Expand All' }}
         </button>
       </div>
       
-      <div class="repository-list">
+      <!-- Debug info - remove in production -->
+      <div class="debug-info" v-if="searchQuery">
+        <span>Search: "{{ searchQuery }}" - Found {{ filteredRepositories.length }} / {{ repositories.length }} repositories</span>
+      </div>
+    </div>
+    
+    <div v-if="loading" class="loading-state">
+      <i class="fas fa-circle-notch fa-spin"></i>
+      <p>Loading repository data...</p>
+    </div>
+    
+    <div v-else-if="!repositories.length" class="empty-state">
+      <i class="fas fa-database"></i>
+      <p>No repository data available</p>
+    </div>
+    
+    <div v-else class="repository-list">
+      <div 
+        v-for="repo in filteredRepositories" 
+        :key="repo.repository"
+        class="repository-item"
+      >
         <div 
-          v-for="repo in filteredRepositories" 
-          :key="repo.repository"
-          class="repository-item"
+          class="repository-header"
+          @click="toggleRepo(repo)"
         >
-          <div 
-            class="repo-header"
-            @click="toggleRepository(repo)"
-          >
-            <a 
-              :href="repo.repository" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              class="repo-link"
-              @click.stop
-            >
-              {{ getRepoName(repo.repository) }}
-            </a>
-            <div class="version-count">{{ repo.versions.length }} versions</div>
+          <div class="repository-header-main">
+            <div class="repository-title">
+              <i :class="expandedRepos.includes(repo.repository) ? 'fas fa-chevron-down' : 'fas fa-chevron-right'" class="expand-icon"></i>
+              <a 
+                :href="repo.repository" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                class="repository-link"
+                @click.stop
+              >
+                {{ getRepoName(repo.repository) }}
+              </a>
+            </div>
+            <div class="stats-badge">
+              <span class="badge-item">
+                <i class="fas fa-tag"></i> {{ repo.versions.length }}
+              </span>
+              <span class="badge-item" v-if="repo.versions.some(v => v.cves && v.cves.length)">
+                <i class="fas fa-shield-alt"></i> {{ getTotalCVEs(repo) }}
+              </span>
+            </div>
+          </div>
+          <div class="repository-meta">
+            <span class="meta-item" v-if="repo.versions && repo.versions[0] && repo.versions[0].primaryLanguage">
+              <i class="fas fa-code-branch"></i> {{ repo.versions[0].primaryLanguage }}
+            </span>
+            <span class="meta-item" v-if="getLatestVersion(repo)">
+              <i class="fas fa-tag"></i> Latest: {{ getLatestVersion(repo) }}
+            </span>
+          </div>
+        </div>
+        
+        <div class="repository-details" v-if="expandedRepos.includes(repo.repository)">
+          <div class="details-section">
+            <h3 class="section-title"><i class="fas fa-info-circle"></i> Repository Information</h3>
+            <div class="details-grid">
+              <div class="detail-item">
+                <strong>Owner:</strong> {{ getRepoOwner(repo.repository) }}
+              </div>
+              <div class="detail-item" v-if="repo.versions && repo.versions[0] && repo.versions[0].primaryLanguage">
+                <strong>Primary Language:</strong> {{ repo.versions[0].primaryLanguage }}
+              </div>
+              <div class="detail-item">
+                <strong>Total Versions:</strong> {{ repo.versions.length }}
+              </div>
+              <div class="detail-item">
+                <strong>Total CVEs:</strong> {{ getTotalCVEs(repo) }}
+              </div>
+            </div>
           </div>
           
-          <div class="version-list" v-if="expandedRepos.includes(repo.repository)">
-            <div 
-              v-for="version in repo.versions" 
-              :key="version.version"
-              class="version-item"
-              :class="{ 'selected': selectedVersion === version }"
-              @click="selectVersion(version)"
-            >
-              <div class="version-header">
-                <div class="version-name">{{ version.version }}</div>
-                <div class="version-size">Size: {{ formatSize(version.size) }}</div>
-              </div>
-              
-              <div class="version-details" v-if="expandedVersions.includes(version)">
-                <div class="detail-item">
-                  <strong>Primary Language:</strong>
-                  <div class="primary-language">{{ version.primaryLanguage || 'Not specified' }}</div>
+          <div class="details-section" v-if="repo.versions && repo.versions.length">
+            <h3 class="section-title"><i class="fas fa-tag"></i> Versions</h3>
+            <div class="version-list">
+              <div 
+                v-for="version in repo.versions" 
+                :key="version.version"
+                class="version-item"
+              >
+                <div class="version-header">
+                  <span class="version-number">{{ version.version }}</span>
+                  <span class="version-size">{{ formatSize(version.size) }}</span>
                 </div>
-                <div class="detail-item">
-                  <strong>Language Breakdown:</strong>
-                  <div class="language-chart">
-                    <div 
-                      v-for="(percentage, lang) in version.languages" 
-                      :key="lang"
-                      class="language-bar"
-                      :style="{ width: percentage + '%', backgroundColor: getLanguageColor(lang) }"
-                      :title="`${lang}: ${percentage}%`"
-                    ></div>
-                  </div>
-                  <div class="language-legend">
-                    <div 
-                      v-for="(percentage, lang) in version.languages" 
-                      :key="lang"
-                      class="legend-item"
-                    >
-                      <span class="legend-color" :style="{ backgroundColor: getLanguageColor(lang) }"></span>
-                      <span class="legend-text">{{ lang }} ({{ percentage.toFixed(2) }}%)</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="detail-item" v-if="version.languageCount">
-                  <strong>Total Languages:</strong>
-                  <div class="language-count">{{ version.languageCount }}</div>
-                </div>
-                <div class="cve-list" v-if="version.cves && version.cves.length > 0">
-                  <div class="cve-header">Affected by CVEs:</div>
-                  <div class="cve-items">
+                <div class="version-cves" v-if="version.cves && version.cves.length">
+                  <div class="cve-chip-list">
                     <a 
                       v-for="cve in version.cves" 
                       :key="cve"
                       :href="`https://nvd.nist.gov/vuln/detail/${cve}`"
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="cve-link"
+                      class="cve-chip"
                     >
                       {{ cve }}
                     </a>
+                  </div>
+                </div>
+                <div class="language-breakdown" v-if="version.languages">
+                  <div class="severity-bar">
+                    <div 
+                      v-for="(percentage, language) in version.languages" 
+                      :key="language"
+                      class="language-segment"
+                      :style="{width: `${percentage}%`, backgroundColor: getLanguageColor(language)}"
+                      :title="`${language}: ${percentage.toFixed(1)}%`"
+                    ></div>
+                  </div>
+                  <div class="language-legend">
+                    <div 
+                      v-for="(percentage, language) in getTopLanguages(version.languages)" 
+                      :key="language" 
+                      class="legend-item"
+                    >
+                      <span class="legend-color" :style="{backgroundColor: getLanguageColor(language)}"></span>
+                      <span class="legend-label">{{ language }}: {{ percentage.toFixed(1) }}%</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        
-        <div v-if="!showAll && repositories.length > displayLimit" class="show-more-container">
-          <button @click="showLessRepositories" class="show-less-button" v-if="displayLimit > 10">
-            Show 10 Less
-          </button>
-          <button @click="showMoreRepositories" class="show-more-button">
-            Show Next 10
-          </button>
-          <button @click="toggleShowAll" class="show-all-button">
-            Show All ({{ repositories.length - displayLimit }} more)
-          </button>
-        </div>
-        
-        <div v-if="showAll" class="show-more-container">
-          <button @click="toggleShowAll" class="show-more-button">
-            Show Less
-          </button>
-        </div>
+      </div>
+      
+      <div v-if="!showAll && repositories.length > displayLimit" class="pagination-controls">
+        <button @click="showLessRepos" class="page-button" v-if="displayLimit > 10">
+          <i class="fas fa-chevron-left"></i> Previous 10
+        </button>
+        <span class="page-info">Showing {{ Math.min(displayLimit, filteredRepositories.length) }} of {{ repositories.length }}</span>
+        <button @click="showMoreRepos" class="page-button">
+          Next 10 <i class="fas fa-chevron-right"></i>
+        </button>
+        <button @click="toggleShowAll" class="show-all-button">
+          <i class="fas fa-list"></i> Show All
+        </button>
+      </div>
+      
+      <div v-if="showAll" class="pagination-controls">
+        <button @click="toggleShowAll" class="show-all-button">
+          <i class="fas fa-list-alt"></i> Show Less
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import neo4jService from '../services/neo4j/neo4jService'
+import { useRoute } from 'vue-router'
 
+const route = useRoute()
 const repositories = ref([])
 const expandedRepos = ref([])
-const expandedVersions = ref([])
-const selectedVersion = ref(null)
 const searchQuery = ref('')
+const debouncedSearchQuery = ref('')
+const loading = ref(true)
 const displayLimit = ref(10)
 const showAll = ref(false)
 
-// Add computed property for filtered repositories
-const filteredRepositories = computed(() => {
-  if (!searchQuery.value) {
-    return showAll.value ? repositories.value : repositories.value.slice(0, displayLimit.value);
+onMounted(async () => {
+  // Check for repo search parameter and populate search field
+  if (route.query.repoSearch) {
+    searchQuery.value = route.query.repoSearch
+    debouncedSearchQuery.value = route.query.repoSearch
   }
   
-  const query = searchQuery.value.toLowerCase();
-  const filtered = repositories.value.filter(repo => {
-    const repoName = getRepoName(repo.repository).toLowerCase();
-    const versionMatches = repo.versions.some(version => 
-      version && version.version && typeof version.version === 'string' && 
-      version.version.toLowerCase().includes(query)
-    );
-    return repoName.includes(query) || versionMatches;
-  });
+  await fetchRepositories()
+})
+
+// Debounce the search query
+let debounceTimeout = null
+watch(searchQuery, (newValue) => {
+  clearTimeout(debounceTimeout)
+  debounceTimeout = setTimeout(() => {
+    debouncedSearchQuery.value = newValue
+    console.log('Search debounced:', newValue)
+  }, 300) // 300ms debounce
+})
+
+async function fetchRepositories() {
+  try {
+    loading.value = true
+    repositories.value = await neo4jService.getRepositoryStatistics()
+    
+    // If search parameter is present, expand the matching repository
+    if (route.query.repoSearch) {
+      const matchingRepos = repositories.value.filter(repo => {
+        const repoName = getRepoName(repo.repository).toLowerCase()
+        return repoName.includes(route.query.repoSearch.toLowerCase())
+      })
+      
+      if (matchingRepos.length) {
+        matchingRepos.forEach(repo => {
+          if (!expandedRepos.value.includes(repo.repository)) {
+            expandedRepos.value.push(repo.repository)
+          }
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching repositories:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const filteredRepositories = computed(() => {
+  // Return all repositories if no search query
+  if (!debouncedSearchQuery.value || debouncedSearchQuery.value.trim() === '') {
+    const repos = showAll.value ? repositories.value : repositories.value.slice(0, displayLimit.value);
+    console.log(`No search query - returning ${repos.length} repositories`);
+    return repos;
+  }
   
-  return showAll.value ? filtered : filtered.slice(0, displayLimit.value);
+  try {
+    const query = debouncedSearchQuery.value.toLowerCase().trim();
+    console.log(`Filtering repositories with query: "${query}"`);
+    
+    if (!repositories.value || !Array.isArray(repositories.value)) {
+      console.error('Repository data is not an array:', repositories.value);
+      return [];
+    }
+    
+    // Define a safe accessor function to avoid null/undefined errors
+    const safeString = (val) => {
+      if (val === null || val === undefined) return '';
+      return String(val).toLowerCase();
+    };
+    
+    const filtered = repositories.value.filter(repo => {
+      try {
+        if (!repo) return false;
+        
+        // Check repository URL
+        const repoUrl = safeString(repo.repository);
+        if (repoUrl.includes(query)) return true;
+        
+        // Check repository name
+        try {
+          const repoName = safeString(getRepoName(repo.repository));
+          if (repoName.includes(query)) return true;
+        } catch (e) {
+          console.warn('Error parsing repo name:', e);
+        }
+        
+        // Exit early if no versions
+        if (!repo.versions || !Array.isArray(repo.versions) || repo.versions.length === 0) {
+          return false;
+        }
+        
+        // Check versions and their properties
+        return repo.versions.some(version => {
+          try {
+            if (!version) return false;
+            
+            // Check version number
+            if (safeString(version.version).includes(query)) return true;
+            
+            // Check primary language
+            if (safeString(version.primaryLanguage).includes(query)) return true;
+            
+            // Check languages object
+            if (version.languages && typeof version.languages === 'object') {
+              // Check if any language key matches
+              const langMatch = Object.keys(version.languages).some(lang => 
+                safeString(lang).includes(query)
+              );
+              if (langMatch) return true;
+            }
+            
+            // Check CVEs if they exist
+            if (Array.isArray(version.cves)) {
+              const cveMatch = version.cves.some(cve => 
+                safeString(cve).includes(query)
+              );
+              if (cveMatch) return true;
+            }
+            
+            return false;
+          } catch (e) {
+            console.warn('Error filtering version:', e);
+            return false;
+          }
+        });
+      } catch (e) {
+        console.error('Error in repository filtering:', e);
+        return false;
+      }
+    });
+    
+    console.log(`Search query "${query}" found ${filtered.length} matching repositories`);
+    return showAll.value ? filtered : filtered.slice(0, displayLimit.value);
+  } catch (error) {
+    console.error('Error in filteredRepositories:', error);
+    return [];
+  }
 });
+
+const getRepoName = (url) => {
+  try {
+    const urlObj = new URL(url)
+    return urlObj.pathname.split('/').slice(-2).join('/')
+  } catch {
+    return url
+  }
+}
+
+const getRepoOwner = (url) => {
+  try {
+    const urlObj = new URL(url)
+    return urlObj.pathname.split('/').slice(-2)[0]
+  } catch {
+    return 'Unknown'
+  }
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'Not available';
+  return new Date(dateString).toLocaleDateString();
+}
+
+const toggleRepo = (repo) => {
+  const index = expandedRepos.value.indexOf(repo.repository)
+  if (index === -1) {
+    expandedRepos.value.push(repo.repository)
+  } else {
+    expandedRepos.value.splice(index, 1)
+  }
+}
+
+const getTotalCVEs = (repo) => {
+  if (!repo.versions) return 0;
+  let total = 0;
+  repo.versions.forEach(version => {
+    if (version.cves && Array.isArray(version.cves)) {
+      total += version.cves.length;
+    }
+  });
+  return total;
+}
+
+const getLatestVersion = (repo) => {
+  if (!repo.versions || !repo.versions.length) return null;
+  
+  // Simple assumption: the first version is the latest
+  return repo.versions[0].version;
+}
+
+const formatSize = (sizeValue) => {
+  if (!sizeValue) return '0 MB';
+  
+  // Convert to string if it's a number
+  const sizeStr = typeof sizeValue === 'number' ? sizeValue.toString() : sizeValue;
+  
+  // Remove the 'M' suffix and format the number
+  const number = parseFloat(sizeStr.replace('M', ''));
+  
+  if (isNaN(number)) return '0 MB';
+  
+  // Format the number to show decimals only if they exist
+  const formattedSize = number % 1 === 0 ? number.toString() : number.toFixed(2).replace(/\.?0+$/, '');
+  
+  return `${formattedSize} MB`;
+}
 
 // GitHub-like language colors
 const languageColors = {
@@ -169,568 +407,503 @@ const languageColors = {
   'Rust': '#dea584',
   'Swift': '#ffac45',
   'Kotlin': '#F18E33',
-  'Scala': '#c22d40',
-  'HTML': '#e34c26',
-  'CSS': '#563d7c',
-  'Shell': '#89e051',
-  'Dockerfile': '#384d54',
-  'Makefile': '#427819',
-  'Vue': '#41b883',
-  'React': '#61dafb',
-  'Angular': '#dd0031',
-  'Svelte': '#ff3e00',
-  'Elixir': '#6e4a7e',
-  'Clojure': '#db5855',
-  'Haskell': '#5e5086',
-  'OCaml': '#3be133',
-  'R': '#198ce7',
-  'MATLAB': '#e16737',
-  'Perl': '#0298c3',
-  'Lua': '#000080',
-  'Dart': '#00B4AB',
-  'Julia': '#a270ba',
-  'Racket': '#3c5caa',
-  'Erlang': '#B83998',
-  'F#': '#b845fc',
-  'Groovy': '#e69f56',
-  'Objective-C': '#438eff',
-  'Assembly': '#6E4C13',
-  'PowerShell': '#012456',
-  'Batchfile': '#C1F12E',
-  'TeX': '#3D6117',
-  'Markdown': '#083fa1',
-  'YAML': '#cb171e',
-  'JSON': '#292929',
-  'XML': '#0060ac',
-  'SQL': '#e38c00',
-  'GraphQL': '#e10098',
-  'PLSQL': '#dad8d8',
-  'TSQL': '#e38c00',
-  'PLpgSQL': '#336791',
-  'PL/SQL': '#dad8d8',
-  'Tcl': '#e4cc98',
-  'CoffeeScript': '#244776',
-  'D': '#ba595e',
-  'F*': '#572e30',
-  'Forth': '#341708',
-  'Fortran': '#4d41b1',
-  'Haxe': '#df7900',
-  'Idris': '#b30000',
-  'J': '#9EEDFF',
-  'Jupyter Notebook': '#DA5B0B',
-  'Lean': '#3D3C3E',
-  'Nim': '#37775b',
-  'Nix': '#7e7eff',
-  'Pascal': '#E3F171',
-  'Prolog': '#74283c',
-  'PureScript': '#1D222D',
-  'QML': '#44a51c',
-  'Raku': '#0000fb',
-  'Reason': '#ff5847',
-  'Red': '#f50000',
-  'RenPy': '#ff7f7f',
-  'Ring': '#2D54CB',
-  'Sass': '#a53b70',
-  'Solidity': '#AA6746',
-  'Stylus': '#ff6347',
-  'Terraform': '#623ce4',
-  'Vala': '#fbe5cd',
-  'Vim script': '#199f4b',
-  'Visual Basic': '#945db7',
-  'WebAssembly': '#04133b',
-  'Zig': '#ec915c'
+  // Add more languages as needed
+  'Other': '#cccccc'
 }
 
 const getLanguageColor = (lang) => {
-  return languageColors[lang] || '#cccccc'
+  return languageColors[lang] || languageColors['Other'];
 }
 
-const getRepoName = (url) => {
-  if (!url) return 'Unknown Repository';
+const getTopLanguages = (languages) => {
+  // Get top 5 languages by percentage
+  if (!languages) return {};
   
-  try {
-    const urlObj = new URL(url)
-    return urlObj.pathname.split('/').slice(-2).join('/')
-  } catch {
-    return url
-  }
-}
-
-const formatSize = (sizeValue) => {
-  // Debug log
-  console.log('Formatting size:', {
-    rawSize: sizeValue,
-    type: typeof sizeValue
+  const entries = Object.entries(languages);
+  entries.sort((a, b) => b[1] - a[1]);
+  
+  const topLanguages = {};
+  entries.slice(0, 5).forEach(([lang, percentage]) => {
+    topLanguages[lang] = percentage;
   });
-
-  if (!sizeValue) return '0 MB';
   
-  // Convert to string if it's a number
-  const sizeStr = typeof sizeValue === 'number' ? sizeValue.toString() : sizeValue;
-  
-  // Remove the 'M' suffix and format the number
-  const number = parseFloat(sizeStr.replace('M', ''));
-  
-  if (isNaN(number)) return '0 MB';
-  
-  // Format the number to show decimals only if they exist
-  const formattedSize = number % 1 === 0 ? number.toString() : number.toFixed(2).replace(/\.?0+$/, '');
-  
-  console.log('Formatted size:', formattedSize + ' MB');
-  return `${formattedSize} MB`;
+  return topLanguages;
 }
 
-const toggleRepository = (repo) => {
-  const index = expandedRepos.value.indexOf(repo.repository)
-  if (index === -1) {
-    expandedRepos.value.push(repo.repository)
-  } else {
-    expandedRepos.value.splice(index, 1)
-  }
-}
-
-const selectVersion = (version) => {
-  if (selectedVersion.value === version) {
-    selectedVersion.value = null;
-    // Remove from expanded versions when deselecting
-    const index = expandedVersions.value.indexOf(version);
-    if (index !== -1) {
-      expandedVersions.value.splice(index, 1);
-    }
-  } else {
-    selectedVersion.value = version;
-    // Add to expanded versions when selecting
-    if (!expandedVersions.value.includes(version)) {
-      expandedVersions.value.push(version);
-    }
-  }
-}
-
-const expandAllRepositories = () => {
+const expandAllRepos = () => {
   if (expandedRepos.value.length === repositories.value.length) {
-    // If all are expanded, collapse all
     expandedRepos.value = [];
-    expandedVersions.value = [];
-    selectedVersion.value = null;
   } else {
-    // Expand all repositories and their versions
     expandedRepos.value = repositories.value.map(repo => repo.repository);
-    expandedVersions.value = repositories.value.flatMap(repo => 
-      repo.versions.map(version => version)
-    );
-    // Select the first version of the first repository if available
-    if (repositories.value.length > 0 && repositories.value[0].versions.length > 0) {
-      selectedVersion.value = repositories.value[0].versions[0];
-    }
   }
 };
 
 const toggleShowAll = () => {
   showAll.value = !showAll.value;
   if (!showAll.value) {
-    // Reset expanded repos when collapsing
     expandedRepos.value = [];
-    expandedVersions.value = [];
-    selectedVersion.value = null;
     displayLimit.value = 10; // Reset display limit when showing less
   }
 }
 
-const showMoreRepositories = () => {
+const showMoreRepos = () => {
   displayLimit.value += 10;
 }
 
-const showLessRepositories = () => {
+const showLessRepos = () => {
   displayLimit.value = Math.max(10, displayLimit.value - 10);
 }
-
-const fetchData = async () => {
-  try {
-    const data = await neo4jService.getRepositoryStatistics();
-    console.log('Fetched data:', data);
-    repositories.value = data;
-  } catch (error) {
-    console.error('Error fetching repository statistics:', error);
-  }
-}
-
-fetchData()
 </script>
 
 <style scoped>
 .repository-explorer {
   width: 100%;
-  height: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
-.explorer-container {
+.explorer-header {
+  margin-bottom: 1.5rem;
+}
+
+.search-container {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.search-input-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 250px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--light-text);
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.75rem 1rem 0.75rem 2.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-input:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+}
+
+.action-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-button:hover {
+  background-color: var(--background-color);
+  border-color: var(--accent-color);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading-state, .empty-state {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background-color: #066c43;
-  border-radius: 4px;
-  padding: 1rem;
-  overflow: hidden;
-  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
+}
+
+.loading-state i, .empty-state i {
+  font-size: 2.5rem;
+  color: var(--light-text);
+  margin-bottom: 1rem;
+}
+
+.loading-state p, .empty-state p {
+  color: var(--light-text);
+  font-size: 1.1rem;
 }
 
 .repository-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  overflow-y: auto;
-  flex: 1;
-  padding-right: 0.5rem;
-  margin-right: -0.5rem;
-  min-height: 0; /* Important for flex child scrolling */
-}
-
-.repository-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.repository-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.repository-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-.repository-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  gap: 1rem;
 }
 
 .repository-item {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
   overflow: hidden;
-  transition: all 0.3s ease;
-  display: flex;
-  flex-direction: column;
+  transition: box-shadow 0.2s ease;
 }
 
-.repo-header {
+.repository-item:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.repository-header {
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.repository-header:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.repository-header-main {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  background-color: #402C1B  ;
+  margin-bottom: 0.5rem;
 }
 
-.repo-header:hover {
-  background-color: rgba(184, 105, 8, 0.815);
+.repository-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-weight: 600;
+  color: var(--primary-color);
 }
 
-.repo-link {
-  color: white;
+.expand-icon {
+  font-size: 0.85rem;
+  color: var(--light-text);
+  width: 16px;
+}
+
+.repository-link {
+  color: var(--primary-color);
   text-decoration: none;
-  font-weight: bold;
   font-size: 1.1rem;
-  transition: color 0.2s;
+  transition: color 0.2s ease;
 }
 
-.repo-link:hover {
-  color: #61dafb;
+.repository-link:hover {
+  color: var(--accent-color);
   text-decoration: underline;
 }
 
-.version-count {
-  color: #efefee;
-  font-size: 0.9rem;
-}
-
-.version-list {
+.repository-meta {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background-color: #402C1B;
-  overflow-y: auto;
-  margin: 0;
-  padding-right: 0.5rem;
-  /* max-height: 80vh; */
-}
-
-.version-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.version-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.version-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-.version-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.version-item {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  overflow: hidden;
-  transition: all 0.3s ease;
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-}
-
-.version-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.75rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  background-color: rgba(255, 255, 255, 0.05);
-  margin: 0;
+  flex-wrap: wrap;
+  gap: 1.25rem;
 }
 
-.version-header:hover {
-  background-color: rgba(210, 34, 34, 0.943);
-}
-
-.version-name {
-  color: white;
-  font-weight: bold;
-}
-
-.version-size {
-  color: white;
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--light-text);
   font-size: 0.9rem;
 }
 
-.version-details {
-  padding: 0.75rem;
-  background-color: rgba(68, 56, 45, 0.973);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  overflow-y: auto;
-  margin: 0;
-  padding-right: 0.75rem;
+.stats-badge {
+  display: flex;
+  gap: 0.75rem;
 }
 
-.version-details::-webkit-scrollbar {
-  width: 8px;
-}
-
-.version-details::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
+.badge-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  background-color: var(--background-color);
   border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--text-color);
 }
 
-.version-details::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+.repository-details {
+  padding: 0 1.25rem 1.25rem;
+  border-top: 1px solid var(--border-color);
 }
 
-.version-details::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+.details-section {
+  margin-top: 1rem;
+}
+
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--secondary-color);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 }
 
 .detail-item {
   margin-bottom: 0.75rem;
 }
 
+.full-width {
+  grid-column: 1 / -1;
+}
+
 .detail-item strong {
-  color: white;
   display: block;
+  font-weight: 500;
+  color: var(--light-text);
   margin-bottom: 0.25rem;
 }
 
-.primary-language {
-  color: white;
-  font-size: 1rem;
-  margin-top: 0.25rem;
+.detail-text {
+  line-height: 1.5;
+  color: var(--text-color);
 }
 
-.language-chart {
+.version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.version-item {
+  padding: 0.75rem;
+  background-color: var(--background-color);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.version-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.version-number {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.version-date {
+  color: var(--light-text);
+  font-size: 0.9rem;
+}
+
+.version-cves {
+  margin-top: 0.5rem;
+}
+
+.cve-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cve-chip {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  text-decoration: none;
+  transition: opacity 0.2s;
+  background-color: #CBD5E0;
+  color: #2D3748;
+}
+
+.cve-chip:hover {
+  opacity: 0.8;
+}
+
+.cve-chip.critical {
+  background-color: #F56565;
+  color: white;
+}
+
+.cve-chip.high {
+  background-color: #ED8936;
+  color: white;
+}
+
+.cve-chip.medium {
+  background-color: #ECC94B;
+  color: #744210;
+}
+
+.cve-chip.low {
+  background-color: #48BB78;
+  color: white;
+}
+
+.cve-chip.unknown {
+  background-color: #CBD5E0;
+  color: #2D3748;
+}
+
+.cve-summary {
+  margin-top: 0.5rem;
+}
+
+.severity-distribution {
+  margin-bottom: 1rem;
+}
+
+.severity-bar {
+  display: flex;
   height: 12px;
+  width: 100%;
   border-radius: 6px;
   overflow: hidden;
-  margin: 0.75rem 0;
-  display: flex;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+  margin-bottom: 0.5rem;
 }
 
-.language-bar {
+.language-segment {
   height: 100%;
-  position: relative;
+  transition: width 0.3s ease;
 }
 
 .language-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 0.75rem;
-  padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  margin-top: 0.5rem;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+  font-size: 0.85rem;
 }
 
 .legend-color {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-.legend-text {
-  color: white;
-  font-size: 0.9rem;
-  font-weight: 500;
+.legend-color.critical {
+  background-color: #F56565;
 }
 
-.language-count {
-  color: white;
-  font-size: 1rem;
-  margin-top: 0.25rem;
+.legend-color.high {
+  background-color: #ED8936;
 }
 
-.version-item.selected {
-  background-color: rgba(255, 255, 255, 0.15);
+.legend-color.medium {
+  background-color: #ECC94B;
 }
 
-@media (max-width: 768px) {
-  .explorer-container {
-    padding: 0.5rem;
-    
-  }
-  
-  .repo-name {
-    font-size: 1rem;
-  }
-  
-  .version-name {
-    font-size: 0.9rem;
-  }
+.legend-color.low {
+  background-color: #48BB78;
 }
 
-.search-container {
-  margin-bottom: 1rem;
-  padding: 0.5rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+.legend-color.unknown {
+  background-color: #CBD5E0;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.page-button, .show-all-button {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.search-input {
-  flex: 1;
-  padding: 0.75rem;
-  border: none;
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 1rem;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.search-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.search-input:focus {
-  outline: none;
-  background-color: rgba(255, 255, 255, 0.15);
-}
-
-.expand-all-button {
-  padding: 0.75rem 1rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: none;
-  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--text-color);
   cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.2s;
-  white-space: nowrap;
+  transition: all 0.2s ease;
 }
 
-.expand-all-button:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+.page-button:hover, .show-all-button:hover {
+  background-color: var(--background-color);
+  border-color: var(--accent-color);
 }
 
-.cve-list {
-  margin-top: 0.5rem;
-  padding: 0.5rem;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
+.page-info {
+  color: var(--light-text);
+  font-size: 0.9rem;
 }
 
-.cve-header {
-  color: #ff6b6b;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.cve-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.cve-link {
-  color: #61dafb;
-  text-decoration: none;
-  padding: 0.25rem 0.5rem;
-  background-color: rgba(97, 218, 251, 0.1);
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.cve-link:hover {
-  background-color: rgba(97, 218, 251, 0.2);
-  text-decoration: underline;
-}
-
-.show-more-container {
-  display: flex;
-  justify-content: center;
-  margin-top: 1rem;
-  padding: 0.5rem;
-  gap: 0.5rem;
-}
-
-.show-more-button,
-.show-all-button,
-.show-less-button {
-  padding: 0.75rem 1.5rem;
-  background-color: rgba(255, 255, 255, 0.1);
+.show-all-button {
+  margin-left: auto;
+  background-color: var(--accent-color);
   color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.2s;
+  border-color: var(--accent-color);
 }
 
-.show-more-button:hover,
-.show-all-button:hover,
-.show-less-button:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+.show-all-button:hover {
+  background-color: var(--secondary-color);
+  border-color: var(--secondary-color);
+  color: white;
+}
+
+.language-breakdown {
+  margin-top: 0.75rem;
+}
+
+.debug-info {
+  background-color: #EBF8FF;
+  border: 1px solid #BEE3F8;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #2C5282;
+}
+
+@media (max-width: 768px) {
+  .repository-header-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .repository-meta {
+    margin-top: 0.5rem;
+  }
+  
+  .pagination-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .show-all-button {
+    margin-left: 0;
+  }
 }
 </style> 
