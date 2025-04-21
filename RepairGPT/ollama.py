@@ -36,7 +36,7 @@ class OllamaNeo4jSecurityAnalyzer:
         neo4j_uri: str = "bolt://localhost:7687",
         neo4j_user: str = "neo4j",
         neo4j_password: str = "jaguarai",
-        ollama_url: str = "http://localhost:11434/api/generate",
+        ollama_url: str = "http://localhost:11434",
         model: str = "llama3",
         log_level: str = "INFO"
     ):
@@ -81,8 +81,9 @@ class OllamaNeo4jSecurityAnalyzer:
             "prompt": "Respond with 'Connection successful' if you receive this message.",
             "stream": False
         }
-        
+        print('test')
         response = requests.post(self.ollama_url, json=payload)
+        
         if response.status_code != 200:
             raise ConnectionError(f"Failed to connect to Ollama: HTTP {response.status_code}")
         
