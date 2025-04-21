@@ -76,13 +76,9 @@ class OllamaNeo4jSecurityAnalyzer:
 
     def _test_ollama_connection(self) -> None:
         """Test the connection to Ollama service."""
-        payload = {
-            "model": self.model,
-            "prompt": "Respond with 'Connection successful' if you receive this message.",
-            "stream": False
-        }
+        
         print('test')
-        response = requests.post(self.ollama_url, json=payload)
+        response = requests.get(self.ollama_url)
         
         if response.status_code != 200:
             raise ConnectionError(f"Failed to connect to Ollama: HTTP {response.status_code}")
