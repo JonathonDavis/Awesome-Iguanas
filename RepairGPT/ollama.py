@@ -273,102 +273,68 @@ class RepairGPT:
 
     def _detect_issues_cve(self, session):
         """
-        Detect memory safety issues using CVE-based schema.
-        
+        Detect memory safety issues using CVE-based schema, without relying on Function nodes.
+
         Args:
             session: Neo4j database session
-            
+
         Returns:
             List of detected issues
         """
-        logger.info("Using CVE schema for issue detection")
-        
+        logger.info("Using CVE schema for issue detection (without Function nodes)")
+
         results = []
-        
-        # First, verify if Function nodes actually exist in the database
-        function_nodes_exist = False
+
+        # Query for memory safety vulnerabilities directly, looking for related code nodes
         try:
-            count_query = "MATCH (f:Function) RETURN count(f) as count LIMIT 1"
-            count_result = session.run(count_query).single()
-            function_nodes_exist = count_result and count_result["count"] > 0
-            logger.info(f"Function nodes exist: {function_nodes_exist}")
+            query = """
+            MATCH (v:Vulnerability)-[:CONCERNS]->(code_node)
+            WHERE v.Type CONTAINS 'memory' OR v.Summary CONTAINS 'buffer' OR
+                v.Summary CONTAINS 'overflow' OR v.Summary CONTAINS 'use-after-free' OR
+                v.Summary CONTAINS 'malloc' OR v.Summary CONTAINS 'free' OR
+                v.Summary CONTAINS 'memcpy' OR v.Summary CONTAINS 'strcpy'
+            WITH v, code_node
+            WHERE code_node.code IS NOT NULL OR code_node.CODE IS NOT NULL OR
+                code_node.Details IS NOT NULL OR code_node.source IS NOT NULL
+            RETURN v.Id as vulnerability_id,
+                v.Summary as summary,
+                COALESCE(code_node.name, code_node.Name, code_node.METHOD_FULL_NAME, code_node.filename, 'Unknown') as code_context_name,
+                COALESCE(code_node.code, code_node.CODE, code_node.Details, code_node.source) as code,
+                id(code_node) as code_context_id,
+                labels(code_node) as code_context_type
+            LIMIT 25
+            """
+
+            vulnerability_results = session.run(query).data()
+
+            if vulnerability_results:
+                logger.info(f"Found {len(vulnerability_results)} memory safety vulnerabilities (without Function nodes)")
+
+                for vuln in vulnerability_results:
+                    code_content = vuln.get('code')
+                    if code_content and isinstance(code_content, str):
+                        results.append({
+                            'vulnerability_id': vuln.get('vulnerability_id'),
+                            'summary': vuln.get('summary'),
+                            'function': vuln.get('code_context_name'),
+                            'code': code_content,
+                            'id': vuln.get('code_context_id'),
+                            'context': [],
+                            'node_type': vuln.get('code_context_type')
+                        })
+
         except Exception as e:
-            logger.warning(f"Error checking for Function nodes: {str(e)}")
-            function_nodes_exist = False
-        
-        if function_nodes_exist:
-            # Original approach with Function nodes
-            try:
-                # Query for memory safety vulnerabilities
-                query = """
-                MATCH (v:Vulnerability)-[:CONCERNS_FUNCTION]->(f:Function)
-                WHERE v.Type CONTAINS 'memory' OR v.Summary CONTAINS 'buffer' OR
-                    v.Summary CONTAINS 'overflow' OR v.Summary CONTAINS 'use-after-free' OR
-                    v.Summary CONTAINS 'malloc' OR v.Summary CONTAINS 'free' OR
-                    v.Summary CONTAINS 'memcpy' OR v.Summary CONTAINS 'strcpy'
-                RETURN v.Id as vulnerability_id,
-                    v.Summary as summary,
-                    f.Name as function_name,
-                    f.Details as code,
-                    id(f) as function_id
-                LIMIT 25
-                """
-                
-                vulnerability_results = session.run(query).data()
-                
-                if vulnerability_results:
-                    logger.info(f"Found {len(vulnerability_results)} memory safety vulnerabilities")
-                    
-                    for vuln in vulnerability_results:
-                        if vuln.get('code'):
-                            results.append({
-                                'vulnerability_id': vuln.get('vulnerability_id'),
-                                'summary': vuln.get('summary'),
-                                'function': vuln.get('function_name'),
-                                'code': vuln.get('code'),
-                                'id': vuln.get('function_id'),
-                                'context': []
-                            })
-                
-                # If no results, try alternative query focusing on function names
-                if not results:
-                    logger.info("Trying alternative approach based on function names...")
-                    query = """
-                    MATCH (f:Function)
-                    WHERE f.Name IN [
-                        'malloc', 'free', 'strcpy', 'strncpy', 'sprintf',
-                        'gets', 'memcpy', 'realloc', 'alloca', 'fgets'
-                    ] OR f.Name CONTAINS 'memcpy' OR f.Name CONTAINS 'strcpy'
-                    RETURN f.Name as function,
-                        f.Details as code,
-                        id(f) as id
-                    LIMIT 25
-                    """
-                    
-                    function_results = session.run(query).data()
-                    
-                    if function_results:
-                        for func in function_results:
-                            if func.get('code'):
-                                results.append({
-                                    'function': func.get('function'),
-                                    'code': func.get('code'),
-                                    'id': func.get('id'),
-                                    'context': [] 
-                                })
-            except Exception as e:
-                logger.error(f"Error in CVE schema query: {str(e)}")
-        
-        # If we still have no results, try using generic node queries with code-based detection
+            logger.error(f"Error in CVE schema query (without Function nodes): {str(e)}")
+
+        # If no CVE-related results, try a more direct code-based search
         if not results:
-            logger.info("Trying generic code content approach...")
+            logger.info("Trying direct code content approach (without Function nodes)...")
             try:
-                # Look for any nodes that might contain code with memory functions
                 generic_query = """
                 MATCH (n)
-                WHERE (n.code IS NOT NULL OR n.CODE IS NOT NULL OR n.Details IS NOT NULL OR n.source IS NOT NULL) 
+                WHERE (n.code IS NOT NULL OR n.CODE IS NOT NULL OR n.Details IS NOT NULL OR n.source IS NOT NULL)
                 AND (
-                    toString(n.code) CONTAINS 'malloc' OR 
+                    toString(n.code) CONTAINS 'malloc' OR
                     toString(n.CODE) CONTAINS 'malloc' OR
                     toString(n.Details) CONTAINS 'malloc' OR
                     toString(n.source) CONTAINS 'malloc' OR
@@ -379,49 +345,85 @@ class RepairGPT:
                     toString(n.code) CONTAINS 'memcpy' OR
                     toString(n.CODE) CONTAINS 'memcpy' OR
                     toString(n.Details) CONTAINS 'memcpy' OR
-                    toString(n.source) CONTAINS 'memcpy'
+                    toString(n.source) CONTAINS 'memcpy' OR
+                    toString(n.code) CONTAINS 'free' OR
+                    toString(n.CODE) CONTAINS 'free' OR
+                    toString(n.Details) CONTAINS 'free' OR
+                    toString(n.source) CONTAINS 'free' OR
+                    toString(n.code) CONTAINS 'realloc' OR
+                    toString(n.CODE) CONTAINS 'realloc' OR
+                    toString(n.Details) CONTAINS 'realloc' OR
+                    toString(n.source) CONTAINS 'realloc' OR
+                    toString(n.code) CONTAINS 'alloca' OR
+                    toString(n.CODE) CONTAINS 'alloca' OR
+                    toString(n.Details) CONTAINS 'alloca' OR
+                    toString(n.source) CONTAINS 'alloca' OR
+                    toString(n.code) CONTAINS 'fgets' OR
+                    toString(n.CODE) CONTAINS 'fgets' OR
+                    toString(n.Details) CONTAINS 'fgets' OR
+                    toString(n.source) CONTAINS 'fgets' OR
+                    toString(n.code) CONTAINS 'gets' OR
+                    toString(n.CODE) CONTAINS 'gets' OR
+                    toString(n.Details) CONTAINS 'gets' OR
+                    toString(n.source) CONTAINS 'gets' OR
+                    toString(n.code) CONTAINS 'strncpy' OR
+                    toString(n.CODE) CONTAINS 'strncpy' OR
+                    toString(n.Details) CONTAINS 'strncpy' OR
+                    toString(n.source) CONTAINS 'strncpy' OR
+                    toString(n.code) CONTAINS 'sprintf' OR
+                    toString(n.CODE) CONTAINS 'sprintf' OR
+                    toString(n.Details) CONTAINS 'sprintf' OR
+                    toString(n.source) CONTAINS 'sprintf' OR
+                    toString(n.code) CONTAINS 'use-after-free' OR
+                    toString(n.CODE) CONTAINS 'use-after-free' OR
+                    toString(n.Details) CONTAINS 'use-after-free' OR
+                    toString(n.source) CONTAINS 'use-after-free' OR
+                    toString(n.code) CONTAINS 'buffer overflow' OR
+                    toString(n.CODE) CONTAINS 'buffer overflow' OR
+                    toString(n.Details) CONTAINS 'buffer overflow' OR
+                    toString(n.source) CONTAINS 'buffer overflow'
                 )
                 RETURN labels(n) as node_type,
                     COALESCE(n.code, n.CODE, n.Details, n.source) as code,
                     id(n) as id,
-                    COALESCE(n.name, n.Name, n.METHOD_FULL_NAME, n.filename, '') as name
+                    COALESCE(n.name, n.Name, n.METHOD_FULL_NAME, n.filename, 'Unknown') as name
                 LIMIT 25
                 """
-                
+
                 generic_results = session.run(generic_query).data()
-                
+
                 if generic_results:
-                    logger.info(f"Found {len(generic_results)} nodes with potential memory safety issues")
-                    
+                    logger.info(f"Found {len(generic_results)} nodes with potential memory safety issues (direct code search)")
+
                     for node in generic_results:
-                        code = node.get('code')
-                        if code and isinstance(code, str):
+                        code_content = node.get('code')
+                        if code_content and isinstance(code_content, str):
                             results.append({
                                 'function': node.get('name', 'Unknown'),
-                                'code': code,
+                                'code': code_content,
                                 'id': node.get('id'),
                                 'node_type': node.get('node_type', []),
                                 'context': []
                             })
             except Exception as e:
-                logger.error(f"Error in generic code query: {str(e)}")
-                
+                logger.error(f"Error in generic code query (without Function nodes): {str(e)}")
+
         return results
 
     def analyze_codebase(self):
         """
-        Analyze overall codebase structure from Neo4j.
-        
+        Analyze overall codebase structure from Neo4j, without relying on Function nodes.
+
         Returns:
             Dict containing analysis of code structure
         """
-        logger.info("Analyzing codebase structure...")
+        logger.info("Analyzing codebase structure (without Function nodes)...")
 
         analysis = {
             "schema": self.db_schema,
             "schema_type": self.schema_type
         }
-        
+
         try:
             with self.driver.session() as session:
                 if self.schema_type == "joern":
@@ -445,15 +447,16 @@ class RepairGPT:
                         """
                     }
                 else:
-                    # For CVE or unknown schema
+                    # For CVE or unknown schema (without Function nodes)
                     queries = {
                         "vulnerabilities": """
                             MATCH (v:Vulnerability)
                             RETURN count(v) as vuln_count
                         """,
-                        "functions": """
-                            MATCH (f:Function)
-                            RETURN count(f) as function_count
+                        "code_nodes": """
+                            MATCH (n)
+                            WHERE n.code IS NOT NULL OR n.CODE IS NOT NULL OR n.Details IS NOT NULL OR n.source IS NOT NULL
+                            RETURN count(n) as code_node_count
                         """,
                         "packages": """
                             MATCH (p:Package)
@@ -462,20 +465,20 @@ class RepairGPT:
                             LIMIT 10
                         """
                     }
-                
+
                 # Execute queries
                 for key, query in queries.items():
                     try:
                         analysis[key] = session.run(query).data()
                     except Exception as e:
-                        logger.warning(f"Query '{key}' failed: {str(e)}")
+                        logger.warning(f"Query '{key}' failed (without Function nodes): {str(e)}")
                         analysis[key] = []
-                
+
         except Exception as e:
-            logger.error(f"Error analyzing codebase: {str(e)}")
+            logger.error(f"Error analyzing codebase (without Function nodes): {str(e)}")
 
         # Log summary
-        logger.info("Codebase analysis complete")
+        logger.info("Codebase analysis complete (without Function nodes)")
         return analysis
 
     def generate_safety_patch(self, vulnerable_code, context=""):
