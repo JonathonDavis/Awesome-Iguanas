@@ -62,24 +62,30 @@ class OllamaNeo4jSecurityAnalyzer:
             raise
         
         # Ollama configuration
-        self.ollama_url = ollama_url
+        # Ensure the URL points to the generate endpoint
+        if not ollama_url.endswith('/api/generate'):
+             self.ollama_url = f"{ollama_url.rstrip('/')}/api/generate"
+        else:
+            self.ollama_url = ollama_url
+            
         self.model = model
         self.logger.info(f"Configured to use Ollama model: {model}")
         
 
-
     def _test_ollama_connection(self) -> None:
         """Test the connection to Ollama service."""
-        
-        print('test')
-        response = requests.get(self.ollama_url)
-        
-        if response.status_code != 200:
-            raise ConnectionError(f"Failed to connect to Ollama: HTTP {response.status_code}")
-        
-        result = response.json()
-        if "error" in result:
-            raise ConnectionError(f"Ollama error: {result['error']}")
+        # Use the base URL for the health check, not the /api/generate endpoint
+        base_ollama_url = self.ollama_url.replace('/api/generate', '')
+        if not base_ollama_url: # handle case where ollama_url was just /api/generate
+             base_ollama_url = self.ollama_url.replace('api/generate', '') # try removing just api/generate
+
+        try:
+            response = requests.get(base_ollama_url)
+            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+            # A successful response to the base URL usually indicates the service is running.
+            self.logger.info("Successfully connected to Ollama service")
+        except requests.exceptions.RequestException as e:
+             raise ConnectionError(f"Failed to connect to Ollama service at {base_ollama_url}: {str(e)}")
 
     def close(self) -> None:
         """Safely close the Neo4j connection."""
@@ -138,6 +144,7 @@ class OllamaNeo4jSecurityAnalyzer:
         
         # Get properties for each node label
         for label in schema["node_labels"]:
+            # Use string formatting as label names are safe from db.labels()
             prop_query = f"MATCH (n:{label}) WITH n LIMIT 1 RETURN keys(n) as properties"
             props = self.query_neo4j(prop_query)
             if props and "properties" in props[0]:
@@ -376,7 +383,6 @@ class OllamaNeo4jSecurityAnalyzer:
         """Count nodes by label in the database."""
         results = {}
         labels = [label["label"] for label in self.query_neo4j("CALL db.labels()")]
-        #print(labels,"end")
         for label in labels:
             # Instead of parameter substitution for the label, use string formatting
             # This is safe since the labels come from db.labels()
@@ -408,8 +414,10 @@ class OllamaNeo4jSecurityAnalyzer:
                     json_str = text[json_start:json_end]
                     return json.loads(json_str)
                 else:
+                    # Return raw analysis if no JSON block found
                     return {"raw_analysis": text}
             except json.JSONDecodeError:
+                # Return raw analysis if JSON block parsing fails
                 return {"raw_analysis": text}
 
     def analyze_vulnerability(self, vuln_id: str) -> SecurityInsight:
@@ -436,6 +444,7 @@ class OllamaNeo4jSecurityAnalyzer:
         Be technical, precise, and focused on actionable security insights.
         """
         
+        # Use json.dumps for complex data structures within the prompt to ensure correct formatting
         prompt = f"""
         Please analyze the following vulnerability information and provide detailed security insights:
         
@@ -488,6 +497,7 @@ class OllamaNeo4jSecurityAnalyzer:
         Format your output strictly as valid JSON.
         """
         
+        # Use json.dumps for the data sent to Ollama
         prompt = f"""
         Analyze the following CVE information and provide detailed security insights:
         
@@ -522,6 +532,7 @@ class OllamaNeo4jSecurityAnalyzer:
         and systemic security issues. Format output as valid JSON.
         """
         
+        # Use json.dumps for the data sent to Ollama
         prompt = f"""
         Analyze the security posture of the '{ecosystem}' ecosystem based on this vulnerability data:
         
@@ -531,11 +542,11 @@ class OllamaNeo4jSecurityAnalyzer:
         {{
           "ecosystem_name": "{ecosystem}",
           "overall_security_rating": "GOOD|FAIR|POOR",
-          "common_vulnerability_patterns": [...],
-          "highest_risk_packages": [...],
-          "systemic_security_issues": [...],
-          "recommended_security_improvements": [...],
-          "security_trend_analysis": "..."
+          "common_vulnerability_patterns": [], // array of strings or objects
+          "highest_risk_packages": [], // array of strings or objects
+          "systemic_security_issues": [], // array of strings or objects
+          "recommended_security_improvements": [], // array of strings or objects
+          "security_trend_analysis": "..." // string
         }}
         """
         
@@ -581,6 +592,7 @@ class OllamaNeo4jSecurityAnalyzer:
         security recommendations. Format output as valid JSON.
         """
         
+        # Use json.dumps for the data sent to Ollama
         prompt = f"""
         Analyze the security posture of repository: {repository_url}
         
@@ -590,11 +602,11 @@ class OllamaNeo4jSecurityAnalyzer:
         {{
           "repository_url": "{repository_url}",
           "security_rating": "GOOD|FAIR|POOR",
-          "critical_vulnerabilities": [...],
-          "vulnerable_dependencies": [...],
-          "security_improvement_recommendations": [...],
-          "dependency_update_priorities": [...],
-          "security_architecture_recommendations": "..."
+          "critical_vulnerabilities": [], // array of vulnerability summaries or IDs
+          "vulnerable_dependencies": [], // array of package names and versions
+          "security_improvement_recommendations": [], // array of strings
+          "dependency_update_priorities": [], // array of package names and suggested versions
+          "security_architecture_recommendations": "..." // string
         }}
         """
         
@@ -627,21 +639,22 @@ class OllamaNeo4jSecurityAnalyzer:
         and emerging threats. Format your analysis as valid JSON.
         """
         
+        # Use json.dumps for the data sent to Ollama
         prompt = f"""
         Analyze the following vulnerability dataset ({len(vuln_data)} records) and identify important trends:
         
         {json.dumps(vuln_data[:25], indent=2)}
         
-        [... additional {len(vuln_data) - 25} records omitted for brevity ...]
+        {json.dumps(vuln_data[25:], indent=2) if len(vuln_data) > 25 else ""}
         
         Generate a comprehensive trend analysis in JSON format with the following structure:
         {{
-          "most_affected_ecosystems": [...],
-          "common_vulnerability_patterns": [...],
-          "trending_vulnerability_types": [...],
-          "emerging_threats": [...],
-          "security_focus_recommendations": [...],
-          "temporal_trends": "..."
+          "most_affected_ecosystems": [], // array of strings
+          "common_vulnerability_patterns": [], // array of strings or objects
+          "trending_vulnerability_types": [], // array of strings
+          "emerging_threats": [], // array of strings
+          "security_focus_recommendations": [], // array of strings
+          "temporal_trends": "..." // string analysis over time
         }}
         """
         
@@ -658,10 +671,18 @@ class OllamaNeo4jSecurityAnalyzer:
         top_repos = self.get_repositories_with_vulnerabilities(limit=10)
         schema = self.get_database_schema()
         
+        # Prepare simplified vulnerability data for the report prompt
+        simplified_top_vulns = [{
+            "id": v.get("id"),
+            "summary": v.get("summary"),
+            "cves": v.get("cve_ids"),
+            "package_count": len(v.get("affected_packages", []))
+        } for v in top_vulns]
+
         report_data = {
             "database_statistics": database_stats,
             "schema_overview": schema,
-            "top_vulnerabilities": top_vulns,
+            "top_vulnerabilities": simplified_top_vulns,
             "vulnerable_repositories": top_repos
         }
         
@@ -671,30 +692,19 @@ class OllamaNeo4jSecurityAnalyzer:
         report with clear, actionable insights. Format your report as valid JSON with organized sections.
         """
         
+        # Use json.dumps for the data sent to Ollama
         prompt = f"""
         Generate a comprehensive security assessment report based on this database overview:
         
-        Database Statistics:
-        {json.dumps(database_stats, indent=2)}
-        
-        Top Vulnerabilities:
-        {json.dumps([{
-            "id": v.get("id"),
-            "summary": v.get("summary"),
-            "cves": v.get("cve_ids"),
-            "package_count": len(v.get("affected_packages", []))
-        } for v in top_vulns], indent=2)}
-        
-        Vulnerable Repositories:
-        {json.dumps(top_repos, indent=2)}
+        {json.dumps(report_data, indent=2)}
         
         Generate a comprehensive executive security report in JSON format that includes:
-        - Executive summary
-        - Critical vulnerability assessment
-        - Ecosystem security analysis
-        - Prioritized remediation recommendations
-        - Long-term security strategy
-        - Key metrics and indicators
+        - executive_summary (string)
+        - critical_vulnerability_assessment (string)
+        - ecosystem_security_analysis (string)
+        - prioritized_remediation_recommendations (array of strings)
+        - long_term_security_strategy (string)
+        - key_metrics_and_indicators (object with relevant counts/stats)
         """
         
         analysis_result = self.analyze_with_ollama(prompt, system_prompt)
@@ -708,13 +718,14 @@ def main():
     parser.add_argument('--neo4j-uri', default='bolt://localhost:7687', help='Neo4j connection URI')
     parser.add_argument('--neo4j-user', default='neo4j', help='Neo4j username')
     parser.add_argument('--neo4j-password', default='jaguarai', help='Neo4j password')
-    parser.add_argument('--ollama-url', default='http://localhost:11434/api/generate', help='Ollama API URL')
+    parser.add_argument('--ollama-url', default='http://localhost:11434', help='Ollama API base URL (e.g., http://localhost:11434)')
     parser.add_argument('--model', default='llama3', help='Ollama model name')
     parser.add_argument('--log-level', default='INFO', help='Logging level')
-    parser.add_argument('--action', choices=['overview', 'cve', 'vulnerability', 'ecosystem', 'trends', 'report'], 
+    parser.add_argument('--action', choices=['overview', 'cve', 'vulnerability', 'ecosystem', 'repository', 'trends', 'report'], 
                         default='overview', help='Analysis action to perform')
     parser.add_argument('--id', help='ID for specific CVE or vulnerability analysis')
     parser.add_argument('--ecosystem', help='Ecosystem name for ecosystem analysis')
+    parser.add_argument('--repository-url', help='Repository URL for repository analysis')
     parser.add_argument('--output', help='Output file for JSON results')
     
     args = parser.parse_args()
@@ -726,10 +737,13 @@ def main():
             neo4j_uri=args.neo4j_uri,
             neo4j_user=args.neo4j_user,
             neo4j_password=args.neo4j_password,
-            ollama_url=args.ollama_url,
+            ollama_url=args.ollama_url, # Pass base URL, init handles /api/generate
             model=args.model,
             log_level=args.log_level
         )
+        
+        # Test Ollama connection early
+        analyzer._test_ollama_connection()
         
         print("=== Neo4j Security Analyzer with Ollama ===\n")
         
@@ -747,6 +761,9 @@ def main():
             print(f"\nDatabase Schema:")
             print(f"- Node labels: {', '.join(schema['node_labels'])}")
             print(f"- Relationship types: {', '.join(schema['relationship_types'])}")
+            # Optionally print properties and relationships
+            # print(f"- Properties: {json.dumps(schema['properties'], indent=2)}")
+            # print(f"- Relationships: {json.dumps(schema['relationships'], indent=2)}")
             
             result = {
                 "statistics": db_stats,
@@ -760,68 +777,116 @@ def main():
                 
             print(f"Analyzing CVE: {args.id}...")
             result = analyzer.analyze_cve(args.id)
-            print(f"\nCVE Analysis Results:")
+            print(f"\nCVE Analysis Results (for {args.id}):")
+            # Safely print potentially missing keys
             print(f"- Severity: {result.get('severity', 'Unknown')}")
             print(f"- Vulnerability Type: {result.get('vulnerability_type', 'Unknown')}")
             print(f"- Potential Impact: {result.get('potential_impact', 'Unknown')}")
+            # Use json.dumps for list/object results from LLM to avoid type errors
+            print(f"- Affected Systems: {json.dumps(result.get('affected_systems', []), indent=2)}")
+            print(f"- Exploitation Vectors: {json.dumps(result.get('exploitation_vectors', []), indent=2)}")
+            print(f"- Recommended Mitigations: {json.dumps(result.get('recommended_mitigations', []), indent=2)}")
+            print(f"- Technical Analysis: {result.get('technical_analysis', 'No analysis available')}")
             
         elif args.action == 'vulnerability':
             if not args.id:
                 print("Error: --id parameter required for vulnerability analysis")
                 return
                 
-            print(f"Analyzing vulnerability: {args.id}...")
-            result = analyzer.analyze_vulnerability(args.id)
-            print(f"\nVulnerability Analysis Results:")
-            print(f"- Severity: {result.severity}")
-            print(f"- Vulnerability Type: {result.vulnerability_type}")
-            print(f"- Exploitation Likelihood: {result.exploitation_likelihood}")
-            print(f"- Affected Ecosystems: {', '.join(result.affected_ecosystems)}")
+            print(f"Analyzing Vulnerability: {args.id}...")
+            # This function already returns a structured SecurityInsight object
+            result_obj = analyzer.analyze_vulnerability(args.id) 
+            print(f"\nVulnerability Analysis Results (for {args.id}):")
+            print(f"- Severity: {result_obj.severity}")
+            print(f"- Vulnerability Type: {result_obj.vulnerability_type}")
+            # Use json.dumps for lists in dataclass
+            print(f"- Affected Ecosystems: {json.dumps(result_obj.affected_ecosystems, indent=2)}")
+            print(f"- Exploitation Likelihood: {result_obj.exploitation_likelihood}")
+            print(f"- Impact Analysis: {result_obj.impact_analysis}")
+            print(f"- Remediation Steps: {result_obj.remediation_steps}")
+            print(f"- Recommendation: {result_obj.recommendation}")
             
+            # Convert dataclass to dict for potential JSON output file
+            result = result_obj.__dict__
+
         elif args.action == 'ecosystem':
             if not args.ecosystem:
                 print("Error: --ecosystem parameter required for ecosystem analysis")
                 return
-                
+
             print(f"Analyzing ecosystem: {args.ecosystem}...")
             result = analyzer.analyze_ecosystem_security(args.ecosystem)
             print(f"\nEcosystem Security Analysis:")
+            # Safely print potentially missing keys
             print(f"- Overall Security Rating: {result.get('overall_security_rating', 'Unknown')}")
-            print(f"- Common Vulnerability Patterns: {', '.join(result.get('common_vulnerability_patterns', []))}")
-            print(f"- Highest Risk Packages: {', '.join(result.get('highest_risk_packages', []))}")
-            
+            # Use json.dumps for list/object results from LLM to avoid type errors
+            print(f"- Common Vulnerability Patterns: {json.dumps(result.get('common_vulnerability_patterns', []), indent=2)}")
+            print(f"- Highest Risk Packages: {json.dumps(result.get('highest_risk_packages', []), indent=2)}")
+            print(f"- Systemic Security Issues: {json.dumps(result.get('systemic_security_issues', []), indent=2)}")
+            print(f"- Recommended Security Improvements: {json.dumps(result.get('recommended_security_improvements', []), indent=2)}")
+            print(f"- Security Trend Analysis: {result.get('security_trend_analysis', 'No analysis available')}")
+
+        elif args.action == 'repository':
+             if not args.repository_url:
+                 print("Error: --repository-url parameter required for repository analysis")
+                 return
+
+             print(f"Analyzing repository: {args.repository_url}...")
+             result = analyzer.analyze_repository_security(args.repository_url)
+             print(f"\nRepository Security Analysis (for {args.repository_url}):")
+             # Safely print potentially missing keys
+             print(f"- Security Rating: {result.get('security_rating', 'Unknown')}")
+             # Use json.dumps for list/object results from LLM to avoid type errors
+             print(f"- Critical Vulnerabilities: {json.dumps(result.get('critical_vulnerabilities', []), indent=2)}")
+             print(f"- Vulnerable Dependencies: {json.dumps(result.get('vulnerable_dependencies', []), indent=2)}")
+             print(f"- Security Improvement Recommendations: {json.dumps(result.get('security_improvement_recommendations', []), indent=2)}")
+             print(f"- Dependency Update Priorities: {json.dumps(result.get('dependency_update_priorities', []), indent=2)}")
+             print(f"- Security Architecture Recommendations: {result.get('security_architecture_recommendations', 'No analysis available')}")
+             
         elif args.action == 'trends':
             print("Analyzing vulnerability trends...")
             result = analyzer.analyze_vulnerability_trends()
             print(f"\nVulnerability Trend Analysis:")
-            print(f"- Most Affected Ecosystems: {', '.join(result.get('most_affected_ecosystems', []))}")
-            print(f"- Trending Vulnerability Types: {', '.join(result.get('trending_vulnerability_types', []))}")
-            print(f"- Emerging Threats: {', '.join(result.get('emerging_threats', []))}")
-            
+            # Safely print potentially missing keys
+            print(f"- Most Affected Ecosystems: {json.dumps(result.get('most_affected_ecosystems', []), indent=2)}")
+            print(f"- Common Vulnerability Patterns: {json.dumps(result.get('common_vulnerability_patterns', []), indent=2)}")
+            print(f"- Trending Vulnerability Types: {json.dumps(result.get('trending_vulnerability_types', []), indent=2)}")
+            print(f"- Emerging Threats: {json.dumps(result.get('emerging_threats', []), indent=2)}")
+            print(f"- Security Focus Recommendations: {json.dumps(result.get('security_focus_recommendations', []), indent=2)}")
+            print(f"- Temporal Trends: {result.get('temporal_trends', 'No analysis available')}")
+
         elif args.action == 'report':
             print("Generating comprehensive security report...")
             result = analyzer.generate_comprehensive_security_report()
-            print(f"\nComprehensive Security Report Generated")
-            print(f"- Executive Summary: {result.get('executive_summary', 'Not available')[:100]}...")
-            print(f"- Critical Vulnerabilities Count: {len(result.get('critical_vulnerabilities', []))}")
-            
-        # Save results to file if output is specified
-        if result and args.output:
+            print(f"\nComprehensive Security Report:")
+            # Safely print potentially missing keys
+            print(f"- Executive Summary: {result.get('executive_summary', 'No summary available')}")
+            print(f"- Critical Vulnerability Assessment: {result.get('critical_vulnerability_assessment', 'No assessment available')}")
+            print(f"- Ecosystem Security Analysis: {result.get('ecosystem_security_analysis', 'No analysis available')}")
+            # Use json.dumps for list/object results from LLM to avoid type errors
+            print(f"- Prioritized Remediation Recommendations: {json.dumps(result.get('prioritized_remediation_recommendations', []), indent=2)}")
+            print(f"- Long-Term Security Strategy: {result.get('long_term_security_strategy', 'No strategy available')}")
+            print(f"- Key Metrics and Indicators: {json.dumps(result.get('key_metrics_and_indicators', {}), indent=2)}")
+
+        # Write result to output file if specified
+        if args.output and result is not None:
             try:
                 with open(args.output, 'w') as f:
                     json.dump(result, f, indent=2)
-                print(f"\nResults saved to {args.output}")
-            except Exception as e:
-                print(f"Error saving results to file: {str(e)}")
-                
+                print(f"\nAnalysis results written to {args.output}")
+            except IOError as e:
+                print(f"Error writing to output file {args.output}: {str(e)}")
+
+    except (ServiceUnavailable, AuthError, ConnectionError, ValueError, requests.exceptions.RequestException) as e:
+        logging.error(f"An error occurred during execution: {str(e)}")
+        print(f"\nAn error occurred: {str(e)}")
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logging.exception("An unexpected error occurred:")
+        print(f"\nAn unexpected error occurred: {str(e)}")
     finally:
-        # Clean up resources
+        # Ensure the Neo4j connection is closed
         if analyzer:
             analyzer.close()
-            
-    print("\nAnalysis complete.")
 
 if __name__ == "__main__":
     main()
