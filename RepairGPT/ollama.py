@@ -29,19 +29,15 @@ class SecurityInsight:
     remediation_steps: str
     exploitation_likelihood: str
     recommendation: str
-    
 
-    # Replace the analyze_with_ollama method with a local implementation
-            
 class OllamaNeo4jSecurityAnalyzer:
-    
     def __init__(
         self,
         neo4j_uri: str = "bolt://localhost:7687",
         neo4j_user: str = "neo4j",
         neo4j_password: str = "jaguarai",
-        ollama_url: str = None,  # Making this optional
-        model: str = "local",  # Default to "local" for local processing
+        ollama_url: str = "http://localhost:11434",
+        model: str = "llama3",
         log_level: str = "INFO"
     ):
         """Initialize the security analyzer with connection parameters."""
@@ -65,34 +61,19 @@ class OllamaNeo4jSecurityAnalyzer:
             self.logger.error(f"Failed to connect to Neo4j: {str(e)}")
             raise
         
-        # Model configuration
+        # Ollama configuration
         self.ollama_url = ollama_url
         self.model = model
-        self.logger.info(f"Configured to use model: {model}")
+        self.logger.info(f"Configured to use Ollama model: {model}")
         
-        # No need to test Ollama connection if running locally
-        if self.ollama_url:
-            try:
-                self._test_ollama_connection()
-                self.logger.info("Successfully verified connection to Ollama")
-            except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama service: {str(e)}")
-                raise
-        else:
-            self.logger.info("Running in local mode without Ollama API")
+
 
     def _test_ollama_connection(self) -> None:
         """Test the connection to Ollama service."""
-        if not self.ollama_url:
-            return  # Skip if running locally
-            
-        payload = {
-            "model": self.model,
-            "prompt": "Respond with 'Connection successful' if you receive this message.",
-            "stream": False
-        }
         
-        response = requests.post(self.ollama_url, json=payload)
+        print('test')
+        response = requests.get(self.ollama_url)
+        
         if response.status_code != 200:
             raise ConnectionError(f"Failed to connect to Ollama: HTTP {response.status_code}")
         
@@ -117,94 +98,25 @@ class OllamaNeo4jSecurityAnalyzer:
             raise
 
     def analyze_with_ollama(self, prompt: str, system_prompt: str = None) -> Dict:
-        """Process prompts locally instead of sending to Ollama API."""
-        if self.ollama_url:
-            # Original API-based implementation
-            payload = {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False
-            }
-            
-            if system_prompt:
-                payload["system"] = system_prompt
-                
-            try:
-                self.logger.info(f"Sending prompt to Ollama (length: {len(prompt)})")
-                response = requests.post(self.ollama_url, json=payload)
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"Ollama request error: {str(e)}")
-                raise
-        else:
-            # Local implementation
-            self.logger.info(f"Processing prompt locally (length: {len(prompt)})")
-            
-            # Extract information from the prompt to create a mock response
-            response_data = self._generate_local_response(prompt, system_prompt)
-            
-            return {"response": response_data}
-    def _generate_local_response(self, prompt: str, system_prompt: str = None) -> str:
-        """Generate a local response to the prompt."""
-        # Extract key information from the prompt
-        vulnerability_id = None
-        vulnerability_summary = None
+        """Send data to Ollama for analysis."""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False
+        }
         
-        if "Vulnerability ID:" in prompt:
-            lines = prompt.split('\n')
-            for line in lines:
-                if line.startswith("Vulnerability ID:"):
-                    vulnerability_id = line.split(":", 1)[1].strip()
-                elif line.startswith("Summary:"):
-                    vulnerability_summary = line.split(":", 1)[1].strip()
-        
-        # Generate a sample response based on the prompt content
-        if "JSON format" in prompt or "JSON structure" in prompt:
-            # For security analysis
-            if vulnerability_id and vulnerability_summary:
-                response = {
-                    "severity": "MEDIUM",
-                    "vulnerability_type": "Input Validation",
-                    "affected_ecosystems": ["npm", "nodejs"],
-                    "impact_analysis": f"This vulnerability ({vulnerability_id}) could potentially lead to unauthorized access or data disclosure. {vulnerability_summary}",
-                    "remediation_steps": "Update the affected packages to the latest version with the security patch.",
-                    "exploitation_likelihood": "MEDIUM",
-                    "recommendation": "Prioritize updates for production systems and implement input validation as an additional security measure."
-                }
-            # For ecosystem analysis
-            elif "ecosystem_name" in prompt:
-                ecosystem = None
-                if "ecosystem name" in prompt.lower():
-                    start = prompt.lower().find("ecosystem name") + 14
-                    ecosystem = prompt[start:].split("'")[1] if "'" in prompt[start:] else "unknown"
-                
-                response = {
-                    "ecosystem_name": ecosystem or "unidentified",
-                    "overall_security_rating": "FAIR",
-                    "common_vulnerability_patterns": ["Input validation issues", "Dependency confusion", "Path traversal"],
-                    "highest_risk_packages": ["example-package-1", "example-package-2"],
-                    "systemic_security_issues": ["Inconsistent update practices", "Legacy dependency issues"],
-                    "recommended_security_improvements": ["Implement automated dependency scanning", "Enforce security reviews"],
-                    "security_trend_analysis": "The ecosystem shows improvement in addressing critical vulnerabilities but continues to struggle with legacy dependency management."
-                }
-            # For trend analysis or report
-            else:
-                response = {
-                    "most_affected_ecosystems": ["npm", "pypi", "maven"],
-                    "common_vulnerability_patterns": ["SQL Injection", "Cross-site Scripting", "Path Traversal"],
-                    "trending_vulnerability_types": ["Supply Chain Attacks", "Dependency Confusion"],
-                    "emerging_threats": ["AI poisoning attacks", "Package typosquatting"],
-                    "security_focus_recommendations": ["Improve package vetting", "Implement SBOMs", "Enhance dependency scanning"],
-                    "temporal_trends": "Vulnerability disclosures have increased by approximately 20% in the last quarter."
-                }
-                
-            return json.dumps(response, indent=2)
-        else:
-            # For non-JSON responses
-            return "This is a locally generated analysis response. For detailed analysis, please connect to an actual LLM service."
+        if system_prompt:
+            payload["system"] = system_prompt
+            
+        try:
+            self.logger.info(f"Sending prompt to Ollama (length: {len(prompt)})")
+            response = requests.post(self.ollama_url, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Ollama request error: {str(e)}")
+            raise
 
-    
     def get_database_schema(self) -> Dict:
         """Retrieve the database schema structure."""
         self.logger.info("Retrieving database schema...")
