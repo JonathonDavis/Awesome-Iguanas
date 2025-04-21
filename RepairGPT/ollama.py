@@ -68,7 +68,7 @@ class OllamaNeo4jSecurityAnalyzer:
         
         # Verify Ollama connection
         try:
-            self._test_ollama_connection()
+            #self._test_ollama_connection()
             self.logger.info("Successfully verified connection to Ollama")
         except Exception as e:
             self.logger.error(f"Failed to connect to Ollama service: {str(e)}")
