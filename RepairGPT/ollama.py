@@ -1,688 +1,827 @@
-from neo4j import GraphDatabase
-import difflib
-from collections import Counter
-import subprocess
-import json
-from typing import List, Dict, Any, Optional, Tuple
-import tempfile
-import os
 import logging
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
+import json
 import time
-import shutil
+import argparse
 
-# Set up logging
-log_dir = "/mnt/disk-2/logs"
-os.makedirs(log_dir, exist_ok=True)
+from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, AuthError
+import requests
 
-
-
-class RepairGPT_OllamaLocal:
-    """
-    A system that uses Neo4j graph database and local Ollama models to detect and repair 
-    memory safety issues in code.
-    """
+@dataclass
+class VulnerabilityInfo:
+    id: str
+    summary: str
+    details: Optional[str]
+    published: Optional[str]
+    modified: Optional[str]
+    affected_packages: List[Dict]
+    references: List[Dict]
     
-    def __init__(self, 
-                 neo4j_uri: str = "bolt://localhost:7687",
-                 neo4j_user: str = "neo4j",
-                 neo4j_password: str = "jaguarai",
-                 ollama_model: str = "deepseek-coder:6.7b",
-                 base_dir: str = "/mnt/disk-2"):
-        """
-        Initialize RepairGPT with direct Ollama process communication.
-        
-        Args:
-            neo4j_uri: URI for Neo4j database connection
-            neo4j_user: Neo4j username
-            neo4j_password: Neo4j password
-            ollama_model: Name of the Ollama model to use
-            base_dir: Base directory for all operations
-        """
-        print("Initializing RepairGPT with local Ollama...")
-        
-        # Store configuration
-        self.ollama_model = ollama_model
-        self.max_sequence_length = 2048
-        self.repair_attempts = {}
-        self.repair_stats = Counter()
-        self.base_dir = base_dir
-        
-        # Create required directories
-        self.temp_dir = os.path.join(self.base_dir, "temp")
-        os.makedirs(self.temp_dir, exist_ok=True)
-        
-        # Set OLLAMA_MODELS env variable to use /mnt/disk-2
-        os.environ["OLLAMA_MODELS"] = os.path.join(self.base_dir, "ollama_models")
-        os.makedirs(os.environ["OLLAMA_MODELS"], exist_ok=True)
-        
-        # Initialize connections
-        self._init_neo4j(neo4j_uri, neo4j_user, neo4j_password)
-        self._verify_ollama_installation()
+@dataclass
+class SecurityInsight:
+    vulnerability_id: str
+    severity: str
+    affected_ecosystems: List[str]
+    vulnerability_type: str
+    impact_analysis: str
+    remediation_steps: str
+    exploitation_likelihood: str
+    recommendation: str
 
-    def _init_neo4j(self, uri: str, user: str, password: str) -> None:
-        """
-        Initialize and verify Neo4j connection.
-        
-        Args:
-            uri: Neo4j connection URI
-            user: Neo4j username
-            password: Neo4j password
+class OllamaNeo4jSecurityAnalyzer:
+    def __init__(
+        self,
+        neo4j_uri: str = "bolt://localhost:7687",
+        neo4j_user: str = "neo4j",
+        neo4j_password: str = "jaguarai",
+        ollama_url: str = "http://localhost:11434",
+        model: str = "llama3",
+        log_level: str = "INFO"
+    ):
+        """Initialize the security analyzer with connection parameters."""
+        # Setup logging
+        numeric_level = getattr(logging, log_level.upper(), None)
+        if not isinstance(numeric_level, int):
+            raise ValueError(f"Invalid log level: {log_level}")
             
-        Raises:
-            RuntimeError: If Neo4j connection fails
-        """
-        print("Connecting to Neo4j database...")
+        logging.basicConfig(
+            level=numeric_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialize Neo4j connection
         try:
-            self.driver = GraphDatabase.driver(uri, auth=(user, password))
-            
-            # Verify connection
-            with self.driver.session() as session:
-                result = session.run("MATCH (n) RETURN count(n) as count")
-                count = result.single()["count"]
-                print(f"Connected to Neo4j (found {count} nodes)")
-        except Exception as e:
-            print(f"Neo4j connection error: {str(e)}")
-            raise RuntimeError(f"Neo4j connection failed: {str(e)}")
-
-    def _verify_ollama_installation(self) -> None:
-        """
-        Verify Ollama is installed and the required model is available.
+            self.driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+            self.driver.verify_connectivity()
+            self.logger.info("Successfully connected to Neo4j database")
+        except (ServiceUnavailable, AuthError) as e:
+            self.logger.error(f"Failed to connect to Neo4j: {str(e)}")
+            raise
         
-        Raises:
-            RuntimeError: If Ollama is not installed or model cannot be pulled
-        """
-        print(f"Verifying Ollama installation and {self.ollama_model} availability...")
-        try:
-            # Check if Ollama is installed
-            result = subprocess.run(
-                ["ollama", "--version"], 
-                capture_output=True, 
-                text=True
-            )
-            if result.returncode != 0:
-                raise RuntimeError("Ollama not installed or not in PATH")
-            
-            print(f"Found Ollama: {result.stdout.strip()}")
-            
-            # Check if model exists locally
-            result = subprocess.run(
-                ["ollama", "list"], 
-                capture_output=True, 
-                text=True
-            )
-            
-            if self.ollama_model not in result.stdout:
-                print(f"Model {self.ollama_model} not found, pulling...")
-                pull_result = subprocess.run(
-                    ["ollama", "pull", self.ollama_model], 
-                    capture_output=True,
-                    text=True
-                )
-                if pull_result.returncode != 0:
-                    raise RuntimeError(f"Failed to pull model: {pull_result.stderr}")
-                print(f"Successfully pulled {self.ollama_model}")
-            else:
-                print(f"Model {self.ollama_model} already available")
-                
-        except FileNotFoundError:
-            raise RuntimeError("Ollama not found. Please install Ollama first.")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Ollama verification failed: {str(e)}")
-
-    def _generate_with_ollama_direct(self, prompt: str) -> Optional[str]:
-        """
-        Generate text using direct Ollama command-line interaction.
+        # Ollama configuration
+        self.ollama_url = ollama_url
+        self.model = model
+        self.logger.info(f"Configured to use Ollama model: {model}")
         
-        Args:
-            prompt: The prompt to send to Ollama
-            
-        Returns:
-            Generated text or None if generation failed
-        """
-        temp_path = None
-        try:
-            # Create a temporary prompt file in our base directory
-            temp_path = os.path.join(self.temp_dir, f"prompt_{int(time.time())}.txt")
-            with open(temp_path, 'w') as f:
-                f.write(prompt)
-            
-            print(f"Running generation with model {self.ollama_model}")
-            
-            # Run Ollama directly
-            cmd = [
-                "ollama", "run",
-                self.ollama_model,
-                f"$(cat {temp_path})"
-            ]
-            
-            start_time = time.time()
-            result = subprocess.run(
-                " ".join(cmd),
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=180  # 3 minute timeout
-            )
-            
-            generation_time = time.time() - start_time
-            print(f"Generation completed in {generation_time:.2f}s")
-            
-            if result.returncode == 0:
-                return result.stdout.strip()
-            else:
-                print(f"Ollama generation failed with return code {result.returncode}")
-                print(f"stderr: {result.stderr}")
-                return None
-            
-        except subprocess.TimeoutExpired:
-            print("Ollama generation timed out after 3 minutes")
-            return None
-        except Exception as e:
-            print(f"Generation failed: {str(e)}")
-            return None
-        finally:
-            # Clean up temp file
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
 
-    def detect_memory_safety_issues(self) -> List[Dict[str, Any]]:
-        """
-        Query Neo4j to detect memory safety issues using Joern CPG patterns.
+
+    def _test_ollama_connection(self) -> None:
+        """Test the connection to Ollama service."""
         
-        Returns:
-            List of memory safety issues found in the codebase
-        """
-        print("Analyzing code for memory safety issues...")
-
-        # Query for potentially unsafe memory functions
-        query = """
-        MATCH (c:CALL)
-        WHERE c.METHOD_FULL_NAME IN [
-            'malloc', 'free', 'strcpy', 'strncpy', 'sprintf',
-            'gets', 'memcpy', 'realloc', 'alloca', 'fgets'
-        ]
-        OPTIONAL MATCH (c)-[:AST*]->(b:BLOCK)
-        OPTIONAL MATCH (c)-[:CONTAINS]->(param:IDENTIFIER)
-        RETURN c.METHOD_FULL_NAME as function,
-               c.CODE as code,
-               c.LINE_NUMBER as line,
-               c.FILE_NAME as file,
-               collect(DISTINCT b.CODE) as context,
-               collect(DISTINCT param.CODE) as parameters
-        ORDER BY c.LINE_NUMBER
-        """
-
-        with self.driver.session() as session:
-            results = session.run(query).data()
-
-        # Log findings
-        if results:
-            print(f"Found {len(results)} potential memory safety issues")
-            for r in results:
-                print(f"File: {r.get('file', 'unknown')}, Line {r['line']}: {r['function']} call")
-        else:
-            print("No memory safety issues detected")
-
-        return results
-
-    def analyze_codebase(self) -> Dict[str, List[Dict]]:
-        """
-        Analyze overall codebase structure from Neo4j.
+        print('test')
+        response = requests.get(self.ollama_url)
         
-        Returns:
-            Dict containing analysis of includes and function calls
-        """
-        print("Analyzing codebase structure...")
-
-        queries = {
-            "includes": """
-                MATCH (i:IMPORT)
-                RETURN i.CODE as include, 
-                       count(*) as count
-                ORDER BY count DESC
-                """,
-            "function_calls": """
-                MATCH (c:CALL)
-                RETURN c.METHOD_FULL_NAME as function,
-                       count(*) as count
-                ORDER BY count DESC
-                LIMIT 20
-                """,
-            "files": """
-                MATCH (f:FILE)
-                RETURN f.NAME as filename,
-                       count(*) as node_count
-                ORDER BY node_count DESC
-                """
-        }
-
-        analysis = {}
-        with self.driver.session() as session:
-            for key, query in queries.items():
-                analysis[key] = session.run(query).data()
-
-        # Log analysis results
-        if analysis.get('files'):
-            print(f"Found {len(analysis['files'])} source files")
+        if response.status_code != 200:
+            raise ConnectionError(f"Failed to connect to Ollama: HTTP {response.status_code}")
         
-        if analysis.get('includes'):
-            print(f"Found {len(analysis['includes'])} project dependencies")
-        
-        if analysis.get('function_calls'):
-            top_functions = ", ".join([f"{c['function']}" for c in analysis['function_calls'][:5]])
-            print(f"Top functions by usage: {top_functions}")
-
-        return analysis
-
-    def generate_safety_patch(self, 
-                            vulnerable_code: str, 
-                            context: List[str],
-                            function_name: str = "") -> Optional[str]:
-        """
-        Generate memory-safe patches using direct Ollama.
-        
-        Args:
-            vulnerable_code: The code containing the vulnerability
-            context: Surrounding code context for better understanding
-            function_name: Name of the vulnerable function
-            
-        Returns:
-            String containing the patched code or None if generation failed
-        """
-        print(f"Generating patch for code using {function_name}")
-        
-        # Customize system prompt based on function
-        system_prompt = """[INST] <<SYS>>
-You are a memory safety expert. Fix this C/C++ code with:
-1. Buffer overflow protection
-2. Proper bounds checking
-3. Memory initialization
-4. Null pointer validation
-5. Resource cleanup
-Return ONLY the fixed code without explanations.
-<</SYS>>"""
-
-        # Add function-specific guidance
-        if function_name in ["strcpy", "strncpy", "sprintf"]:
-            system_prompt += "\nFocus on string buffer overflow prevention."
-        elif function_name in ["malloc", "realloc"]:
-            system_prompt += "\nEnsure proper allocation checks and error handling."
-        elif function_name == "free":
-            system_prompt += "\nPrevent use-after-free and double-free bugs."
-            
-        # Prepare context (limiting size)
-        context_text = "\n".join(context[:3]) if context else "No additional context available."
-        if len(context_text) > 500:
-            context_text = context_text[:500] + "...(truncated)"
-            
-        # Construct the prompt
-        full_prompt = f"""{system_prompt}
-
-=== Vulnerable Code ===
-{vulnerable_code}
-
-=== Context ===
-{context_text}
-
-=== Fixed Version ===
-[/INST]"""
-        
-        # Generate with direct Ollama
-        patch = self._generate_with_ollama_direct(full_prompt)
-        
-        if patch:
-            return self._clean_patch(patch)
-        return None
-
-    def _clean_patch(self, patch: str) -> str:
-        """
-        Clean generated patch by removing unwanted artifacts.
-        
-        Args:
-            patch: Raw patch text from model
-            
-        Returns:
-            Cleaned patch code
-        """
-        # Remove any command prompt artifacts
-        patch = patch.replace(f"ollama run {self.ollama_model}", "")
-        
-        # Remove code block markers if present
-        patch = patch.replace("```c", "").replace("```cpp", "").replace("```", "")
-        
-        # Get only the code after the last [/INST] if present
-        if "[/INST]" in patch:
-            patch = patch.split("[/INST]")[-1]
-            
-        # Remove common explanation prefixes
-        prefixes = [
-            "Here's the fixed version:", 
-            "Here's the fixed code:", 
-            "Fixed code:", 
-            "Here is the fixed code:"
-        ]
-        for prefix in prefixes:
-            if patch.strip().startswith(prefix):
-                patch = patch.replace(prefix, "", 1)
-                
-        return patch.strip()
-
-    def validate_patch(self, original_code: str, patched_code: str) -> Dict[str, Any]:
-        """
-        Validate patch using static analysis and differential testing.
-        
-        Args:
-            original_code: The original vulnerable code
-            patched_code: The generated patched code
-            
-        Returns:
-            Dict containing validation results
-        """
-        if not patched_code:
-            print("Cannot validate: patch generation failed")
-            return {"sanitizers_clean": False, "semantic_change": False}
-
-        # Step 1: Basic semantic validation using code diffs
-        diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
-        diff_lines = list(diff)
-        has_changes = any(line.startswith('+') or line.startswith('-') for line in diff_lines)
-
-        # Step 2: Basic safety checks
-        safety_checks = {
-            "buffer_check": "sizeof" in patched_code,
-            "null_check": "NULL" in patched_code or "null" in patched_code,
-            "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]),
-            "error_handling": "return" in patched_code and "NULL" in patched_code
-        }
-
-        validation_result = {
-            "sanitizers_clean": any(safety_checks.values()),
-            "semantic_change": has_changes,
-            "safety_checks": safety_checks,
-            "has_basic_protections": "if" in patched_code and not "if" in original_code
-        }
-        
-        print(f"Patch validation: sanitizers={validation_result['sanitizers_clean']}, "
-                   f"semantic_change={validation_result['semantic_change']}")
-        
-        return validation_result
-
-    def repair_cycle(self, max_attempts: int = 3) -> List[Dict[str, Any]]:
-        """
-        Full repair process with feedback loop.
-        
-        Args:
-            max_attempts: Maximum number of repair attempts per vulnerability
-            
-        Returns:
-            List of repair results
-        """
-        print(f"Starting repair cycle (max attempts: {max_attempts})...")
-
-        # First analyze the codebase
-        self.analyze_codebase()
-
-        # Then look for specific issues
-        vulnerabilities = self.detect_memory_safety_issues()
-
-        if not vulnerabilities:
-            print("No vulnerabilities found to repair")
-            return []
-
-        results = []
-        for idx, vuln in enumerate(vulnerabilities, 1):
-            print(f"Repairing vulnerability {idx}/{len(vulnerabilities)} at line {vuln['line']}...")
-            
-            # Extract vulnerability details
-            original_code = vuln['code']
-            context = vuln['context'] if vuln['context'] else []
-            function_name = vuln['function']
-            
-            # Track repair attempts
-            attempt = 0
-            success = False
-            best_patch = None
-            best_validation = None
-            
-            # Try multiple repair attempts
-            while attempt < max_attempts and not success:
-                print(f"Attempt {attempt + 1}/{max_attempts}...")
-                
-                # Generate patch
-                patch = self.generate_safety_patch(
-                    original_code, 
-                    context, 
-                    function_name
-                )
-                
-                # Validate the patch
-                validation = self.validate_patch(original_code, patch)
-                
-                # Store this attempt for future reference
-                self._update_repair_attempt(vuln, patch, validation)
-                
-                # Check if this is the best attempt so far
-                is_better = self._is_better_patch(best_validation, validation)
-                if patch and (best_patch is None or is_better):
-                    best_patch = patch
-                    best_validation = validation
-                
-                # Check if patch is valid
-                if validation.get("sanitizers_clean") and validation.get("semantic_change"):
-                    success = True
-                    self.repair_stats["success"] += 1
-                    print(f"Successfully generated valid patch on attempt {attempt + 1}")
-                else:
-                    attempt += 1
-                    print("Patch validation failed, trying again")
-            
-            # Record results
-            if success:
-                results.append({
-                    "vulnerability": vuln,
-                    "patch": best_patch,
-                    "attempts": attempt + 1,
-                    "validation": best_validation,
-                    "status": "success"
-                })
-            else:
-                # Use best attempt if we have one
-                if best_patch:
-                    self.repair_stats["partial"] += 1
-                    results.append({
-                        "vulnerability": vuln,
-                        "patch": best_patch,
-                        "attempts": max_attempts,
-                        "validation": best_validation,
-                        "status": "partial"
-                    })
-                    print(f"Generated best-effort patch after {max_attempts} attempts")
-                else:
-                    self.repair_stats["failed"] += 1
-                    results.append({
-                        "vulnerability": vuln,
-                        "status": "failed",
-                        "attempts": attempt
-                    })
-                    print(f"Failed to generate any valid patch after {max_attempts} attempts")
-
-        return results
-
-    def _is_better_patch(self, current: Optional[Dict], new: Optional[Dict]) -> bool:
-        """
-        Determine if a new patch validation is better than the current best.
-        
-        Args:
-            current: Current best validation results
-            new: New validation results to compare
-            
-        Returns:
-            True if new patch is better than current best
-        """
-        if not current:
-            return True
-        if not new:
-            return False
-            
-        # First priority: sanitizers working
-        if new.get("sanitizers_clean") and not current.get("sanitizers_clean"):
-            return True
-            
-        # Second priority: has semantic changes
-        if new.get("semantic_change") and not current.get("semantic_change"):
-            return True
-            
-        # Third priority: more safety checks passing
-        current_checks = sum(1 for v in current.get("safety_checks", {}).values() if v)
-        new_checks = sum(1 for v in new.get("safety_checks", {}).values() if v)
-        
-        return new_checks > current_checks
-
-    def _update_repair_attempt(self, vuln: Dict, patch: Optional[str], validation: Dict) -> None:
-        """
-        Store attempt data for future reference.
-        
-        Args:
-            vuln: The vulnerability info
-            patch: The generated patch
-            validation: Validation results
-        """
-        # Store attempt data keyed by line+file
-        key = f"{vuln.get('file', 'unknown')}:{vuln['line']}"
-        
-        if key not in self.repair_attempts:
-            self.repair_attempts[key] = []
-            
-        self.repair_attempts[key].append({
-            "patch": patch,
-            "validation": validation,
-            "timestamp": time.time()
-        })
-
-    def generate_report(self, repair_results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Generate a comprehensive report of repair actions.
-        
-        Args:
-            repair_results: Results from the repair cycle
-            
-        Returns:
-            Dict containing report data
-        """
-        total = len(repair_results)
-        successful = sum(1 for r in repair_results if r.get('status') == 'success')
-        partial = sum(1 for r in repair_results if r.get('status') == 'partial')
-        failed = sum(1 for r in repair_results if r.get('status') == 'failed')
-        
-        report = {
-            "summary": {
-                "total_vulnerabilities": total,
-                "successful_repairs": successful,
-                "partial_repairs": partial,
-                "failed_repairs": failed,
-                "success_rate": round(successful / total * 100, 1) if total > 0 else 0
-            },
-            "details": repair_results,
-            "stats": dict(self.repair_stats)
-        }
-        
-        print(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
-        print(f"Success rate: {report['summary']['success_rate']}%")
-        
-        return report
-
-    def export_results(self, results: List[Dict[str, Any]], output_dir: str = None) -> str:
-        """
-        Export repair results to files.
-        
-        Args:
-            results: Repair results from repair_cycle
-            output_dir: Directory to save results (defaults to base_dir/repairs)
-            
-        Returns:
-            Path to the output directory
-        """
-        # Create output directory within base_dir
-        if output_dir is None:
-            output_dir = os.path.join(self.base_dir, "repairs")
-        
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            
-        # Write overall report
-        report = self.generate_report(results)
-        report_path = os.path.join(output_dir, "repair_report.json")
-        
-        with open(report_path, 'w') as f:
-            json.dump(report, f, indent=2)
-            
-        # Write individual patches
-        patches_dir = os.path.join(output_dir, "patches")
-        if not os.path.exists(patches_dir):
-            os.makedirs(patches_dir)
-            
-        for idx, result in enumerate(results):
-            if "patch" in result:
-                vuln = result["vulnerability"]
-                file_name = f"{idx+1}_{vuln['function']}_{vuln['line']}.patch"
-                patch_path = os.path.join(patches_dir, file_name)
-                
-                with open(patch_path, 'w') as f:
-                    f.write(f"--- Original (Line {vuln['line']})\n")
-                    f.write(f"+++ Patched\n\n")
-                    f.write(f"Original:\n{vuln['code']}\n\n")
-                    f.write(f"Patched:\n{result['patch']}\n")
-                    
-        print(f"Exported results to {output_dir}")
-        return output_dir
+        result = response.json()
+        if "error" in result:
+            raise ConnectionError(f"Ollama error: {result['error']}")
 
     def close(self) -> None:
-        """Clean up resources."""
+        """Safely close the Neo4j connection."""
         if hasattr(self, 'driver'):
-            try:
-                self.driver.close()
-                print("Neo4j connection closed")
-            except Exception as e:
-                print(f"Error closing Neo4j: {str(e)}")
+            self.driver.close()
+            self.logger.info("Neo4j connection closed")
 
+    def query_neo4j(self, query: str, params: Dict = None) -> List[Dict]:
+        """Execute a Cypher query against Neo4j."""
+        try:
+            with self.driver.session() as session:
+                result = session.run(query, params or {})
+                return result.data()
+        except Exception as e:
+            self.logger.error(f"Neo4j query error: {str(e)}")
+            raise
 
-def main() -> None:
-    """Main execution with direct Ollama integration."""
-    # Define base directory
-    base_dir = "/mnt/disk-2"
-    repair_system = None
-    
-    try:
-        print("=== Memory Safety Repair System (Direct Ollama) ===")
+    def analyze_with_ollama(self, prompt: str, system_prompt: str = None) -> Dict:
+        """Send data to Ollama for analysis."""
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False
+        }
         
-        # Check Ollama availability
-        if not shutil.which("ollama"):
-            print("Ollama not found in PATH. Please install Ollama first.")
-            return
+        if system_prompt:
+            payload["system"] = system_prompt
             
-        # Initialize repair system with base_dir
-        repair_system = RepairGPT_OllamaLocal(
-            ollama_model="deepseek-coder:6.7b",  # or "codellama:7b" for lighter option
-            base_dir=base_dir
+        try:
+            self.logger.info(f"Sending prompt to Ollama (length: {len(prompt)})")
+            response = requests.post(self.ollama_url, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Ollama request error: {str(e)}")
+            raise
+
+    def get_database_schema(self) -> Dict:
+        """Retrieve the database schema structure."""
+        self.logger.info("Retrieving database schema...")
+        
+        # Get node labels
+        labels_query = "CALL db.labels()"
+        labels = self.query_neo4j(labels_query)
+        
+        schema = {
+            "node_labels": [label["label"] for label in labels],
+            "relationships": [],
+            "properties": {}
+        }
+        
+        # Get relationship types
+        rel_query = "CALL db.relationshipTypes()"
+        relationships = self.query_neo4j(rel_query)
+        schema["relationship_types"] = [rel["relationshipType"] for rel in relationships]
+        
+        # Get properties for each node label
+        for label in schema["node_labels"]:
+            prop_query = f"MATCH (n:{label}) WITH n LIMIT 1 RETURN keys(n) as properties"
+            props = self.query_neo4j(prop_query)
+            if props and "properties" in props[0]:
+                schema["properties"][label] = props[0]["properties"]
+        
+        # Get common relationship patterns
+        pattern_query = """
+        MATCH (a)-[r]->(b)
+        RETURN labels(a)[0] as source_label,
+               type(r) as relationship,
+               labels(b)[0] as target_label,
+               count(*) as frequency
+        ORDER BY frequency DESC
+        LIMIT 20
+        """
+        
+        patterns = self.query_neo4j(pattern_query)
+        schema["relationships"] = patterns
+        
+        return schema
+
+    def get_vulnerability_details(self, vuln_id: str = None, limit: int = 10) -> List[Dict]:
+        """Get details about vulnerabilities from Neo4j."""
+        if vuln_id:
+            query = """
+            MATCH (vuln:Vulnerability {id: $vuln_id})
+            OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+            OPTIONAL MATCH (vuln)-[]->(pkg:Package)
+            OPTIONAL MATCH (ref:Reference)-[]->(cve)
+            RETURN vuln.id as id, 
+                   vuln.summary as summary,
+                   vuln.details as details,
+                   vuln.published as published,
+                   vuln.modified as modified,
+                   vuln.affected as affected_json,
+                   collect(DISTINCT cve.id) as cve_ids,
+                   collect(DISTINCT {name: pkg.name, ecosystem: pkg.ecosystem}) as affected_packages,
+                   collect(DISTINCT {url: ref.url, type: ref.type}) as references
+            """
+            params = {"vuln_id": vuln_id}
+        else:
+            query = """
+            MATCH (vuln:Vulnerability)
+            OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+            OPTIONAL MATCH (vuln)-[]->(pkg:Package)
+            OPTIONAL MATCH (ref:Reference)-[]->(cve)
+            RETURN vuln.id as id, 
+                   vuln.summary as summary,
+                   vuln.details as details,
+                   vuln.published as published,
+                   vuln.modified as modified,
+                   vuln.affected as affected_json,
+                   collect(DISTINCT cve.id) as cve_ids,
+                   collect(DISTINCT {name: pkg.name, ecosystem: pkg.ecosystem}) as affected_packages,
+                   collect(DISTINCT {url: ref.url, type: ref.type}) as references
+            LIMIT $limit
+            """
+            params = {"limit": limit}
+        
+        return self.query_neo4j(query, params)
+
+    def get_cve_details(self, cve_id: str = None, limit: int = 10) -> List[Dict]:
+        """Get details about CVEs from Neo4j."""
+        if cve_id:
+            query = """
+            MATCH (cve:CVE {id: $cve_id})
+            OPTIONAL MATCH (cve)-[]->(vuln:Vulnerability)
+            OPTIONAL MATCH (vuln)-[]->(pkg:Package)
+            OPTIONAL MATCH (ref:Reference)-[]->(cve)
+            OPTIONAL MATCH (repo:Repository)<-[]-(pkg)
+            RETURN cve.id as id, 
+                   collect(DISTINCT {
+                     id: vuln.id, 
+                     summary: vuln.summary, 
+                     details: vuln.details, 
+                     published: vuln.published, 
+                     modified: vuln.modified
+                   }) as vulnerabilities, 
+                   collect(DISTINCT {
+                     name: pkg.name, 
+                     ecosystem: pkg.ecosystem
+                   }) as affected_packages,
+                   collect(DISTINCT {
+                     url: ref.url, 
+                     type: ref.type
+                   }) as references,
+                   collect(DISTINCT {
+                     url: repo.url
+                   }) as repositories
+            """
+            params = {"cve_id": cve_id}
+        else:
+            query = """
+            MATCH (cve:CVE)
+            OPTIONAL MATCH (cve)-[]->(vuln:Vulnerability)
+            OPTIONAL MATCH (vuln)-[]->(pkg:Package)
+            OPTIONAL MATCH (ref:Reference)-[]->(cve)
+            OPTIONAL MATCH (repo:Repository)<-[]-(pkg)
+            RETURN cve.id as id, 
+                   collect(DISTINCT {
+                     id: vuln.id, 
+                     summary: vuln.summary, 
+                     details: vuln.details, 
+                     published: vuln.published, 
+                     modified: vuln.modified
+                   }) as vulnerabilities, 
+                   collect(DISTINCT {
+                     name: pkg.name, 
+                     ecosystem: pkg.ecosystem
+                   }) as affected_packages,
+                   collect(DISTINCT {
+                     url: ref.url, 
+                     type: ref.type
+                   }) as references,
+                   collect(DISTINCT {
+                     url: repo.url
+                   }) as repositories
+            LIMIT $limit
+            """
+            params = {"limit": limit}
+        
+        return self.query_neo4j(query, params)
+
+    def get_package_vulnerabilities(self, package_name: str = None, ecosystem: str = None, limit: int = 10) -> List[Dict]:
+        """Get vulnerabilities associated with packages."""
+        if package_name and ecosystem:
+            query = """
+            MATCH (pkg:Package {name: $package_name, ecosystem: $ecosystem})
+            OPTIONAL MATCH (vuln:Vulnerability)-[]->(pkg)
+            OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+            OPTIONAL MATCH (ver:Version)<-[]-(pkg)
+            OPTIONAL MATCH (repo:Repository)<-[]-(pkg)
+            RETURN pkg.name as package_name,
+                   pkg.ecosystem as ecosystem,
+                   collect(DISTINCT {
+                     id: vuln.id, 
+                     summary: vuln.summary, 
+                     details: vuln.details
+                   }) as vulnerabilities,
+                   collect(DISTINCT cve.id) as cves,
+                   collect(DISTINCT {
+                     version: ver.version, 
+                     size: ver.size, 
+                     primary_language: ver.primary_language
+                   }) as versions,
+                   collect(DISTINCT repo.url) as repositories
+            """
+            params = {"package_name": package_name, "ecosystem": ecosystem}
+        elif package_name:
+            query = """
+            MATCH (pkg:Package {name: $package_name})
+            OPTIONAL MATCH (vuln:Vulnerability)-[]->(pkg)
+            OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+            OPTIONAL MATCH (ver:Version)<-[]-(pkg)
+            OPTIONAL MATCH (repo:Repository)<-[]-(pkg)
+            RETURN pkg.name as package_name,
+                   pkg.ecosystem as ecosystem,
+                   collect(DISTINCT {
+                     id: vuln.id, 
+                     summary: vuln.summary, 
+                     details: vuln.details
+                   }) as vulnerabilities,
+                   collect(DISTINCT cve.id) as cves,
+                   collect(DISTINCT {
+                     version: ver.version, 
+                     size: ver.size, 
+                     primary_language: ver.primary_language
+                   }) as versions,
+                   collect(DISTINCT repo.url) as repositories
+            """
+            params = {"package_name": package_name}
+        else:
+            query = """
+            MATCH (pkg:Package)
+            OPTIONAL MATCH (vuln:Vulnerability)-[]->(pkg)
+            OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+            OPTIONAL MATCH (ver:Version)<-[]-(pkg)
+            OPTIONAL MATCH (repo:Repository)<-[]-(pkg)
+            RETURN pkg.name as package_name,
+                   pkg.ecosystem as ecosystem,
+                   collect(DISTINCT {
+                     id: vuln.id, 
+                     summary: vuln.summary, 
+                     details: vuln.details
+                   }) as vulnerabilities,
+                   collect(DISTINCT cve.id) as cves,
+                   collect(DISTINCT {
+                     version: ver.version, 
+                     size: ver.size, 
+                     primary_language: ver.primary_language
+                   }) as versions,
+                   collect(DISTINCT repo.url) as repositories
+            LIMIT $limit
+            """
+            params = {"limit": limit}
+        
+        return self.query_neo4j(query, params)
+
+    def get_ecosystem_vulnerabilities(self, ecosystem: str, limit: int = 10) -> List[Dict]:
+        """Get vulnerabilities associated with a particular ecosystem."""
+        query = """
+        MATCH (pkg:Package {ecosystem: $ecosystem})
+        OPTIONAL MATCH (vuln:Vulnerability)-[]->(pkg)
+        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+        RETURN pkg.name as package_name,
+               pkg.ecosystem as ecosystem,
+               collect(DISTINCT {
+                 id: vuln.id, 
+                 summary: vuln.summary, 
+                 details: vuln.details
+               }) as vulnerabilities,
+               collect(DISTINCT cve.id) as cves
+        LIMIT $limit
+        """
+        params = {"ecosystem": ecosystem, "limit": limit}
+        
+        return self.query_neo4j(query, params)
+
+    def get_repositories_with_vulnerabilities(self, limit: int = 10) -> List[Dict]:
+        """Get repositories with associated vulnerabilities."""
+        query = """
+        MATCH (repo:Repository)<-[]-(pkg:Package)<-[]-(vuln:Vulnerability)
+        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+        RETURN repo.url as repository_url,
+               count(DISTINCT vuln) as vulnerability_count,
+               collect(DISTINCT pkg.name) as affected_packages,
+               collect(DISTINCT cve.id) as cve_ids
+        ORDER BY vulnerability_count DESC
+        LIMIT $limit
+        """
+        params = {"limit": limit}
+        
+        return self.query_neo4j(query, params)
+
+    def count_nodes_by_label(self) -> Dict[str, int]:
+        """Count nodes by label in the database."""
+        results = {}
+        labels = [label["label"] for label in self.query_neo4j("CALL db.labels()")]
+        #print(labels,"end")
+        for label in labels:
+            # Instead of parameter substitution for the label, use string formatting
+            # This is safe since the labels come from db.labels()
+            query = f"""
+            MATCH (n:{label})
+            RETURN count(n) as count
+            """
+            
+            count_result = self.query_neo4j(query)
+            if count_result:
+                results[label] = count_result[0]["count"]
+            else:
+                results[label] = 0
+                    
+        return results
+
+    def _extract_json_from_response(self, text: str) -> Dict:
+        """Extract JSON from Ollama's response text."""
+        try:
+            # Try to parse the entire text as JSON first
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Look for a JSON block in the response
+            try:
+                json_start = text.find('{')
+                json_end = text.rfind('}') + 1
+                
+                if json_start >= 0 and json_end > json_start:
+                    json_str = text[json_start:json_end]
+                    return json.loads(json_str)
+                else:
+                    return {"raw_analysis": text}
+            except json.JSONDecodeError:
+                return {"raw_analysis": text}
+
+    def analyze_vulnerability(self, vuln_id: str) -> SecurityInsight:
+        """Analyze a specific vulnerability using Ollama."""
+        vuln_data = self.get_vulnerability_details(vuln_id)
+        if not vuln_data:
+            raise ValueError(f"Vulnerability {vuln_id} not found in database")
+        
+        vuln_info = vuln_data[0]
+        
+        # Format data for Ollama
+        system_prompt = """
+        You are a security vulnerability analyst specializing in CVE analysis and threat intelligence.
+        Provide detailed security insights about the vulnerability information provided.
+        Format your output strictly as valid JSON with the following keys:
+        - severity (string: LOW, MEDIUM, HIGH, or CRITICAL)
+        - vulnerability_type (string: brief categorization like "Buffer Overflow", "SQL Injection", etc.)
+        - affected_ecosystems (array of strings)
+        - impact_analysis (string: comprehensive analysis of potential impacts)
+        - remediation_steps (string: specific steps for remediation)
+        - exploitation_likelihood (string: LOW, MEDIUM, or HIGH with rationale)
+        - recommendation (string: security recommendation)
+        
+        Be technical, precise, and focused on actionable security insights.
+        """
+        
+        prompt = f"""
+        Please analyze the following vulnerability information and provide detailed security insights:
+        
+        Vulnerability ID: {vuln_info.get('id')}
+        Summary: {vuln_info.get('summary')}
+        Details: {vuln_info.get('details')}
+        Publication Date: {vuln_info.get('published')}
+        Last Modified: {vuln_info.get('modified')}
+        
+        Affected Components:
+        {json.dumps(vuln_info.get('affected_packages', []), indent=2)}
+        
+        Associated CVEs:
+        {json.dumps(vuln_info.get('cve_ids', []), indent=2)}
+        
+        References:
+        {json.dumps(vuln_info.get('references', []), indent=2)}
+        
+        Additional JSON Data:
+        {vuln_info.get('affected_json', '{}')}
+        """
+        
+        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
+        response_text = analysis_result.get("response", "{}")
+        analysis = self._extract_json_from_response(response_text)
+        
+        # Create a structured insight object
+        return SecurityInsight(
+            vulnerability_id=vuln_id,
+            severity=analysis.get("severity", "Unknown"),
+            affected_ecosystems=analysis.get("affected_ecosystems", []),
+            vulnerability_type=analysis.get("vulnerability_type", "Unknown"),
+            impact_analysis=analysis.get("impact_analysis", "No analysis available"),
+            remediation_steps=analysis.get("remediation_steps", "No remediation steps available"),
+            exploitation_likelihood=analysis.get("exploitation_likelihood", "Unknown"),
+            recommendation=analysis.get("recommendation", "No recommendation available")
+        )
+
+    def analyze_cve(self, cve_id: str) -> Dict:
+        """Analyze a specific CVE using Ollama."""
+        cve_data = self.get_cve_details(cve_id)
+        if not cve_data:
+            raise ValueError(f"CVE {cve_id} not found in database")
+            
+        # Format data for Ollama
+        system_prompt = """
+        You are a security vulnerability analyst specializing in CVE analysis and threat intelligence.
+        Based on the CVE information provided, generate a detailed security analysis in JSON format.
+        Include technical details, severity assessment, vulnerability type classification, and remediation options.
+        Format your output strictly as valid JSON.
+        """
+        
+        prompt = f"""
+        Analyze the following CVE information and provide detailed security insights:
+        
+        CVE ID: {cve_id}
+        
+        Vulnerability Details: {json.dumps(cve_data, indent=2)}
+        
+        Please provide your analysis in JSON format with the following structure:
+        {{
+          "severity": "LOW|MEDIUM|HIGH|CRITICAL",
+          "vulnerability_type": "...",
+          "potential_impact": "...",
+          "affected_systems": [...],
+          "exploitation_vectors": [...],
+          "recommended_mitigations": [...],
+          "technical_analysis": "..."
+        }}
+        """
+        
+        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
+        response_text = analysis_result.get("response", "{}")
+        
+        return self._extract_json_from_response(response_text)
+
+    def analyze_ecosystem_security(self, ecosystem: str) -> Dict:
+        """Analyze security posture of a particular ecosystem."""
+        eco_data = self.get_ecosystem_vulnerabilities(ecosystem, limit=25)
+        
+        system_prompt = """
+        You are a security ecosystem analyst. Provide a comprehensive security analysis of the ecosystem
+        based on its vulnerability profile. Focus on identifying patterns, common vulnerability types,
+        and systemic security issues. Format output as valid JSON.
+        """
+        
+        prompt = f"""
+        Analyze the security posture of the '{ecosystem}' ecosystem based on this vulnerability data:
+        
+        {json.dumps(eco_data, indent=2)}
+        
+        Generate a comprehensive security assessment in JSON format with the following structure:
+        {{
+          "ecosystem_name": "{ecosystem}",
+          "overall_security_rating": "GOOD|FAIR|POOR",
+          "common_vulnerability_patterns": [...],
+          "highest_risk_packages": [...],
+          "systemic_security_issues": [...],
+          "recommended_security_improvements": [...],
+          "security_trend_analysis": "..."
+        }}
+        """
+        
+        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
+        response_text = analysis_result.get("response", "{}")
+        
+        return self._extract_json_from_response(response_text)
+        
+    def analyze_repository_security(self, repository_url: str) -> Dict:
+        """Analyze the security profile of a specific repository."""
+        # Query for repository info
+        query = """
+        MATCH (repo:Repository {url: $url})
+        OPTIONAL MATCH (repo)<-[]-(pkg:Package)<-[]-(vuln:Vulnerability)
+        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+        OPTIONAL MATCH (pkg)-[]-(ver:Version)
+        RETURN repo.url as repository_url,
+               collect(DISTINCT {
+                 name: pkg.name, 
+                 ecosystem: pkg.ecosystem
+               }) as packages,
+               collect(DISTINCT {
+                 id: vuln.id, 
+                 summary: vuln.summary, 
+                 details: vuln.details
+               }) as vulnerabilities,
+               collect(DISTINCT cve.id) as cves,
+               collect(DISTINCT {
+                 version: ver.version, 
+                 size: ver.size, 
+                 primary_language: ver.primary_language
+               }) as versions
+        """
+        
+        repo_data = self.query_neo4j(query, {"url": repository_url})
+        
+        if not repo_data or not repo_data[0].get("repository_url"):
+            raise ValueError(f"Repository {repository_url} not found in database")
+        
+        system_prompt = """
+        You are a repository security auditor. Analyze the security profile of the repository
+        based on its associated vulnerabilities, packages, and versions. Provide actionable
+        security recommendations. Format output as valid JSON.
+        """
+        
+        prompt = f"""
+        Analyze the security posture of repository: {repository_url}
+        
+        Repository data: {json.dumps(repo_data, indent=2)}
+        
+        Generate a comprehensive security assessment in JSON format with the following structure:
+        {{
+          "repository_url": "{repository_url}",
+          "security_rating": "GOOD|FAIR|POOR",
+          "critical_vulnerabilities": [...],
+          "vulnerable_dependencies": [...],
+          "security_improvement_recommendations": [...],
+          "dependency_update_priorities": [...],
+          "security_architecture_recommendations": "..."
+        }}
+        """
+        
+        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
+        response_text = analysis_result.get("response", "{}")
+        
+        return self._extract_json_from_response(response_text)
+    
+    def analyze_vulnerability_trends(self, limit: int = 100) -> Dict:
+        """Analyze vulnerability trends in the database."""
+        # Get recent vulnerabilities
+        query = """
+        MATCH (vuln:Vulnerability)
+        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+        OPTIONAL MATCH (vuln)-[]->(pkg:Package)
+        RETURN vuln.id as id, 
+               vuln.summary as summary,
+               vuln.published as published, 
+               collect(DISTINCT cve.id) as cve_ids,
+               collect(DISTINCT pkg.ecosystem) as ecosystems
+        ORDER BY vuln.published DESC
+        LIMIT $limit
+        """
+        
+        vuln_data = self.query_neo4j(query, {"limit": limit})
+        
+        system_prompt = """
+        You are a security trend analyst specializing in vulnerability intelligence.
+        Based on the vulnerability data provided, identify important security trends, patterns,
+        and emerging threats. Format your analysis as valid JSON.
+        """
+        
+        prompt = f"""
+        Analyze the following vulnerability dataset ({len(vuln_data)} records) and identify important trends:
+        
+        {json.dumps(vuln_data[:25], indent=2)}
+        
+        [... additional {len(vuln_data) - 25} records omitted for brevity ...]
+        
+        Generate a comprehensive trend analysis in JSON format with the following structure:
+        {{
+          "most_affected_ecosystems": [...],
+          "common_vulnerability_patterns": [...],
+          "trending_vulnerability_types": [...],
+          "emerging_threats": [...],
+          "security_focus_recommendations": [...],
+          "temporal_trends": "..."
+        }}
+        """
+        
+        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
+        response_text = analysis_result.get("response", "{}")
+        
+        return self._extract_json_from_response(response_text)
+
+    def generate_comprehensive_security_report(self) -> Dict:
+        """Generate a comprehensive security report across the database."""
+        # Gather data for report
+        database_stats = self.count_nodes_by_label()
+        top_vulns = self.get_vulnerability_details(limit=10)
+        top_repos = self.get_repositories_with_vulnerabilities(limit=10)
+        schema = self.get_database_schema()
+        
+        report_data = {
+            "database_statistics": database_stats,
+            "schema_overview": schema,
+            "top_vulnerabilities": top_vulns,
+            "vulnerable_repositories": top_repos
+        }
+        
+        system_prompt = """
+        You are a chief security officer providing an executive summary of security vulnerabilities.
+        Based on the comprehensive security data provided, generate a detailed security assessment
+        report with clear, actionable insights. Format your report as valid JSON with organized sections.
+        """
+        
+        prompt = f"""
+        Generate a comprehensive security assessment report based on this database overview:
+        
+        Database Statistics:
+        {json.dumps(database_stats, indent=2)}
+        
+        Top Vulnerabilities:
+        {json.dumps([{
+            "id": v.get("id"),
+            "summary": v.get("summary"),
+            "cves": v.get("cve_ids"),
+            "package_count": len(v.get("affected_packages", []))
+        } for v in top_vulns], indent=2)}
+        
+        Vulnerable Repositories:
+        {json.dumps(top_repos, indent=2)}
+        
+        Generate a comprehensive executive security report in JSON format that includes:
+        - Executive summary
+        - Critical vulnerability assessment
+        - Ecosystem security analysis
+        - Prioritized remediation recommendations
+        - Long-term security strategy
+        - Key metrics and indicators
+        """
+        
+        analysis_result = self.analyze_with_ollama(prompt, system_prompt)
+        response_text = analysis_result.get("response", "{}")
+        
+        return self._extract_json_from_response(response_text)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Ollama Neo4j Security Analyzer')
+    parser.add_argument('--neo4j-uri', default='bolt://localhost:7687', help='Neo4j connection URI')
+    parser.add_argument('--neo4j-user', default='neo4j', help='Neo4j username')
+    parser.add_argument('--neo4j-password', default='jaguarai', help='Neo4j password')
+    parser.add_argument('--ollama-url', default='http://localhost:11434/api/generate', help='Ollama API URL')
+    parser.add_argument('--model', default='llama3', help='Ollama model name')
+    parser.add_argument('--log-level', default='INFO', help='Logging level')
+    parser.add_argument('--action', choices=['overview', 'cve', 'vulnerability', 'ecosystem', 'trends', 'report'], 
+                        default='overview', help='Analysis action to perform')
+    parser.add_argument('--id', help='ID for specific CVE or vulnerability analysis')
+    parser.add_argument('--ecosystem', help='Ecosystem name for ecosystem analysis')
+    parser.add_argument('--output', help='Output file for JSON results')
+    
+    args = parser.parse_args()
+    
+    analyzer = None
+    try:
+        # Initialize the analyzer
+        analyzer = OllamaNeo4jSecurityAnalyzer(
+            neo4j_uri=args.neo4j_uri,
+            neo4j_user=args.neo4j_user,
+            neo4j_password=args.neo4j_password,
+            ollama_url=args.ollama_url,
+            model=args.model,
+            log_level=args.log_level
         )
         
-        # Run repair cycle
-        results = repair_system.repair_cycle(max_attempts=2)
+        print("=== Neo4j Security Analyzer with Ollama ===\n")
         
-        # Export results to base_dir
-        if results:
-            output_dir = repair_system.export_results(results)
-            print(f"Repair report and patches saved to {output_dir}")
-        else:
-            print("No vulnerabilities found or repaired")
+        # Execute requested action
+        result = None
         
+        if args.action == 'overview':
+            print("Generating database overview...")
+            db_stats = analyzer.count_nodes_by_label()
+            print(f"\nDatabase Statistics:")
+            for label, count in db_stats.items():
+                print(f"- {label}: {count}")
+                
+            schema = analyzer.get_database_schema()
+            print(f"\nDatabase Schema:")
+            print(f"- Node labels: {', '.join(schema['node_labels'])}")
+            print(f"- Relationship types: {', '.join(schema['relationship_types'])}")
+            
+            result = {
+                "statistics": db_stats,
+                "schema": schema
+            }
+            
+        elif args.action == 'cve':
+            if not args.id:
+                print("Error: --id parameter required for CVE analysis")
+                return
+                
+            print(f"Analyzing CVE: {args.id}...")
+            result = analyzer.analyze_cve(args.id)
+            print(f"\nCVE Analysis Results:")
+            print(f"- Severity: {result.get('severity', 'Unknown')}")
+            print(f"- Vulnerability Type: {result.get('vulnerability_type', 'Unknown')}")
+            print(f"- Potential Impact: {result.get('potential_impact', 'Unknown')}")
+            
+        elif args.action == 'vulnerability':
+            if not args.id:
+                print("Error: --id parameter required for vulnerability analysis")
+                return
+                
+            print(f"Analyzing vulnerability: {args.id}...")
+            result = analyzer.analyze_vulnerability(args.id)
+            print(f"\nVulnerability Analysis Results:")
+            print(f"- Severity: {result.severity}")
+            print(f"- Vulnerability Type: {result.vulnerability_type}")
+            print(f"- Exploitation Likelihood: {result.exploitation_likelihood}")
+            print(f"- Affected Ecosystems: {', '.join(result.affected_ecosystems)}")
+            
+        elif args.action == 'ecosystem':
+            if not args.ecosystem:
+                print("Error: --ecosystem parameter required for ecosystem analysis")
+                return
+                
+            print(f"Analyzing ecosystem: {args.ecosystem}...")
+            result = analyzer.analyze_ecosystem_security(args.ecosystem)
+            print(f"\nEcosystem Security Analysis:")
+            print(f"- Overall Security Rating: {result.get('overall_security_rating', 'Unknown')}")
+            print(f"- Common Vulnerability Patterns: {', '.join(result.get('common_vulnerability_patterns', []))}")
+            print(f"- Highest Risk Packages: {', '.join(result.get('highest_risk_packages', []))}")
+            
+        elif args.action == 'trends':
+            print("Analyzing vulnerability trends...")
+            result = analyzer.analyze_vulnerability_trends()
+            print(f"\nVulnerability Trend Analysis:")
+            print(f"- Most Affected Ecosystems: {', '.join(result.get('most_affected_ecosystems', []))}")
+            print(f"- Trending Vulnerability Types: {', '.join(result.get('trending_vulnerability_types', []))}")
+            print(f"- Emerging Threats: {', '.join(result.get('emerging_threats', []))}")
+            
+        elif args.action == 'report':
+            print("Generating comprehensive security report...")
+            result = analyzer.generate_comprehensive_security_report()
+            print(f"\nComprehensive Security Report Generated")
+            print(f"- Executive Summary: {result.get('executive_summary', 'Not available')[:100]}...")
+            print(f"- Critical Vulnerabilities Count: {len(result.get('critical_vulnerabilities', []))}")
+            
+        # Save results to file if output is specified
+        if result and args.output:
+            try:
+                with open(args.output, 'w') as f:
+                    json.dump(result, f, indent=2)
+                print(f"\nResults saved to {args.output}")
+            except Exception as e:
+                print(f"Error saving results to file: {str(e)}")
+                
     except Exception as e:
-        print(f"Fatal error: {str(e)}")
+        print(f"Error: {str(e)}")
     finally:
-        if repair_system:
-            repair_system.close()
-        print("System shutdown complete")
-
+        # Clean up resources
+        if analyzer:
+            analyzer.close()
+            
+    print("\nAnalysis complete.")
 
 if __name__ == "__main__":
     main()
