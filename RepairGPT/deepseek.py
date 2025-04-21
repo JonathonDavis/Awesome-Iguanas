@@ -320,514 +320,708 @@ class RepairGPT:
         
         results = []
         
-        # Query for memory safety vulnerabilities
-        query = """
-        MATCH (v:Vulnerability)-[:CONCERNS_FUNCTION]->(f:Function)
-        WHERE v.Type CONTAINS 'memory' OR v.Summary CONTAINS 'buffer' OR
-              v.Summary CONTAINS 'overflow' OR v.Summary CONTAINS 'use-after-free' OR
-              v.Summary CONTAINS 'malloc' OR v.Summary CONTAINS 'free' OR
-              v.Summary CONTAINS 'memcpy' OR v.Summary CONTAINS 'strcpy'
-        RETURN v.Id as vulnerability_id,
-               v.Summary as summary,
-               f.Name as function_name,
-               f.Details as code,
-               id(f) as function_id
-        LIMIT 25
-        """
-        
+        # First, verify if Function nodes actually exist in the database
+        function_nodes_exist = False
         try:
-            vulnerability_results = session.run(query).data()
-            
-            if vulnerability_results:
-                logger.info(f"Found {len(vulnerability_results)} memory safety vulnerabilities")
-                
-                for vuln in vulnerability_results:
-                    if vuln.get('code'):
-                        results.append({
-                            'vulnerability_id': vuln.get('vulnerability_id'),
-                            'summary': vuln.get('summary'),
-                            'function': vuln.get('function_name'),
-                            'code': vuln.get('code'),
-                            'id': vuln.get('function_id'),
-                            'context': []
-                        })
-            
-            # If no results, try alternative query focusing on function names
-            if not results:
-                logger.info("Trying alternative approach based on function names...")
+            count_query = "MATCH (f:Function) RETURN count(f) as count LIMIT 1"
+            count_result = session.run(count_query).single()
+            function_nodes_exist = count_result and count_result["count"] > 0
+            logger.info(f"Function nodes exist: {function_nodes_exist}")
+        except Exception as e:
+            logger.warning(f"Error checking for Function nodes: {str(e)}")
+            function_nodes_exist = False
+        
+        if function_nodes_exist:
+            # Original approach with Function nodes
+            try:
+                # Query for memory safety vulnerabilities
                 query = """
-                MATCH (f:Function)
-                WHERE f.Name IN [
-                    'malloc', 'free', 'strcpy', 'strncpy', 'sprintf',
-                    'gets', 'memcpy', 'realloc', 'alloca', 'fgets'
-                ] OR f.Name CONTAINS 'memcpy' OR f.Name CONTAINS 'strcpy'
-                RETURN f.Name as function,
-                       f.Details as code,
-                       id(f) as id
+                MATCH (v:Vulnerability)-[:CONCERNS_FUNCTION]->(f:Function)
+                WHERE v.Type CONTAINS 'memory' OR v.Summary CONTAINS 'buffer' OR
+                    v.Summary CONTAINS 'overflow' OR v.Summary CONTAINS 'use-after-free' OR
+                    v.Summary CONTAINS 'malloc' OR v.Summary CONTAINS 'free' OR
+                    v.Summary CONTAINS 'memcpy' OR v.Summary CONTAINS 'strcpy'
+                RETURN v.Id as vulnerability_id,
+                    v.Summary as summary,
+                    f.Name as function_name,
+                    f.Details as code,
+                    id(f) as function_id
                 LIMIT 25
                 """
                 
-                function_results = session.run(query).data()
+                vulnerability_results = session.run(query).data()
                 
-                if function_results:
-                    for func in function_results:
-                        if func.get('code'):
+                if vulnerability_results:
+                    logger.info(f"Found {len(vulnerability_results)} memory safety vulnerabilities")
+                    
+                    for vuln in vulnerability_results:
+                        if vuln.get('code'):
                             results.append({
-                                'function': func.get('function'),
-                                'code': func.get('code'),
-                                'id': func.get('id'),
-                                'context': [] 
+                                'vulnerability_id': vuln.get('vulnerability_id'),
+                                'summary': vuln.get('summary'),
+                                'function': vuln.get('function_name'),
+                                'code': vuln.get('code'),
+                                'id': vuln.get('function_id'),
+                                'context': []
                             })
-                            
-        except Exception as e:
-            logger.error(f"Error in CVE schema query: {str(e)}")
-            
+                
+                # If no results, try alternative query focusing on function names
+                if not results:
+                    logger.info("Trying alternative approach based on function names...")
+                    query = """
+                    MATCH (f:Function)
+                    WHERE f.Name IN [
+                        'malloc', 'free', 'strcpy', 'strncpy', 'sprintf',
+                        'gets', 'memcpy', 'realloc', 'alloca', 'fgets'
+                    ] OR f.Name CONTAINS 'memcpy' OR f.Name CONTAINS 'strcpy'
+                    RETURN f.Name as function,
+                        f.Details as code,
+                        id(f) as id
+                    LIMIT 25
+                    """
+                    
+                    function_results = session.run(query).data()
+                    
+                    if function_results:
+                        for func in function_results:
+                            if func.get('code'):
+                                results.append({
+                                    'function': func.get('function'),
+                                    'code': func.get('code'),
+                                    'id': func.get('id'),
+                                    'context': [] 
+                                })
+            except Exception as e:
+                logger.error(f"Error in CVE schema query: {str(e)}")
+        
+        # If we still have no results, try using generic node queries with code-based detection
+        if not results:
+            logger.info("Trying generic code content approach...")
+            try:
+                # Look for any nodes that might contain code with memory functions
+                generic_query = """
+                MATCH (n)
+                WHERE (n.code IS NOT NULL OR n.CODE IS NOT NULL OR n.Details IS NOT NULL OR n.source IS NOT NULL) 
+                AND (
+                    toString(n.code) CONTAINS 'malloc' OR 
+                    toString(n.CODE) CONTAINS 'malloc' OR
+                    toString(n.Details) CONTAINS 'malloc' OR
+                    toString(n.source) CONTAINS 'malloc' OR
+                    toString(n.code) CONTAINS 'strcpy' OR
+                    toString(n.CODE) CONTAINS 'strcpy' OR
+                    toString(n.Details) CONTAINS 'strcpy' OR
+                    toString(n.source) CONTAINS 'strcpy' OR
+                    toString(n.code) CONTAINS 'memcpy' OR
+                    toString(n.CODE) CONTAINS 'memcpy' OR
+                    toString(n.Details) CONTAINS 'memcpy' OR
+                    toString(n.source) CONTAINS 'memcpy'
+                )
+                RETURN labels(n) as node_type,
+                    COALESCE(n.code, n.CODE, n.Details, n.source) as code,
+                    id(n) as id,
+                    COALESCE(n.name, n.Name, n.METHOD_FULL_NAME, n.filename, '') as name
+                LIMIT 25
+                """
+                
+                generic_results = session.run(generic_query).data()
+                
+                if generic_results:
+                    logger.info(f"Found {len(generic_results)} nodes with potential memory safety issues")
+                    
+                    for node in generic_results:
+                        code = node.get('code')
+                        if code and isinstance(code, str):
+                            results.append({
+                                'function': node.get('name', 'Unknown'),
+                                'code': code,
+                                'id': node.get('id'),
+                                'node_type': node.get('node_type', []),
+                                'context': []
+                            })
+            except Exception as e:
+                logger.error(f"Error in generic code query: {str(e)}")
+                
         return results
 
-    def analyze_codebase(self):
-        """
-        Analyze overall codebase structure from Neo4j.
-        
-        Returns:
-            Dict containing analysis of code structure
-        """
-        logger.info("Analyzing codebase structure...")
+    def _discover_schema(self):
+        """Discover the actual schema of the connected Neo4j database."""
+        logger.info("Discovering database schema...")
 
-        analysis = {
-            "schema": self.db_schema,
-            "schema_type": self.schema_type
+        # Initialize schema structure
+        self.db_schema = {
+            "labels": [],
+            "relationships": [],
+            "properties": []
         }
-        
+
         try:
             with self.driver.session() as session:
-                if self.schema_type == "joern":
-                    # For Joern schema
-                    queries = {
-                        "languages": """
-                            MATCH (f:FILE)
-                            RETURN f.LANGUAGE as language, count(*) as count
-                            ORDER BY count DESC
-                            LIMIT 10
-                        """,
-                        "methods": """
-                            MATCH (m:METHOD)
-                            RETURN count(m) as method_count
-                        """,
-                        "calls": """
-                            MATCH (c:CALL)
-                            RETURN c.METHOD_FULL_NAME as function, count(*) as count
-                            ORDER BY count DESC
-                            LIMIT 15
-                        """
-                    }
-                else:
-                    # For CVE or unknown schema
-                    queries = {
-                        "vulnerabilities": """
-                            MATCH (v:Vulnerability)
-                            RETURN count(v) as vuln_count
-                        """,
-                        "functions": """
-                            MATCH (f:Function)
-                            RETURN count(f) as function_count
-                        """,
-                        "packages": """
-                            MATCH (p:Package)
-                            RETURN p.Name as name, count(*) as count
-                            ORDER BY count DESC
-                            LIMIT 10
-                        """
-                    }
-                
-                # Execute queries
-                for key, query in queries.items():
+                # Check which node labels exist
+                try:
+                    # Get node labels
+                    result = session.run("CALL db.labels()")
+                    self.db_schema["labels"] = [record["label"] for record in result]
+                    
+                    # Get relationship types
+                    result = session.run("CALL db.relationshipTypes()")
+                    self.db_schema["relationships"] = [record["relationshipType"] for record in result]
+                    
+                    # Get property keys
+                    result = session.run("CALL db.propertyKeys()")
+                    self.db_schema["properties"] = [record["propertyKey"] for record in result]
+                except Exception as e:
+                    logger.warning(f"Schema discovery error: {str(e)}")
+                    # Try fallback method
                     try:
-                        analysis[key] = session.run(query).data()
-                    except Exception as e:
-                        logger.warning(f"Query '{key}' failed: {str(e)}")
-                        analysis[key] = []
+                        result = session.run("MATCH (n) RETURN DISTINCT labels(n) as labels LIMIT 100")
+                        all_labels = []
+                        for record in result:
+                            all_labels.extend(record["labels"])
+                        self.db_schema["labels"] = list(set(all_labels))
+                        
+                        result = session.run("MATCH ()-[r]->() RETURN DISTINCT type(r) as type LIMIT 100")
+                        self.db_schema["relationships"] = [record["type"] for record in result]
+                    except Exception as e2:
+                        logger.error(f"Failed to discover schema with fallback method: {str(e2)}")
+
+            # Log discovered schema
+            logger.info(f"Database schema: {len(self.db_schema['labels'])} node labels, "
+                        f"{len(self.db_schema['relationships'])} relationship types")
+            
+            # Determine schema type based on available node labels
+            has_joern_schema = any(label in self.db_schema["labels"] for label in ["CALL", "METHOD", "AST"])
+            has_cve_schema = "Vulnerability" in self.db_schema["labels"]
+            has_function_nodes = "Function" in self.db_schema["labels"]
+            
+            if has_joern_schema:
+                self.schema_type = "joern"
+                logger.info("Detected Joern-based CPG schema")
+            elif has_cve_schema and has_function_nodes:
+                self.schema_type = "cve"
+                logger.info("Detected CVE-based vulnerability schema")
+            elif has_cve_schema and not has_function_nodes:
+                self.schema_type = "cve-variant"
+                logger.info("Detected variant of CVE schema without Function nodes")
+            else:
+                self.schema_type = "unknown"
+                logger.info("Unknown database schema - will try multiple query strategies")
+
+        except Exception as e:
+            logger.error(f"Schema discovery error: {str(e)}")
+            self.schema_type = "unknown"
+            logger.info("Will try multiple query strategies due to schema discovery failure")
+
+        def detect_memory_safety_issues(self):
+                """
+                Detect memory safety issues in the codebase by querying Neo4j.
                 
-        except Exception as e:
-            logger.error(f"Error analyzing codebase: {str(e)}")
+                Returns:
+                    A list of memory safety issues found in the codebase
+                """
+                logger.info("Analyzing code for memory safety issues...")
+                results = []
+                
+                try:
+                    with self.driver.session() as session:
+                        # Choose query strategy based on schema type
+                        if self.schema_type == "joern":
+                            results = self._detect_issues_joern(session)
+                        elif self.schema_type == "cve" or self.schema_type == "cve-variant":
+                            results = self._detect_issues_cve(session)
+                        else:
+                            # Try both strategies plus generic approach
+                            logger.info("Trying multiple query strategies...")
+                            
+                            # First try CVE approach as it's more direct for finding vulnerabilities
+                            results = self._detect_issues_cve(session)
+                            
+                            # If no results, try Joern approach
+                            if not results:
+                                results = self._detect_issues_joern(session)
+                            
+                            # If still no results, try generic code search
+                            if not results:
+                                logger.info("Trying generic code search...")
+                                try:
+                                    query = """
+                                    MATCH (n)
+                                    WHERE any(prop IN keys(n) WHERE 
+                                        (prop CONTAINS 'code' OR prop CONTAINS 'CODE' OR prop CONTAINS 'source') AND
+                                        any(func IN ['malloc', 'free', 'strcpy', 'memcpy'] WHERE toString(n[prop]) CONTAINS func)
+                                    )
+                                    RETURN DISTINCT n, labels(n) as labels LIMIT 25
+                                    """
+                                    generic_results = session.run(query).data()
+                                    
+                                    for item in generic_results:
+                                        node = item['n']
+                                        code_prop = next((prop for prop in node.keys() if 'code' in prop.lower() or 'source' in prop.lower()), None)
+                                        if code_prop:
+                                            results.append({
+                                                'id': item.get('n').id,
+                                                'function': 'unknown',
+                                                'code': node[code_prop],
+                                                'labels': item.get('labels', []),
+                                                'context': ''
+                                            })
+                                except Exception as e:
+                                    logger.warning(f"Generic search failed: {str(e)}")
+                            
+                except Exception as e:
+                    logger.error(f"Error in memory safety analysis: {str(e)}")
+                    
+                # Log the results
+                if results:
+                    logger.info(f"Found {len(results)} potential memory safety issues")
+                else:
+                    logger.info("No memory safety issues detected")
+                    
+                return results
 
-        # Log summary
-        logger.info("Codebase analysis complete")
-        return analysis
-
-    def generate_safety_patch(self, vulnerable_code, context=""):
-        """
-        Generate a memory-safe patch using Deepseek Coder.
-        
-        Args:
-            vulnerable_code: The code containing the vulnerability
-            context: Surrounding code context for better understanding
+        def analyze_codebase(self):
+            """
+            Analyze overall codebase structure from Neo4j.
             
-        Returns:
-            String containing the patched code or None if generation failed
-        """
-        if not vulnerable_code:
-            logger.warning("Cannot generate patch: No code provided")
-            return None
+            Returns:
+                Dict containing analysis of code structure
+            """
+            logger.info("Analyzing codebase structure...")
+
+            analysis = {
+                "schema": self.db_schema,
+                "schema_type": self.schema_type
+            }
             
-        logger.info("Generating safety patch")
-        
-        try:
-            # Create system prompt for the LLM
-            system_prompt = """You are a memory safety expert. Generate a secure patch considering:
-- Buffer overflow prevention
-- Proper bounds checking
-- Memory initialization
-- Pointer validation
-- Resource cleanup
-Return ONLY the fixed code without explanations."""
+            try:
+                with self.driver.session() as session:
+                    if self.schema_type == "joern":
+                        # For Joern schema
+                        queries = {
+                            "languages": """
+                                MATCH (f:FILE)
+                                RETURN f.LANGUAGE as language, count(*) as count
+                                ORDER BY count DESC
+                                LIMIT 10
+                            """,
+                            "methods": """
+                                MATCH (m:METHOD)
+                                RETURN count(m) as method_count
+                            """,
+                            "calls": """
+                                MATCH (c:CALL)
+                                RETURN c.METHOD_FULL_NAME as function, count(*) as count
+                                ORDER BY count DESC
+                                LIMIT 15
+                            """
+                        }
+                    else:
+                        # For CVE or unknown schema
+                        queries = {
+                            "vulnerabilities": """
+                                MATCH (v:Vulnerability)
+                                RETURN count(v) as vuln_count
+                            """,
+                            "functions": """
+                                MATCH (f:Function)
+                                RETURN count(f) as function_count
+                            """,
+                            "packages": """
+                                MATCH (p:Package)
+                                RETURN p.Name as name, count(*) as count
+                                ORDER BY count DESC
+                                LIMIT 10
+                            """
+                        }
+                    
+                    # Execute queries
+                    for key, query in queries.items():
+                        try:
+                            analysis[key] = session.run(query).data()
+                        except Exception as e:
+                            logger.warning(f"Query '{key}' failed: {str(e)}")
+                            analysis[key] = []
+                    
+            except Exception as e:
+                logger.error(f"Error analyzing codebase: {str(e)}")
 
-            # Add specific guidance based on detected function
-            if "fgets" in vulnerable_code:
-                system_prompt += "\nFor fgets calls, ensure:\n- Buffer size is checked\n- Newline handling is safe\n- Input validation"
-            elif "malloc" in vulnerable_code:
-                system_prompt += "\nFor malloc calls, ensure:\n- Null pointer checks\n- Proper size calculation\n- Error handling"
-            elif "strcpy" in vulnerable_code:
-                system_prompt += "\nFor strcpy calls, replace with safer alternatives like strncpy with proper size checks"
+            # Log summary
+            logger.info("Codebase analysis complete")
+            return analysis
 
-            # Truncate inputs to fit within sequence limits
-            max_context_len = self.max_sequence_length // 4
-            max_code_len = self.max_sequence_length // 2
+        def generate_safety_patch(self, vulnerable_code, context=""):
+            """
+            Generate a memory-safe patch using Deepseek Coder.
             
-            context = context[:max_context_len] if context else ""
-            vulnerable_code = vulnerable_code[:max_code_len]
+            Args:
+                vulnerable_code: The code containing the vulnerability
+                context: Surrounding code context for better understanding
+                
+            Returns:
+                String containing the patched code or None if generation failed
+            """
+            if not vulnerable_code:
+                logger.warning("Cannot generate patch: No code provided")
+                return None
+                
+            logger.info("Generating safety patch")
+            
+            try:
+                # Create system prompt for the LLM
+                system_prompt = """You are a memory safety expert. Generate a secure patch considering:
+    - Buffer overflow prevention
+    - Proper bounds checking
+    - Memory initialization
+    - Pointer validation
+    - Resource cleanup
+    Return ONLY the fixed code without explanations."""
 
-            # Prepare messages for the model
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Vulnerable code:\n```c\n{vulnerable_code}\n```\n" +
-                                         (f"Code context:\n```c\n{context}\n```\n" if context else "") +
-                                         "Provide safe version:"}
-            ]
+                # Add specific guidance based on detected function
+                if "fgets" in vulnerable_code:
+                    system_prompt += "\nFor fgets calls, ensure:\n- Buffer size is checked\n- Newline handling is safe\n- Input validation"
+                elif "malloc" in vulnerable_code:
+                    system_prompt += "\nFor malloc calls, ensure:\n- Null pointer checks\n- Proper size calculation\n- Error handling"
+                elif "strcpy" in vulnerable_code:
+                    system_prompt += "\nFor strcpy calls, replace with safer alternatives like strncpy with proper size checks"
 
-            # Tokenize the input
-            inputs = self.tokenizer.apply_chat_template(
-                messages,
-                return_tensors="pt",
-                max_length=self.max_sequence_length,
-                truncation=True
-            ).to(self.model.device)
+                # Truncate inputs to fit within sequence limits
+                max_context_len = self.max_sequence_length // 4
+                max_code_len = self.max_sequence_length // 2
+                
+                context = context[:max_context_len] if context else ""
+                vulnerable_code = vulnerable_code[:max_code_len]
 
-            # Generate with appropriate parameters
-            with torch.no_grad():  # Disable gradient calculation for inference
-                outputs = self.model.generate(
-                    inputs,
-                    max_new_tokens=512,
-                    do_sample=True,
-                    temperature=0.3,
-                    top_p=0.9,
-                    pad_token_id=self.tokenizer.eos_token_id
+                # Prepare messages for the model
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Vulnerable code:\n```c\n{vulnerable_code}\n```\n" +
+                                            (f"Code context:\n```c\n{context}\n```\n" if context else "") +
+                                            "Provide safe version:"}
+                ]
+
+                # Tokenize the input
+                inputs = self.tokenizer.apply_chat_template(
+                    messages,
+                    return_tensors="pt",
+                    max_length=self.max_sequence_length,
+                    truncation=True
+                ).to(self.model.device)
+
+                # Generate with appropriate parameters
+                with torch.no_grad():  # Disable gradient calculation for inference
+                    outputs = self.model.generate(
+                        inputs,
+                        max_new_tokens=512,
+                        do_sample=True,
+                        temperature=0.3,
+                        top_p=0.9,
+                        pad_token_id=self.tokenizer.eos_token_id
+                    )
+                
+                # Decode and clean the output
+                patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+                clean_patch = self._clean_patch(patch)
+                
+                logger.info("Patch generation successful")
+                return clean_patch
+
+            except torch.cuda.OutOfMemoryError:
+                logger.warning("GPU out of memory, retrying with CPU...")
+                return self._fallback_cpu_generation(vulnerable_code, context)
+            except Exception as e:
+                logger.error(f"Error generating patch: {str(e)}")
+                return None
+
+        def _fallback_cpu_generation(self, vulnerable_code, context):
+            """
+            Fallback generation on CPU with reduced parameters when GPU OOM occurs.
+            
+            Args:
+                vulnerable_code: The code containing the vulnerability
+                context: Surrounding code context
+                
+            Returns:
+                String containing the patched code or None if generation failed
+            """
+            try:
+                logger.info("Falling back to CPU generation with reduced parameters")
+                
+                # Move model to CPU
+                cpu_model = self.model.to("cpu")
+
+                # Regenerate with smaller inputs and parameters
+                messages = [
+                    {"role": "system", "content": "Generate secure memory-safe patch"},
+                    {"role": "user", "content": f"Fix this vulnerable code:\n{vulnerable_code[:1024]}"}
+                ]
+
+                inputs = self.tokenizer.apply_chat_template(
+                    messages,
+                    return_tensors="pt",
+                    max_length=1024,
+                    truncation=True
                 )
-            
-            # Decode and clean the output
-            patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-            clean_patch = self._clean_patch(patch)
-            
-            logger.info("Patch generation successful")
-            return clean_patch
 
-        except torch.cuda.OutOfMemoryError:
-            logger.warning("GPU out of memory, retrying with CPU...")
-            return self._fallback_cpu_generation(vulnerable_code, context)
-        except Exception as e:
-            logger.error(f"Error generating patch: {str(e)}")
-            return None
+                with torch.no_grad():
+                    outputs = cpu_model.generate(
+                        inputs,
+                        max_new_tokens=256,
+                        do_sample=True,
+                        temperature=0.2,
+                        top_p=0.85
+                    )
 
-    def _fallback_cpu_generation(self, vulnerable_code, context):
-        """
-        Fallback generation on CPU with reduced parameters when GPU OOM occurs.
-        
-        Args:
-            vulnerable_code: The code containing the vulnerability
-            context: Surrounding code context
+                patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+                return self._clean_patch(patch)
+
+            except Exception as e:
+                logger.error(f"Error in CPU fallback: {str(e)}")
+                return None
+            finally:
+                # Move model back to CUDA if available
+                if torch.cuda.is_available():
+                    self.model = self.model.to("cuda")
+                    torch.cuda.empty_cache()
+                    logger.info("Model moved back to GPU after fallback")
+
+        def validate_patch(self, original_code, patched_code):
+            """
+            Validate patch using static analysis and differential testing.
             
-        Returns:
-            String containing the patched code or None if generation failed
-        """
-        try:
-            logger.info("Falling back to CPU generation with reduced parameters")
+            Args:
+                original_code: The original vulnerable code
+                patched_code: The generated patched code
+                
+            Returns:
+                Dict containing validation results
+            """
+            if patched_code is None:
+                logger.warning("Cannot validate: patch generation failed")
+                return {
+                    "sanitizers_clean": False, 
+                    "semantic_equivalence": False,
+                    "safety_checks": {
+                        "buffer_check": False,
+                        "null_check": False,
+                        "bounds_check": False,
+                        "has_changes": False
+                    }
+                }
+
+            # Step 1: Basic semantic validation using code diffs
+            diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
+            diff_lines = list(diff)
+            has_changes = any(line.startswith('+') or line.startswith('-') for line in diff_lines)
             
-            # Move model to CPU
-            cpu_model = self.model.to("cpu")
+            # Count significant changes
+            added = sum(1 for line in diff_lines if line.startswith('+') and not line[1:].isspace())
+            removed = sum(1 for line in diff_lines if line.startswith('-') and not line[1:].isspace())
 
-            # Regenerate with smaller inputs and parameters
-            messages = [
-                {"role": "system", "content": "Generate secure memory-safe patch"},
-                {"role": "user", "content": f"Fix this vulnerable code:\n{vulnerable_code[:1024]}"}
-            ]
+            # Step 2: Basic safety checks
+            safety_checks = {
+                "buffer_check": "sizeof" in patched_code and not ("sizeof" in original_code),
+                "null_check": ("NULL" in patched_code or "null" in patched_code) and not ("NULL" in original_code or "null" in original_code),
+                "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]) and not any(op in original_code for op in ["<=", ">=", "<", ">"]),
+                "has_changes": has_changes,
+                "significant_changes": added + removed > 0
+            }
 
-            inputs = self.tokenizer.apply_chat_template(
-                messages,
-                return_tensors="pt",
-                max_length=1024,
-                truncation=True
+            # Calculate overall validity
+            sanitizers_clean = safety_checks["significant_changes"] and (
+                safety_checks["buffer_check"] or 
+                safety_checks["null_check"] or 
+                safety_checks["bounds_check"]
             )
-
-            with torch.no_grad():
-                outputs = cpu_model.generate(
-                    inputs,
-                    max_new_tokens=256,
-                    do_sample=True,
-                    temperature=0.2,
-                    top_p=0.85
-                )
-
-            patch = self.tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
-            return self._clean_patch(patch)
-
-        except Exception as e:
-            logger.error(f"Error in CPU fallback: {str(e)}")
-            return None
-        finally:
-            # Move model back to CUDA if available
-            if torch.cuda.is_available():
-                self.model = self.model.to("cuda")
-                torch.cuda.empty_cache()
-                logger.info("Model moved back to GPU after fallback")
-
-    def validate_patch(self, original_code, patched_code):
-        """
-        Validate patch using static analysis and differential testing.
-        
-        Args:
-            original_code: The original vulnerable code
-            patched_code: The generated patched code
             
-        Returns:
-            Dict containing validation results
-        """
-        if patched_code is None:
-            logger.warning("Cannot validate: patch generation failed")
-            return {
-                "sanitizers_clean": False, 
-                "semantic_equivalence": False,
-                "safety_checks": {
-                    "buffer_check": False,
-                    "null_check": False,
-                    "bounds_check": False,
-                    "has_changes": False
+            semantic_equivalence = has_changes and ("return" in original_code) == ("return" in patched_code)
+
+            validation_result = {
+                "sanitizers_clean": sanitizers_clean,
+                "semantic_equivalence": semantic_equivalence,
+                "safety_checks": safety_checks,
+                "diff_stats": {
+                    "added_lines": added,
+                    "removed_lines": removed
                 }
             }
+            
+            logger.info(f"Patch validation: sanitizers_clean={validation_result['sanitizers_clean']}, "
+                    f"semantic_equivalence={validation_result['semantic_equivalence']}")
+            
+            return validation_result  
 
-        # Step 1: Basic semantic validation using code diffs
-        diff = difflib.ndiff(original_code.splitlines(), patched_code.splitlines())
-        diff_lines = list(diff)
-        has_changes = any(line.startswith('+') or line.startswith('-') for line in diff_lines)
-        
-        # Count significant changes
-        added = sum(1 for line in diff_lines if line.startswith('+') and not line[1:].isspace())
-        removed = sum(1 for line in diff_lines if line.startswith('-') and not line[1:].isspace())
+        def _clean_patch(self, patch):
+            """
+            Remove markdown formatting from generated patch.
+            
+            Args:
+                patch: Raw patch text from model
+                
+            Returns:
+                Cleaned patch code
+            """
+            # Remove code block markers and extra whitespace
+            cleaned = patch.replace("```c", "").replace("```cpp", "").replace("```", "").strip()
+            
+            # Remove common explanation prefixes
+            prefixes = [
+                "Here's the fixed code:", 
+                "Fixed code:", 
+                "Secure version:",
+                "Here is the patched code:",
+                "The patched code:"
+            ]
+            
+            for prefix in prefixes:
+                if cleaned.lower().startswith(prefix.lower()):
+                    cleaned = cleaned[len(prefix):].strip()
+                    
+            return cleaned
 
-        # Step 2: Basic safety checks
-        safety_checks = {
-            "buffer_check": "sizeof" in patched_code and not ("sizeof" in original_code),
-            "null_check": ("NULL" in patched_code or "null" in patched_code) and not ("NULL" in original_code or "null" in original_code),
-            "bounds_check": any(op in patched_code for op in ["<=", ">=", "<", ">"]) and not any(op in original_code for op in ["<=", ">=", "<", ">"]),
-            "has_changes": has_changes,
-            "significant_changes": added + removed > 0
-        }
+        def _update_failure_context(self, vuln, patch, validation):
+            """
+            Store failure context for model feedback.
+            
+            Args:
+                vuln: The vulnerability info
+                patch: The generated patch
+                validation: Validation results
+            """
+            if not hasattr(self, 'repair_attempts'):
+                self.repair_attempts = {}
+                
+            # Store attempt data keyed by vulnerability ID or function ID
+            key = vuln.get('vulnerability_id', vuln.get('id', 'unknown'))
+            self.repair_attempts.setdefault(key, []).append({
+                "patch": patch,
+                "validation": validation
+            })
 
-        # Calculate overall validity
-        sanitizers_clean = safety_checks["significant_changes"] and (
-            safety_checks["buffer_check"] or 
-            safety_checks["null_check"] or 
-            safety_checks["bounds_check"]
-        )
-        
-        semantic_equivalence = has_changes and ("return" in original_code) == ("return" in patched_code)
+        def repair_cycle(self, max_attempts=3):
+            """
+            Run the full cycle of detecting memory safety issues and repairing them.
+            
+            Args:
+                max_attempts: Maximum number of repair attempts per issue
+                
+            Returns:
+                List of repair results
+            """
+            logger.info(f"Starting repair cycle with max {max_attempts} attempts per issue...")
+            
+            # Step 1: Detect memory safety issues
+            issues = self.detect_memory_safety_issues()
+            if not issues:
+                logger.info("No memory safety issues detected to repair")
+                return []
+            
+            # Step 2: Repair each issue
+            repair_results = []
+            
+            for issue in tqdm(issues, desc="Repairing issues"):
+                # Get essential issue details
+                issue_id = issue.get('vulnerability_id', issue.get('id', 'unknown'))
+                issue_function = issue.get('function', 'unknown function')
+                issue_code = issue.get('code', '')
+                issue_context = issue.get('context', '')
+                if isinstance(issue_context, list):
+                    issue_context = '\n'.join(issue_context)
+                
+                logger.info(f"Attempting to repair issue {issue_id} in {issue_function}")
+                
+                # Track attempts for this specific issue
+                attempts = 0
+                best_patch = None
+                best_validation = None
+                
+                while attempts < max_attempts:
+                    attempts += 1
+                    logger.info(f"  Attempt {attempts}/{max_attempts}")
+                    
+                    # Generate patch
+                    patch = self.generate_safety_patch(issue_code, issue_context)
+                    
+                    if not patch:
+                        logger.warning(f"  Failed to generate patch on attempt {attempts}")
+                        continue
+                        
+                    # Validate patch
+                    validation = self.validate_patch(issue_code, patch)
+                    
+                    # Track best patch based on validation scores
+                    if best_validation is None or (
+                        validation['sanitizers_clean'] and not best_validation['sanitizers_clean']
+                    ) or (
+                        validation['sanitizers_clean'] == best_validation['sanitizers_clean'] and
+                        validation['semantic_equivalence'] and not best_validation['semantic_equivalence']
+                    ):
+                        best_patch = patch
+                        best_validation = validation
+                        
+                    # If patch is good enough, we can stop attempts
+                    if validation['sanitizers_clean'] and validation['semantic_equivalence']:
+                        logger.info(f"  Found valid patch on attempt {attempts}")
+                        break
+                        
+                    # Update failure context for better next attempt
+                    self._update_failure_context(issue, patch, validation)
+                
+                # Determine final status
+                if best_validation and best_validation['sanitizers_clean'] and best_validation['semantic_equivalence']:
+                    status = 'success'
+                elif best_validation and (best_validation['sanitizers_clean'] or best_validation['semantic_equivalence']):
+                    status = 'partial'
+                else:
+                    status = 'failed'
+                    
+                # Record repair result
+                result = {
+                    'issue_id': issue_id,
+                    'function': issue_function,
+                    'original_code': issue_code,
+                    'patched_code': best_patch,
+                    'validation': best_validation,
+                    'attempts': attempts,
+                    'status': status
+                }
+                
+                repair_results.append(result)
+                logger.info(f"Repair status for {issue_id}: {status}")
+            
+            # Log overall results
+            success_count = sum(1 for r in repair_results if r['status'] == 'success')
+            logger.info(f"Repair cycle complete: {success_count}/{len(repair_results)} successful repairs")
+            
+            return repair_results
 
-        validation_result = {
-            "sanitizers_clean": sanitizers_clean,
-            "semantic_equivalence": semantic_equivalence,
-            "safety_checks": safety_checks,
-            "diff_stats": {
-                "added_lines": added,
-                "removed_lines": removed
+        def generate_report(self, repair_results):
+            """
+            Generate a comprehensive report of repair actions.
+            
+            Args:
+                repair_results: Results from the repair cycle
+                
+            Returns:
+                Dict containing report data
+            """
+            total = len(repair_results)
+            successful = sum(1 for r in repair_results if r.get('status') == 'success')
+            partial = sum(1 for r in repair_results if r.get('status') == 'partial')
+            failed = sum(1 for r in repair_results if r.get('status') == 'failed')
+            
+            report = {
+                "summary": {
+                    "total_vulnerabilities": total,
+                    "successful_repairs": successful,
+                    "partial_repairs": partial,
+                    "failed_repairs": failed,
+                    "success_rate": successful / total if total > 0 else 0,
+                    "database_schema": self.db_schema
+                },
+                "details": repair_results
             }
-        }
-        
-        logger.info(f"Patch validation: sanitizers_clean={validation_result['sanitizers_clean']}, "
-                   f"semantic_equivalence={validation_result['semantic_equivalence']}")
-        
-        return validation_result  
-
-    def _clean_patch(self, patch):
-        """
-        Remove markdown formatting from generated patch.
-        
-        Args:
-            patch: Raw patch text from model
             
-        Returns:
-            Cleaned patch code
-        """
-        # Remove code block markers and extra whitespace
-        cleaned = patch.replace("```c", "").replace("```cpp", "").replace("```", "").strip()
-        
-        # Remove common explanation prefixes
-        prefixes = [
-            "Here's the fixed code:", 
-            "Fixed code:", 
-            "Secure version:",
-            "Here is the patched code:",
-            "The patched code:"
-        ]
-        
-        for prefix in prefixes:
-            if cleaned.lower().startswith(prefix.lower()):
-                cleaned = cleaned[len(prefix):].strip()
-                
-        return cleaned
-
-    def _update_failure_context(self, vuln, patch, validation):
-        """
-        Store failure context for model feedback.
-        
-        Args:
-            vuln: The vulnerability info
-            patch: The generated patch
-            validation: Validation results
-        """
-        if not hasattr(self, 'repair_attempts'):
-            self.repair_attempts = {}
-            
-        # Store attempt data keyed by vulnerability ID or function ID
-        key = vuln.get('vulnerability_id', vuln.get('id', 'unknown'))
-        self.repair_attempts.setdefault(key, []).append({
-            "patch": patch,
-            "validation": validation
-        })
-
-    def repair_cycle(self, max_attempts=3):
-        """
-        Run the full cycle of detecting memory safety issues and repairing them.
-        
-        Args:
-            max_attempts: Maximum number of repair attempts per issue
-            
-        Returns:
-            List of repair results
-        """
-        logger.info(f"Starting repair cycle with max {max_attempts} attempts per issue...")
-        
-        # Step 1: Detect memory safety issues
-        issues = self.detect_memory_safety_issues()
-        if not issues:
-            logger.info("No memory safety issues detected to repair")
-            return []
-        
-        # Step 2: Repair each issue
-        repair_results = []
-        
-        for issue in tqdm(issues, desc="Repairing issues"):
-            # Get essential issue details
-            issue_id = issue.get('vulnerability_id', issue.get('id', 'unknown'))
-            issue_function = issue.get('function', 'unknown function')
-            issue_code = issue.get('code', '')
-            issue_context = issue.get('context', '')
-            if isinstance(issue_context, list):
-                issue_context = '\n'.join(issue_context)
-            
-            logger.info(f"Attempting to repair issue {issue_id} in {issue_function}")
-            
-            # Track attempts for this specific issue
-            attempts = 0
-            best_patch = None
-            best_validation = None
-            
-            while attempts < max_attempts:
-                attempts += 1
-                logger.info(f"  Attempt {attempts}/{max_attempts}")
-                
-                # Generate patch
-                patch = self.generate_safety_patch(issue_code, issue_context)
-                
-                if not patch:
-                    logger.warning(f"  Failed to generate patch on attempt {attempts}")
-                    continue
-                    
-                # Validate patch
-                validation = self.validate_patch(issue_code, patch)
-                
-                # Track best patch based on validation scores
-                if best_validation is None or (
-                    validation['sanitizers_clean'] and not best_validation['sanitizers_clean']
-                ) or (
-                    validation['sanitizers_clean'] == best_validation['sanitizers_clean'] and
-                    validation['semantic_equivalence'] and not best_validation['semantic_equivalence']
-                ):
-                    best_patch = patch
-                    best_validation = validation
-                    
-                # If patch is good enough, we can stop attempts
-                if validation['sanitizers_clean'] and validation['semantic_equivalence']:
-                    logger.info(f"  Found valid patch on attempt {attempts}")
-                    break
-                    
-                # Update failure context for better next attempt
-                self._update_failure_context(issue, patch, validation)
-            
-            # Determine final status
-            if best_validation and best_validation['sanitizers_clean'] and best_validation['semantic_equivalence']:
-                status = 'success'
-            elif best_validation and (best_validation['sanitizers_clean'] or best_validation['semantic_equivalence']):
-                status = 'partial'
-            else:
-                status = 'failed'
-                
-            # Record repair result
-            result = {
-                'issue_id': issue_id,
-                'function': issue_function,
-                'original_code': issue_code,
-                'patched_code': best_patch,
-                'validation': best_validation,
-                'attempts': attempts,
-                'status': status
-            }
-            
-            repair_results.append(result)
-            logger.info(f"Repair status for {issue_id}: {status}")
-        
-        # Log overall results
-        success_count = sum(1 for r in repair_results if r['status'] == 'success')
-        logger.info(f"Repair cycle complete: {success_count}/{len(repair_results)} successful repairs")
-        
-        return repair_results
-
-    def generate_report(self, repair_results):
-        """
-        Generate a comprehensive report of repair actions.
-        
-        Args:
-            repair_results: Results from the repair cycle
-            
-        Returns:
-            Dict containing report data
-        """
-        total = len(repair_results)
-        successful = sum(1 for r in repair_results if r.get('status') == 'success')
-        partial = sum(1 for r in repair_results if r.get('status') == 'partial')
-        failed = sum(1 for r in repair_results if r.get('status') == 'failed')
-        
-        report = {
-            "summary": {
-                "total_vulnerabilities": total,
-                "successful_repairs": successful,
-                "partial_repairs": partial,
-                "failed_repairs": failed,
-                "success_rate": successful / total if total > 0 else 0,
-                "database_schema": self.db_schema
-            },
-            "details": repair_results
-        }
-        
-        logger.info(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
-        return report
+            logger.info(f"Repair report: {successful}/{total} successful, {partial}/{total} partial, {failed}/{total} failed")
+            return report
 
 
 def main():
