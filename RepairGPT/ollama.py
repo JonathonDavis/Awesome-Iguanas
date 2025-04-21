@@ -66,13 +66,7 @@ class OllamaNeo4jSecurityAnalyzer:
         self.model = model
         self.logger.info(f"Configured to use Ollama model: {model}")
         
-        # Verify Ollama connection
-        try:
-            #self._test_ollama_connection()
-            self.logger.info("Successfully verified connection to Ollama")
-        except Exception as e:
-            self.logger.error(f"Failed to connect to Ollama service: {str(e)}")
-            raise
+
 
     def _test_ollama_connection(self) -> None:
         """Test the connection to Ollama service."""
