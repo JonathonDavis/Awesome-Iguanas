@@ -376,7 +376,7 @@ class OllamaNeo4jSecurityAnalyzer:
         """Count nodes by label in the database."""
         results = {}
         labels = [label["label"] for label in self.query_neo4j("CALL db.labels()")]
-        print(labels)
+        #print(labels,"end")
         for label in labels:
             # Instead of parameter substitution for the label, use string formatting
             # This is safe since the labels come from db.labels()
