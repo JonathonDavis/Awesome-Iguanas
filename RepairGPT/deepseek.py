@@ -1026,32 +1026,34 @@ class RepairGPT:
 
 def main():
     """Main entry point for the RepairGPT system."""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="RepairGPT - Automatic memory safety repair tool")
     
+    # Set up argument parser for command line options
+    parser = argparse.ArgumentParser(description="RepairGPT - Automatic memory safety repair tool")
+
     # Neo4j connection settings
     parser.add_argument("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j database URI")
     parser.add_argument("--neo4j-user", default="neo4j", help="Neo4j username")
     parser.add_argument("--neo4j-password", default="jaguarai", help="Neo4j password")
-    
+
     # Model settings
     parser.add_argument("--model", default="deepseek-ai/deepseek-coder-1.3b-instruct", 
-                       help="Model name or path")
+                        help="Model name or path")
     parser.add_argument("--local-model", default=None, help="Path to local model files")
     parser.add_argument("--offline", action="store_true", help="Run in offline mode using local model")
-    
+
     # Operation settings
     parser.add_argument("--max-attempts", type=int, default=3, 
-                       help="Maximum repair attempts per vulnerability")
+                        help="Maximum repair attempts per vulnerability")
     parser.add_argument("--report-file", default="repair_report.json", 
-                       help="Output file for the repair report")
+                        help="Output file for the repair report")
     parser.add_argument("--analyze-only", action="store_true", 
-                       help="Only analyze codebase without repair")
-    
+                        help="Only analyze codebase without repair")
+
+    # Parse arguments from the command line
     args = parser.parse_args()
-    
+
     try:
-        # Initialize RepairGPT
+        # Initialize RepairGPT system with given settings
         logger.info("Initializing RepairGPT...")
         repair_gpt = RepairGPT(
             neo4j_uri=args.neo4j_uri,
@@ -1061,32 +1063,33 @@ def main():
             local_model_path=args.local_model,
             offline_mode=args.offline
         )
-        
-        # Analyze codebase
+
+        # Analyze the codebase structure
         logger.info("Analyzing codebase structure...")
         codebase_analysis = repair_gpt.analyze_codebase()
         logger.info(f"Found schema type: {codebase_analysis['schema_type']}")
-        
+
         if args.analyze_only:
+            # If only analyzing, skip repair cycle
             logger.info("Analysis-only mode, skipping repair cycle")
             report = {"analysis": codebase_analysis, "repair_results": []}
         else:
-            # Run repair cycle
+            # Execute repair cycle for detected vulnerabilities
             logger.info("Starting repair cycle...")
             repair_results = repair_gpt.repair_cycle(max_attempts=args.max_attempts)
-            
-            # Generate report
+
+            # Generate a comprehensive repair report
             logger.info("Generating repair report...")
             report = repair_gpt.generate_report(repair_results)
             report["analysis"] = codebase_analysis
-        
-        # Save report to file
+
+        # Save the generated report to a specified file
         import json
         with open(args.report_file, 'w') as f:
             json.dump(report, f, indent=2)
         logger.info(f"Report saved to {args.report_file}")
-        
-        # Print summary
+
+        # Print a summary of repair results if not in analysis-only mode
         if not args.analyze_only:
             summary = report["summary"]
             print(f"\nRepair Summary:")
@@ -1095,18 +1098,19 @@ def main():
                   f"({summary['success_rate']:.1%})")
             print(f"Partially repaired: {summary['partial_repairs']}")
             print(f"Failed repairs: {summary['failed_repairs']}")
-        
+
     except Exception as e:
+        # Handle any exceptions that occur during execution
         logger.error(f"Error in main process: {str(e)}")
         import traceback
         traceback.print_exc()
         return 1
     finally:
-        # Clean up resources
+        # Ensure resources are cleaned up after execution
         if 'repair_gpt' in locals():
             repair_gpt.close()
             logger.info("RepairGPT resources released")
-    
+
     return 0
 
 
