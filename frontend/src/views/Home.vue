@@ -181,6 +181,10 @@
               <h3>UNKNOWN</h3>
               <p class="stat-value">{{ stats.severityCounts?.UNKNOWN || 0 }}</p>
             </div>
+            <div class="stat-card severity-none">
+              <h3>NONE</h3>
+              <p class="stat-value">{{ stats.severityCounts?.NONE || 0 }}</p>
+            </div>
           </div>
           
           <div class="severity-distribution">
