@@ -223,7 +223,8 @@ const severityOptions = [
   { value: 'HIGH', label: 'High' },
   { value: 'MEDIUM', label: 'Medium' },
   { value: 'LOW', label: 'Low' },
-  { value: 'UNKNOWN', label: 'Unknown' }
+  { value: 'UNKNOWN', label: 'Unknown' },
+  { value: 'NONE', label: 'None' }
 ]
 
 // Toggle severity filter dropdown
@@ -992,6 +993,10 @@ async function updateSeverity() {
 
 .severity-indicator.unknown {
   background-color: #CBD5E0;
+}
+
+.severity-indicator.none {
+  background-color: #0f5aab;
 }
 
 .severity-indicator.all {
