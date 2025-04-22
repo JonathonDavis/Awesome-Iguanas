@@ -324,7 +324,8 @@ const stats = reactive({
     HIGH: 0,
     MEDIUM: 0,
     LOW: 0,
-    UNKNOWN: 0
+    UNKNOWN: 0,
+    NONE: 0
   }
 });
 
@@ -911,6 +912,11 @@ async function refreshData() {
   background-color: #CBD5E0;
 }
 
+.severity-segment.none {
+  background-color: #04111f;
+}
+
+
 .severity-legend {
   display: flex;
   flex-wrap: wrap;
@@ -948,6 +954,10 @@ async function refreshData() {
 
 .legend-color.unknown {
   background-color: #CBD5E0;
+}
+
+.legend-color.none {
+  background-color: #04111f;
 }
 
 .recent-repos,
