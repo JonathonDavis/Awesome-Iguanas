@@ -36,23 +36,23 @@
       
       <div class="summary-card">
         <div class="card-icon">
-          <i class="fas fa-shield-alt"></i>
-        </div>
-        <div class="card-content">
-          <h3>Vulnerabilities</h3>
-          <p class="count-indicator">{{ stats.cveCount || '...' }}</p>
-          <p class="status-details">CVEs Tracked</p>
-        </div>
-      </div>
-      
-      <div class="summary-card">
-        <div class="card-icon">
           <i class="fas fa-code-branch"></i>
         </div>
         <div class="card-content">
           <h3>Repositories</h3>
           <p class="count-indicator">{{ stats.repoCount || '...' }}</p>
           <p class="status-details">Tracked Repositories</p>
+        </div>
+      </div>
+
+      <div class="summary-card">
+        <div class="card-icon">
+          <i class="fas fa-shield-alt"></i>
+        </div>
+        <div class="card-content">
+          <h3>Vulnerabilities</h3>
+          <p class="count-indicator">{{ stats.cveCount || '...' }}</p>
+          <p class="status-details">CVEs Tracked</p>
         </div>
       </div>
       
