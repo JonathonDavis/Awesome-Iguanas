@@ -35,8 +35,8 @@ class NVDService {
     
     // Rate limit tracking
     this.rateLimits = {
-      total: 40, // Default NVD API rate limit: 40 requests per 30 seconds
-      remaining: 40,
+      total: 50, // Default NVD API rate limit: 50 requests per 30 seconds in a rolling window
+      remaining: 50,
       requestTimestamps: [], // Track timestamps of recent requests to enforce rate limits
       windowSeconds: 30,
       resetTime: null
