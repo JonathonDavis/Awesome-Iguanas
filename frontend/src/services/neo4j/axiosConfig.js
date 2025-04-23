@@ -1,8 +1,21 @@
-import axios from 'axios';
+import axios from "axios";
 
-// Create an axios instance with increased timeout and retry configuration
+// Create axios instances with appropriate configurations
 export const apiClient = axios.create({
-  timeout: 60000, // Increased to 60 seconds (from 30s)
+  timeout: 90000, // Increased to 90 seconds for better reliability
+});
+
+// Create a specific client for Ollama API calls
+export const ollamaClient = axios.create({
+  // Use relative URL to ensure it works with the nginx proxy
+  baseURL: "/api", // This will use the current domain with /api path
+  timeout: 180000, // 3 minutes timeout for LLM operations
+  headers: {
+    "Content-Type": "application/json",
+  },
+  // Add these settings to avoid connection issues
+  maxContentLength: Infinity,
+  maxBodyLength: Infinity
 });
 
 // Setup function to configure axios client
@@ -11,7 +24,7 @@ export function setupAxiosClient() {
   apiClient.interceptors.response.use(null, async (error) => {
     const { config } = error;
     
-    // If config doesn't exist or we've already retried 3 times, reject
+    // If config does not exist or we have already retried 3 times, reject
     if (!config || config.__retryCount >= 3) {
       return Promise.reject(error);
     }
@@ -31,7 +44,42 @@ export function setupAxiosClient() {
     return apiClient(config);
   });
 
-  return apiClient;
+  // Apply enhanced retry logic to Ollama client
+  ollamaClient.interceptors.response.use(null, async (error) => {
+    const { config } = error;
+    
+    if (!config || config.__retryCount >= 3) {  // Increased to 3 retries
+      return Promise.reject(error);
+    }
+    
+    config.__retryCount = config.__retryCount || 0;
+    config.__retryCount++;
+    
+    const backoff = Math.pow(2, config.__retryCount) * 1500; // Increased backoff time
+    console.log(`Ollama API request failed, retrying in ${backoff}ms... (Attempt ${config.__retryCount}/3)`);
+    
+    await new Promise(resolve => setTimeout(resolve, backoff));
+    
+    return ollamaClient(config);
+  });
+
+  // Add request interceptor to handle connection issues
+  ollamaClient.interceptors.request.use(
+    (config) => {
+      // Log requests for debugging
+      console.log(`Making request to ${config.url}`);
+      return config;
+    },
+    (error) => {
+      console.error("Request error:", error);
+      return Promise.reject(error);
+    }
+  );
+
+  return { apiClient, ollamaClient };
 }
 
-export default apiClient; 
+// Initialize both clients immediately
+setupAxiosClient();
+
+export default apiClient;
