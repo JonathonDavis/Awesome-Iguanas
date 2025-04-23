@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios from 'axios';
 
 // Create axios instances with appropriate configurations
 export const apiClient = axios.create({
@@ -8,10 +8,10 @@ export const apiClient = axios.create({
 // Create a specific client for Ollama API calls
 export const ollamaClient = axios.create({
   // Use relative URL to ensure it works with the nginx proxy
-  baseURL: "/api", // This will use the current domain with /api path
+  baseURL: '/api', // This will use the current domain with /api path
   timeout: 180000, // 3 minutes timeout for LLM operations
   headers: {
-    "Content-Type": "application/json",
+    'Content-Type': 'application/json',
   },
   // Add these settings to avoid connection issues
   maxContentLength: Infinity,
@@ -24,7 +24,7 @@ export function setupAxiosClient() {
   apiClient.interceptors.response.use(null, async (error) => {
     const { config } = error;
     
-    // If config does not exist or we have already retried 3 times, reject
+    // If config doesn't exist or we've already retried 3 times, reject
     if (!config || config.__retryCount >= 3) {
       return Promise.reject(error);
     }
@@ -71,7 +71,7 @@ export function setupAxiosClient() {
       return config;
     },
     (error) => {
-      console.error("Request error:", error);
+      console.error('Request error:', error);
       return Promise.reject(error);
     }
   );
