@@ -27,6 +27,7 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+.env.production
 
 # package-lock.json
 *package-lock.json
