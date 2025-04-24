@@ -10,5 +10,8 @@
         "import": "./helpers.js",
         "require": "./helpers.cjs"
     },
-    "types": "./helpers.d.ts"
+    "types": "./helpers.d.ts",
+    "dependencies": {
+        "chart.js-helpers": "file:"
+    }
 }
