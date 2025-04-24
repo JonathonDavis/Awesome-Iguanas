@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "axios": "^1.8.4",
-    "chart.js": "^4.4.8",
+    "chart.js": "^4.4.9",
     "d3": "^7.9.0",
+    "datavault-pro": "file:",
     "neo4j-driver": "^5.28.1",
     "node-schedule": "^2.1.1",
     "vis-network": "^9.1.9",

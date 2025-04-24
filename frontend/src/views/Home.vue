@@ -13,6 +13,68 @@
       </button>
     </div>
     
+    <!-- Connection Help Dialog -->
+    <div v-if="showConnectionDialog" class="connection-dialog-overlay" @click="closeConnectionHelp">
+      <div class="connection-dialog" @click.stop>
+        <div class="dialog-header">
+          <h2><i class="fas fa-database"></i> Neo4j Connection Troubleshooting</h2>
+          <button @click="closeConnectionHelp" class="dialog-close">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="dialog-content">
+          <h3>Common Connection Issues:</h3>
+          
+          <div class="troubleshooting-step">
+            <h4>1. Neo4j Server Not Running</h4>
+            <p>Make sure the Neo4j service is running on your machine or server.</p>
+            <div class="code-block">
+              <pre><code># On Windows:
+# Check Services app or run:
+net start neo4j
+
+# On Linux:
+sudo systemctl status neo4j</code></pre>
+            </div>
+          </div>
+          
+          <div class="troubleshooting-step">
+            <h4>2. Connection Configuration</h4>
+            <p>Check your connection settings in the .env file:</p>
+            <div class="code-block">
+              <pre><code>VITE_NEO4J_URI=bolt://localhost:7687
+VITE_NEO4J_USER=neo4j
+VITE_NEO4J_PASSWORD=jaguarai</code></pre>
+            </div>
+          </div>
+          
+          <div class="troubleshooting-step">
+            <h4>3. Firewall or Network Issues</h4>
+            <p>Make sure port 7687 is open and accessible (especially if Neo4j is on another server).</p>
+          </div>
+          
+          <div class="troubleshooting-step">
+            <h4>4. Authentication Issues</h4>
+            <p>Ensure you're using the correct username and password combination.</p>
+          </div>
+          
+          <div class="troubleshooting-step">
+            <h4>5. Neo4j Browser Test</h4>
+            <p>Try connecting through Neo4j Browser to verify your credentials:</p>
+            <p><a href="http://localhost:7474/" target="_blank" rel="noopener">http://localhost:7474/</a></p>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button @click="tryReconnect" class="action-button refresh">
+            <i class="fas fa-sync-alt"></i> Try Reconnecting
+          </button>
+          <button @click="closeConnectionHelp" class="action-button">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+    
     <div class="welcome-banner">
       <h1>Welcome to Iguana's GPT</h1>
       <p>Enterprise Database Vulnerability Management Solution</p>
@@ -31,6 +93,9 @@
           <p class="status-details">
             {{ dbConnected ? 'Neo4j Server Active' : 'Connection Error' }}
           </p>
+          <button v-if="!dbConnected" class="connection-help" @click="showConnectionHelp">
+            <i class="fas fa-question-circle"></i> Show Connection Help
+          </button>
         </div>
       </div>
       
@@ -264,6 +329,7 @@ import neo4jService from '../services/neo4j/neo4jService';
 const router = useRouter();
 const isLoading = ref(true);
 const dbConnected = ref(true);
+const showConnectionDialog = ref(false);
 
 // Notification system
 const notification = ref({
@@ -603,6 +669,42 @@ async function refreshData() {
     console.error('Error refreshing data:', error);
     dbConnected.value = false;
     showNotification('Error refreshing data. Please try again.', 'error');
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+function showConnectionHelp() {
+  showConnectionDialog.value = true;
+}
+
+function closeConnectionHelp() {
+  showConnectionDialog.value = false;
+}
+
+async function tryReconnect() {
+  try {
+    showNotification('Attempting to reconnect to Neo4j...', 'info');
+    closeConnectionHelp();
+    isLoading.value = true;
+    
+    // Attempt to verify connectivity
+    const isConnected = await neo4jService.verifyConnectivity();
+    
+    if (isConnected) {
+      dbConnected.value = true;
+      showNotification('Successfully reconnected to Neo4j!', 'success');
+      
+      // Refetch dashboard data
+      await fetchDashboardData();
+    } else {
+      dbConnected.value = false;
+      showNotification('Failed to reconnect to Neo4j. Please check your connection settings.', 'error');
+    }
+  } catch (error) {
+    console.error('Error during reconnection attempt:', error);
+    dbConnected.value = false;
+    showNotification(`Reconnection failed: ${error.message}`, 'error');
   } finally {
     isLoading.value = false;
   }
@@ -1217,5 +1319,121 @@ async function refreshData() {
   opacity: 0.6;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+/* Connection Help Dialog styles */
+.connection-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.connection-dialog {
+  background: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dialog-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.dialog-close:hover {
+  opacity: 1;
+}
+
+.dialog-content {
+  padding: 1.5rem;
+}
+
+.dialog-content h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  color: var(--text-color);
+}
+
+.troubleshooting-step {
+  margin-bottom: 1.5rem;
+}
+
+.troubleshooting-step h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: var(--primary-color);
+}
+
+.troubleshooting-step p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-color);
+}
+
+.code-block {
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.code-block pre {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #2d3748;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e2e8f0;
 }
 </style>

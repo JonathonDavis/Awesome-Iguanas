@@ -5,8 +5,12 @@
 </template>
 
 <script>
-import { Chart } from 'chart.js/auto'
+// Import Chart.js register functions directly instead of using auto
+import { Chart, registerables } from 'chart.js'
 import neo4jService from '../services/neo4j/neo4jService'
+
+// Register all the components we need
+Chart.register(...registerables)
 
 export default {
   name: 'PieChart',
@@ -110,4 +114,4 @@ export default {
     height: 300px;
   }
 }
-</style> 
+</style>

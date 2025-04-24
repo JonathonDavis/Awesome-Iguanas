@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import dotenv from 'dotenv'
+import path from 'path'
 
 // Load environment variables
 dotenv.config()
@@ -11,6 +12,11 @@ const apiKey = process.env.VITE_NIST_API_KEY
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    alias: {
+      // Remove the chart.js alias completely
+    }
+  },
   server: {
     proxy: {
       // Proxy requests to NVD API to avoid CORS issues
@@ -35,7 +41,24 @@ export default defineConfig({
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         }
-      }
-    }
+      },
+      // Proxy API requests to the Ollama API
+      '/ollama-api': {
+        target: 'http://localhost:11434',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ollama-api/, ''),
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request to Ollama API:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from Ollama API:', proxyRes.statusCode, req.url);
+          });
+        },
+      },
+    },
   }
 })

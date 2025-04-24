@@ -19,17 +19,48 @@ class Neo4jService {
       throw new Error('Neo4j configuration missing')
     }
     
-    this.driver = neo4j.driver(
-      this.uri,
-      neo4j.auth.basic(this.user, this.password)
-    )
-    console.log('Neo4j connection established')
+    console.log(`Attempting to connect to Neo4j at ${this.uri} with user ${this.user}`)
     
-    // Setup axios client with retry capability
-    setupAxiosClient();
-    
-    // Initialize OSV fetcher
-    this.osvFetcher = createOSVFetcher(this.driver);
+    try {
+      // When using neo4j+s:// or bolt+s:// in the URI, don't specify encryption in the config
+      this.driver = neo4j.driver(
+        this.uri,
+        neo4j.auth.basic(this.user, this.password),
+        {
+          // Add connection configuration options
+          connectionTimeout: 30000, // 30 seconds
+          maxConnectionLifetime: 3 * 60 * 60 * 1000, // 3 hours
+          maxConnectionPoolSize: 50,
+          connectionAcquisitionTimeout: 60000, // 60 seconds
+          disableLosslessIntegers: true, // Convert Neo4j integers to JavaScript numbers
+          encrypted: 'ENCRYPTION_OFF' // Explicitly disable encryption to prevent automatic WSS upgrade
+        }
+      )
+      
+      // Verify connectivity immediately
+      this.verifyConnectivity().then(isConnected => {
+        if (isConnected) {
+          console.log('✅ Neo4j connection verified successfully')
+          
+          // Setup axios client with retry capability
+          setupAxiosClient();
+          
+          // Initialize OSV fetcher
+          this.osvFetcher = createOSVFetcher(this.driver);
+          
+          // Initialize update tracking
+          this.initializeUpdateTracking();
+          
+          // Start the update system
+          this.startUpdateSystem();
+        }
+      }).catch(error => {
+        console.error('❌ Failed to verify Neo4j connectivity:', error);
+      });
+    } catch (error) {
+      console.error('❌ Failed to create Neo4j driver:', error);
+      throw new Error(`Neo4j connection failed: ${error.message}`);
+    }
     
     // Used to track the timers for updates
     this.updateTimer = null;
@@ -44,15 +75,26 @@ class Neo4jService {
       totalVulnerabilities: 0,
       lastUpdateCount: 0,
       updateErrors: [],
-      totalNodes: 0
+      totalNodes: 0,
+      isConnected: false
     };
-    
-    // Initialize the database with update tracking
-    this.initializeUpdateTracking();
-    
-    // Start the update system
-    this.startUpdateSystem();
   }
+  
+  // Verify connectivity to Neo4j database
+  async verifyConnectivity() {
+    try {
+      await this.driver.verifyConnectivity();
+      this.updateStatus.isConnected = true;
+      return true;
+    } catch (error) {
+      console.error('Neo4j connectivity verification failed:', error.message);
+      this.updateStatus.isConnected = false;
+      this.updateStatus.lastFailedUpdate = new Date().toISOString();
+      this.updateStatus.updateErrors.push(`Connection error: ${error.message}`);
+      return false;
+    }
+  }
+  
   // Re-export methods from other modules
   initializeUpdateTracking = initializeUpdateTracking;
   processVulnerability = processVulnerability;
@@ -412,4 +454,4 @@ class Neo4jService {
 
 // Create and export a singleton instance
 const neo4jServiceInstance = new Neo4jService();
-export default neo4jServiceInstance; 
+export default neo4jServiceInstance;
