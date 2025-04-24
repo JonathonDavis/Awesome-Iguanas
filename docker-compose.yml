@@ -1,0 +1,33 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_NEO4J_URI=bolt://host.docker.internal:7687
+        - VITE_NEO4J_USER=neo4j
+        - VITE_NEO4J_PASSWORD=${NEO4J_PASSWORD}
+        - VITE_OLLAMA_API_URL=http://host.docker.internal:11434
+        - VITE_OLLAMA_MODEL=deepseek-r1:8b
+        - VITE_GITHUB_TOKEN=${GITHUB_TOKEN}
+        - VITE_NIST_TOKEN=${NIST_TOKEN}
+    image: joshludolf/awesome-iguanas:latest
+    container_name: awesome-iguanas
+    ports:
+      - "443:443"     # Map host port 443 to container port 443 for HTTPS
+      - "80:80"       # Map host port 80 to container port 80 for HTTP
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "awesome-iguanas.com:127.0.0.1"
+    environment:
+      - VITE_NEO4J_URI=bolt://host.docker.internal:7687
+      - VITE_NEO4J_USER=neo4j
+      - VITE_NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - VITE_OLLAMA_API_URL=http://host.docker.internal:11434
+      - VITE_OLLAMA_MODEL=deepseek-r1:8b
+      - VITE_GITHUB_TOKEN=${GITHUB_TOKEN}
+      - VITE_NIST_TOKEN=${NIST_TOKEN}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
