@@ -449,15 +449,26 @@ class Neo4jSecurityAnalyzer:
         return remediation
 
     def _extract_affected_ecosystems(self, packages: List[Dict]) -> List[str]:
-        """Extract unique affected ecosystems from package list."""
+        """
+        Extract unique affected ecosystems from package list.
+
+        :param packages: List of dictionaries containing package information
+        :return: List of unique affected ecosystems
+        """
         if not packages:
             return []
-            
+
+        # Initialize an empty set to store unique ecosystems
         ecosystems = set()
+
+        # Iterate over each package and extract its ecosystem
         for pkg in packages:
             eco = pkg.get("ecosystem")
             if eco:
+                # Add the ecosystem to the set (if it's not already there)
                 ecosystems.add(eco)
+
+        # Return the list of unique ecosystems
         return list(ecosystems)
     
     def _determine_exploitation_likelihood(self, vuln_type: str, references: List[Dict] = None) -> str:
