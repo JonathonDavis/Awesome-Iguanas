@@ -358,6 +358,7 @@ class Neo4jSecurityAnalyzer:
     def _determine_vulnerability_type(self, summary: str, details: str = None) -> str:
         """Determine vulnerability type based on text analysis."""
         text = (summary or "") + " " + (details or "")
+        print(text)
         text = text.lower()
         
         vulnerability_types = {
@@ -384,6 +385,7 @@ class Neo4jSecurityAnalyzer:
     def _determine_severity(self, summary: str, details: str = None, packages: List[Dict] = None) -> str:
         """Determine vulnerability severity based on text analysis."""
         text = (summary or "") + " " + (details or "")
+        print(text)
         text = text.lower()
         
         # Check for explicit severity mentions
@@ -581,7 +583,8 @@ class Neo4jSecurityAnalyzer:
         # Extract text from vulnerabilities for analysis
         summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
         detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
-        
+        print(summary_texts,"summary_texts")
+        print(detail_texts,"detail texts")
         # Combine texts for analysis
         combined_summary = " ".join(summary_texts)
         combined_details = " ".join(detail_texts)
