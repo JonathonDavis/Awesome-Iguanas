@@ -359,7 +359,7 @@ class Neo4jSecurityAnalyzer:
         """Determine vulnerability type based on text analysis."""
         text = (summary or "") + " " + (details or "")
         print(text)
-        text = text.lower()
+        text = text
         
         vulnerability_types = {
             "buffer overflow": ["buffer overflow", "stack overflow", "heap overflow", "buffer over-read"],
@@ -386,7 +386,7 @@ class Neo4jSecurityAnalyzer:
         """Determine vulnerability severity based on text analysis."""
         text = (summary or "") + " " + (details or "")
         print(text)
-        text = text.lower()
+        text = text
         
         # Check for explicit severity mentions
         if "critical" in text or "severe" in text:
@@ -471,8 +471,8 @@ class Neo4jSecurityAnalyzer:
         has_exploit = False
         if references:
             for ref in references:
-                url = ref.get("url", "")#.lower()
-                ref_type = ref.get("type", "")#.lower()
+                url = ref.get("url", "")#
+                ref_type = ref.get("type", "")#
                 if "exploit" in url or "exploit" in ref_type or "poc" in url or "proof of concept" in url:
                     has_exploit = True
                     break
@@ -486,7 +486,7 @@ class Neo4jSecurityAnalyzer:
 
     def _generate_impact_analysis(self, vuln_type: str, summary: str, packages: List[Dict] = None) -> str:
         """Generate impact analysis based on vulnerability type and affected packages."""
-        impact = f"This {vuln_type.lower()} vulnerability could potentially "
+        impact = f"This {vuln_type} vulnerability could potentially "
         
         type_impacts = {
             "Buffer Overflow": "lead to arbitrary code execution, application crashes, or memory corruption.",
@@ -526,13 +526,13 @@ class Neo4jSecurityAnalyzer:
     def _generate_recommendation(self, severity: str, vuln_type: str, remediation_steps: str) -> str:
         """Generate a security recommendation based on severity and type."""
         if severity == "CRITICAL":
-            return f"URGENT: Immediately patch this {vuln_type.lower()} vulnerability. {remediation_steps} Consider temporarily isolating affected systems if immediate patching is not possible."
+            return f"URGENT: Immediately patch this {vuln_type} vulnerability. {remediation_steps} Consider temporarily isolating affected systems if immediate patching is not possible."
         elif severity == "HIGH":
-            return f"HIGH PRIORITY: This {vuln_type.lower()} vulnerability should be addressed as soon as possible. {remediation_steps}"
+            return f"HIGH PRIORITY: This {vuln_type} vulnerability should be addressed as soon as possible. {remediation_steps}"
         elif severity == "MEDIUM":
-            return f"MEDIUM PRIORITY: Schedule remediation of this {vuln_type.lower()} vulnerability within your normal patch cycle. {remediation_steps}"
+            return f"MEDIUM PRIORITY: Schedule remediation of this {vuln_type} vulnerability within your normal patch cycle. {remediation_steps}"
         else:
-            return f"LOW PRIORITY: Address this {vuln_type.lower()} vulnerability as resources permit. {remediation_steps}"
+            return f"LOW PRIORITY: Address this {vuln_type} vulnerability as resources permit. {remediation_steps}"
 
     def analyze_vulnerability(self, vuln_id: str) -> SecurityInsight:
         """Analyze a specific vulnerability using local analysis."""
@@ -605,11 +605,11 @@ class Neo4jSecurityAnalyzer:
         
         # Generate exploitation vectors
         exploitation_vectors = []
-        if "remote" in combined_summary.lower() or "remote" in combined_details.lower():
+        if "remote" in combined_summary or "remote" in combined_details:
             exploitation_vectors.append("Remote exploitation")
-        if "local" in combined_summary.lower() or "local" in combined_details.lower():
+        if "local" in combined_summary or "local" in combined_details:
             exploitation_vectors.append("Local exploitation")
-        if "authentication" in combined_summary.lower() or "authentication" in combined_details.lower():
+        if "authentication" in combined_summary or "authentication" in combined_details:
             exploitation_vectors.append("Authentication bypass")
         if not exploitation_vectors:
             exploitation_vectors.append("Unknown exploitation vector")
@@ -619,7 +619,7 @@ class Neo4jSecurityAnalyzer:
         mitigations = remediation_steps.split("\n")
         
         # Generate technical analysis
-        technical_analysis = f"CVE {cve_id} is a {vuln_type.lower()} vulnerability that affects {len(affected_systems)} known packages. "
+        technical_analysis = f"CVE {cve_id} is a {vuln_type} vulnerability that affects {len(affected_systems)} known packages. "
         if summary_texts:
             technical_analysis += f"The vulnerability is described as: {summary_texts[0]} "
         if detail_texts:
@@ -698,7 +698,7 @@ class Neo4jSecurityAnalyzer:
         
         for vuln_type, count in vuln_types.items():
             if count / max(1, total_vulns) > 0.3:  # If over 30% of vulnerabilities are of this type
-                systemic_security_issues.append(f"High prevalence of {vuln_type.lower()} vulnerabilities")
+                systemic_security_issues.append(f"High prevalence of {vuln_type} vulnerabilities")
         
         # Generate recommended improvements
         recommended_security_improvements = [
