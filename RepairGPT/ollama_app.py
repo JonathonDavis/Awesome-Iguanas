@@ -450,12 +450,15 @@ class Neo4jSecurityAnalyzer:
 
     def _extract_affected_ecosystems(self, packages: List[Dict]) -> List[str]:
         """Extract unique affected ecosystems from package list."""
-        ecosystems = set()
-        for pkg in packages:
-            eco = pkg.get("ecosystem")
-            if eco:
-                ecosystems.add(eco)
-        return list(ecosystems)
+    if not packages:
+        return []
+        
+    ecosystems = set()
+    for pkg in packages:
+        eco = pkg.get("ecosystem")
+        if eco:
+            ecosystems.add(eco)
+    return list(ecosystems)
 
     def _determine_exploitation_likelihood(self, vuln_type: str, references: List[Dict] = None) -> str:
         """Determine exploitation likelihood based on vulnerability type and references."""
@@ -577,15 +580,15 @@ class Neo4jSecurityAnalyzer:
         
         cve_info = cve_data[0]
         vulnerabilities = cve_info.get("vulnerabilities", [])
-        affected_packages = cve_info.get("affected_packages", [])
-        references = cve_info.get("references", [])
+        
+        # Fix: Initialize with empty list if None
+        affected_packages = cve_info.get("affected_packages") or []
+        references = cve_info.get("references") or []
         
         # Extract text from vulnerabilities for analysis
-        print(vulnerabilities)
         summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
         detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
-        print(summary_texts,"summary_texts")
-        print(detail_texts,"detail texts")
+        
         # Combine texts for analysis
         combined_summary = " ".join(summary_texts)
         combined_details = " ".join(detail_texts)
@@ -595,9 +598,9 @@ class Neo4jSecurityAnalyzer:
         severity = self._determine_severity(combined_summary, combined_details, affected_packages)
         affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
         exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
-        
         # Extract affected systems
-        affected_systems = []
+        # 
+        # affected_systems = []
         for pkg in affected_packages:
             name = pkg.get("name")
             eco = pkg.get("ecosystem")
