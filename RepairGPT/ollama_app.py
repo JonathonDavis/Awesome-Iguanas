@@ -357,9 +357,13 @@ class Neo4jSecurityAnalyzer:
 
     def _determine_vulnerability_type(self, summary: str, details: str = None) -> str:
         """Determine vulnerability type based on text analysis."""
-        text = (summary or "") + " " + (details or "")
-        print(text)
-        text = text
+        # Combine summary and details, handling None values
+        summary = summary or ""
+        details = details or ""
+        text = (summary + " " + details).lower()  # Convert to lowercase for case-insensitive matching
+        
+        # Remove debug print statement
+        # print(text)
         
         vulnerability_types = {
             "buffer overflow": ["buffer overflow", "stack overflow", "heap overflow", "buffer over-read"],
@@ -375,46 +379,67 @@ class Neo4jSecurityAnalyzer:
             "improper input validation": ["input validation", "improper validation", "improper sanitization"]
         }
         
+        # Check for each vulnerability type
         for vuln_type, patterns in vulnerability_types.items():
             for pattern in patterns:
                 if pattern in text:
                     return vuln_type.title()
                     
         return "Unknown"
-
+    
     def _determine_severity(self, summary: str, details: str = None, packages: List[Dict] = None) -> str:
-        """Determine vulnerability severity based on text analysis."""
+        """
+        Determine vulnerability severity based on text analysis of the summary and details.
+
+        Args:
+            summary (str): The summary of the vulnerability.
+            details (str, optional): Additional details about the vulnerability.
+            packages (List[Dict], optional): List of affected packages, if any.
+
+        Returns:
+            str: The determined severity in uppercase, one of CRITICAL, HIGH, MEDIUM, or LOW.
+        """
+        # Combine summary and details, handling None values
         text = (summary or "") + " " + (details or "")
-        print(text)
-        text = text
         
         # Check for explicit severity mentions
         if "critical" in text or "severe" in text:
+            # If the text explicitly mentions "critical" or "severe", it's CRITICAL
             return "CRITICAL"
         elif "high" in text or "important" in text:
+            # If the text explicitly mentions "high" or "important", it's HIGH
             return "HIGH"
         elif "medium" in text or "moderate" in text:
+            # If the text explicitly mentions "medium" or "moderate", it's MEDIUM
             return "MEDIUM"
         elif "low" in text:
+            # If the text explicitly mentions "low", it's LOW
             return "LOW"
             
-        # Check for high severity indicators
+        # Check for high severity indicators in the text
         high_severity_indicators = [
+            # Remote code execution (RCE) is always HIGH severity
             "remote code execution", "rce", "arbitrary code execution",
+            # Command execution and privilege escalation are HIGH severity
             "command execution", "privilege escalation", "authentication bypass",
+            # SQL injection is always HIGH severity
             "sql injection", "arbitrary file read", "arbitrary file write"
         ]
         
         for indicator in high_severity_indicators:
             if indicator in text:
+                # If any of the high severity indicators are found, it's HIGH
                 return "HIGH"
-                
-        # Check package count as a heuristic
+        
+        # Use a simple heuristic based on the number of affected packages
+        # More than 5 affected packages is considered HIGH severity
+        # More than 2 affected packages is considered MEDIUM severity
         if packages and len(packages) > 5:
+            # If more than 5 packages are affected, it's HIGH
             return "HIGH"
         elif packages and len(packages) > 2:
+            # If more than 2 packages are affected, it's MEDIUM
             return "MEDIUM"
-            
         return "MEDIUM"  # Default to medium if uncertain
 
     def _generate_remediation_steps(self, vuln_type: str, packages: List[Dict] = None) -> str:
@@ -681,10 +706,9 @@ class Neo4jSecurityAnalyzer:
             print('4')  
             
             self.logger.debug("Determining exploitation likelihood")
-            print(vuln_type,"vul type",references,'ref')
             exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
             self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
-            print("5")
+            print('5')
         except Exception as e:
             self.logger.error(f"Error during analysis: {e}")
             raise
