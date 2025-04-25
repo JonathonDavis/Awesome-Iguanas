@@ -937,7 +937,9 @@ class Neo4jSecurityAnalyzer:
         elif target_type == "cve":
             try:
                 analysis = self.analyze_cve(target)
+                print(analysis)
                 report["summary"] = f"Analysis of CVE {target} ({analysis['vulnerability_type']})"
+                print("summary")
                 report["details"] = {
                     "severity": analysis["severity"],
                     "vulnerability_type": analysis["vulnerability_type"],
@@ -945,7 +947,7 @@ class Neo4jSecurityAnalyzer:
                     "affected_systems": analysis["affected_systems"],
                     "exploitation_vectors": analysis["exploitation_vectors"],
                     "technical_analysis": analysis["technical_analysis"]
-                }
+                } print('details')
                 report["recommendations"] = analysis["recommended_mitigations"]
                 
             except ValueError as e:
