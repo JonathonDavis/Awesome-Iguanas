@@ -798,6 +798,7 @@ class Neo4jSecurityAnalyzer:
                 elif vuln_type == "Command Injection":
                     recommended_security_improvements.append("Implement strict input validation and command argument sanitization")
         
+        
         # Determine overall security rating
         vulns_per_package = total_vulns / max(1, total_packages)
         if vulns_per_package > 3:
@@ -939,7 +940,10 @@ class Neo4jSecurityAnalyzer:
             try:
                 analysis = self.analyze_cve(target)
                 print(analysis)
-                report["summary"] = f"Analysis of CVE {target} ({analysis['vulnerability_type']})"
+                try:    
+                    report["summary"] = f"Analysis of CVE {target} ({analysis['vulnerability_type']})"
+                except AttributeError as e:
+                    print(f"found the error? {e}")
                 print("summary")
                 report["details"] = {
                     "severity": analysis["severity"],
