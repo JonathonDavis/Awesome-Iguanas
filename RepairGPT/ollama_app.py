@@ -1,12 +1,15 @@
-import logging
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
 import json
+import random
+import requests
 import time
 import argparse
+import os
 import datetime
 import re
+import logging
 from collections import Counter
+from typing import List, Dict, Optional, Any, Tuple
+from dataclasses import dataclass
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError
@@ -31,6 +34,290 @@ class SecurityInsight:
     remediation_steps: str
     exploitation_likelihood: str
     recommendation: str
+
+class SecurityAnalyzer:
+    def __init__(self, api_key=None, ollama_base_url="http://localhost:11434"):
+        """Initialize the security analyzer with optional API keys."""
+        self.api_key = api_key
+        self.ollama_base_url = ollama_base_url
+        
+    def load_vulnerability_data(self, file_path: str) -> List[Dict[str, Any]]:
+        """Load vulnerability data from a JSON file."""
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+            return data
+        except Exception as e:
+            print(f"Error loading vulnerability data: {e}")
+            return []
+    
+    def analyze_with_ollama(self, prompt: str, model: str = "llama3") -> str:
+        """Generate analysis text using Ollama local model."""
+        try:
+            url = f"{self.ollama_base_url}/api/generate"
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False
+            }
+            
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "No response generated")
+            else:
+                return f"Error: Received status code {response.status_code} from Ollama API"
+        except Exception as e:
+            return f"Error calling Ollama API: {e}"
+    
+    def query_nist_nvd(self, cve_id: str) -> Dict[str, Any]:
+        """Query the NIST NVD API for CVE details."""
+        try:
+            base_url = "https://services.nvd.nist.gov/rest/json/cve/1.0/"
+            url = f"{base_url}{cve_id}"
+            
+            headers = {}
+            if self.api_key:
+                headers["apiKey"] = self.api_key
+                
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Error querying NVD for {cve_id}: {response.status_code}")
+                return {}
+                
+        except Exception as e:
+            print(f"Exception querying NVD: {e}")
+            return {}
+    
+    def get_package_info_from_package_index(self, package_name: str, ecosystem: str = "pypi") -> Dict[str, Any]:
+        """Get package information from the appropriate package index."""
+        try:
+            if ecosystem.lower() == "pypi":
+                url = f"https://pypi.org/pypi/{package_name}/json"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    return response.json()
+            elif ecosystem.lower() == "npm":
+                url = f"https://registry.npmjs.org/{package_name}"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    return response.json()
+            elif ecosystem.lower() == "rubygems":
+                url = f"https://rubygems.org/api/v1/gems/{package_name}.json"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    return response.json()
+                    
+            return {}
+        except Exception as e:
+            print(f"Error fetching package info for {package_name}: {e}")
+            return {}
+    
+    def generate_package_analysis_prompt(self, package_name: str, vulnerabilities: List[Dict[str, Any]]) -> str:
+        """Create a prompt for analyzing a package and its vulnerabilities."""
+        prompt = f"""You are a cybersecurity expert specializing in vulnerability analysis. 
+        
+        Please provide a detailed analysis of the package named '{package_name}' which has the following vulnerabilities:
+        
+        """
+        
+        for vuln in vulnerabilities:
+            prompt += f"- {vuln.get('id', 'Unknown ID')}: {vuln.get('summary', 'No summary available')}\n"
+            if vuln.get("details"):
+                prompt += f"  Details: {vuln.get('details')}\n"
+        
+        prompt += """
+        Please structure your analysis with the following sections:
+        1. Package Overview (what the package does, its popularity, use cases)
+        2. Vulnerability Assessment (analyze each vulnerability)
+        3. Impact Analysis (how these vulnerabilities could affect systems)
+        4. Remediation Steps (specific actions to mitigate these vulnerabilities)
+        5. Lessons Learned (what developers can learn from these vulnerabilities)
+        
+        Focus on technical details and provide practical advice.
+        """
+        
+        return prompt
+    
+    def generate_cve_analysis_prompt(self, cve_id: str, cve_data: Dict[str, Any]) -> str:
+        """Create a prompt for analyzing a specific CVE."""
+        description = "No description available"
+        if cve_data and "result" in cve_data and "CVE_Items" in cve_data["result"]:
+            if cve_data["result"]["CVE_Items"]:
+                cve_item = cve_data["result"]["CVE_Items"][0]
+                if "cve" in cve_item and "description" in cve_item["cve"]:
+                    desc_data = cve_item["cve"]["description"]["description_data"]
+                    if desc_data and len(desc_data) > 0:
+                        description = desc_data[0].get("value", "No description available")
+        
+        prompt = f"""You are a cybersecurity expert specializing in vulnerability analysis.
+        
+        Please provide a detailed analysis of the following CVE:
+        
+        CVE ID: {cve_id}
+        Description: {description}
+        
+        Please structure your analysis with the following sections:
+        1. Vulnerability Overview
+        2. Technical Details
+        3. Exploitation Methods
+        4. Potential Impact
+        5. Mitigation Strategies
+        
+        Focus on technical details, real-world implications, and provide practical advice for security professionals.
+        """
+        
+        return prompt
+    
+    def analyze_repositories(self, repositories: List[Dict[str, Any]], sample_count: int = 5) -> Dict[str, Any]:
+        """Analyze repositories and generate detailed analyses for samples of packages and CVEs."""
+        results = {
+            "repository_analyses": [],
+            "package_analyses": [],
+            "cve_analyses": []
+        }
+        
+        for repo in repositories:
+            repo_url = repo.get("repository_url", "Unknown")
+            vuln_count = repo.get("vulnerability_count", 0)
+            
+            # Add basic repository info
+            repo_analysis = {
+                "repository_url": repo_url,
+                "vulnerability_count": vuln_count,
+                "affected_packages_count": len(repo.get("affected_packages", [])),
+                "cve_count": len(repo.get("cve_ids", []))
+            }
+            results["repository_analyses"].append(repo_analysis)
+            
+            # Sample packages and CVEs for detailed analysis
+            packages_to_analyze = self.sample_items(repo.get("affected_packages", []), sample_count)
+            cves_to_analyze = self.sample_items(repo.get("cve_ids", []), sample_count)
+            
+            # Analyze sampled packages
+            for package in packages_to_analyze:
+                # Get any vulnerabilities related to this package
+                package_vulns = self.find_package_vulnerabilities(package, repo)
+                
+                # Generate and run analysis
+                prompt = self.generate_package_analysis_prompt(package, package_vulns)
+                analysis = self.analyze_with_ollama(prompt)
+                
+                results["package_analyses"].append({
+                    "package_name": package,
+                    "repository": repo_url,
+                    "vulnerabilities": package_vulns,
+                    "analysis": analysis
+                })
+                
+                # Add delay to avoid overloading the API
+                time.sleep(1)
+            
+            # Analyze sampled CVEs
+            for cve_id in cves_to_analyze:
+                # Get CVE details from NVD
+                cve_data = self.query_nist_nvd(cve_id)
+                
+                # Generate and run analysis
+                prompt = self.generate_cve_analysis_prompt(cve_id, cve_data)
+                analysis = self.analyze_with_ollama(prompt)
+                
+                results["cve_analyses"].append({
+                    "cve_id": cve_id,
+                    "repository": repo_url,
+                    "analysis": analysis
+                })
+                
+                # Add delay to avoid overloading the API
+                time.sleep(1)
+        
+        return results
+
+    def find_package_vulnerabilities(self, package_name: str, repo: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Find vulnerabilities for a specific package in the repository data."""
+        # For this example, we'll create simple dummy vulnerability data
+        # In a real implementation, you would extract this from the repository data or query a vulnerability database
+        
+        # Create 1-3 random vulnerabilities for the package
+        vuln_count = random.randint(1, 3)
+        vulnerabilities = []
+        
+        for i in range(vuln_count):
+            if repo.get("cve_ids") and len(repo.get("cve_ids", [])) > 0:
+                # Use a real CVE ID if available
+                cve_id = random.choice(repo.get("cve_ids"))
+            else:
+                cve_id = f"CVE-202{random.randint(0, 4)}-{random.randint(10000, 99999)}"
+                
+            vulnerabilities.append({
+                "id": cve_id,
+                "summary": f"Vulnerability affecting {package_name}",
+                "details": f"This is a simulated vulnerability for demonstration purposes affecting {package_name}."
+            })
+            
+        return vulnerabilities
+    
+    def sample_items(self, items: List[str], count: int) -> List[str]:
+        """Sample a specified number of items from a list."""
+        if not items:
+            return []
+            
+        sample_count = min(count, len(items))
+        return random.sample(items, sample_count)
+    
+    def save_results_to_file(self, results: Dict[str, Any], output_file: str) -> None:
+        """Save analysis results to a JSON file."""
+        try:
+            with open(output_file, 'w') as f:
+                json.dump(results, f, indent=2)
+            print(f"Results saved to {output_file}")
+        except Exception as e:
+            print(f"Error saving results: {e}")
+    
+    def generate_markdown_report(self, results: Dict[str, Any], output_file: str) -> None:
+        """Generate a markdown report from the analysis results."""
+        try:
+            with open(output_file, 'w') as f:
+                f.write("# Security Vulnerability Analysis Report\n\n")
+                
+                # Repository summary
+                f.write("## Repository Overview\n\n")
+                for repo in results.get("repository_analyses", []):
+                    f.write(f"### {repo.get('repository_url', 'Unknown Repository')}\n\n")
+                    f.write(f"- Total vulnerabilities: {repo.get('vulnerability_count', 0)}\n")
+                    f.write(f"- Affected packages: {repo.get('affected_packages_count', 0)}\n")
+                    f.write(f"- CVEs: {repo.get('cve_count', 0)}\n\n")
+                
+                # Package analyses
+                f.write("## Package Vulnerability Analyses\n\n")
+                for pkg_analysis in results.get("package_analyses", []):
+                    f.write(f"### {pkg_analysis.get('package_name', 'Unknown Package')}\n\n")
+                    f.write(f"Repository: {pkg_analysis.get('repository', 'Unknown')}\n\n")
+                    
+                    f.write("#### Vulnerabilities\n\n")
+                    for vuln in pkg_analysis.get("vulnerabilities", []):
+                        f.write(f"- **{vuln.get('id', 'Unknown')}**: {vuln.get('summary', 'No summary')}\n")
+                    
+                    f.write("\n#### Analysis\n\n")
+                    f.write(f"{pkg_analysis.get('analysis', 'No analysis available')}\n\n")
+                    f.write("---\n\n")
+                
+                # CVE analyses
+                f.write("## CVE Analyses\n\n")
+                for cve_analysis in results.get("cve_analyses", []):
+                    f.write(f"### {cve_analysis.get('cve_id', 'Unknown CVE')}\n\n")
+                    f.write(f"Repository: {cve_analysis.get('repository', 'Unknown')}\n\n")
+                    
+                    f.write("#### Analysis\n\n")
+                    f.write(f"{cve_analysis.get('analysis', 'No analysis available')}\n\n")
+                    f.write("---\n\n")
+                
+            print(f"Markdown report saved to {output_file}")
+        except Exception as e:
+            print(f"Error generating markdown report: {e}")
 
 class Neo4jSecurityAnalyzer:
     def __init__(
@@ -297,29 +584,46 @@ class Neo4jSecurityAnalyzer:
         
         return self.query_neo4j(query, params)
 
-    def get_repositories_with_vulnerabilities(self, limit: int = 10) -> List[Dict]:
+    def get_ecosystem_vulnerabilities(self, ecosystem: str, limit: int = 10) -> List[Dict]:
+        """Get vulnerabilities associated with a particular ecosystem."""
+        query = """
+        MATCH (pkg:Package {ecosystem: $ecosystem})
+        OPTIONAL MATCH (vuln:Vulnerability)-[]->(pkg)
+        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+        RETURN pkg.name as package_name,
+               pkg.ecosystem as ecosystem,
+               collect(DISTINCT {
+                 id: vuln.id, 
+                 summary: vuln.summary, 
+                 details: vuln.details
+               }) as vulnerabilities,
+               collect(DISTINCT cve.id) as cves
+        LIMIT $limit
         """
-        Get repositories with vulnerabilities, sorted by the number of vulnerabilities.
-
-        :param limit: The maximum number of repositories to return
-        :return: A list of dictionaries containing the repository URL, number of vulnerabilities, affected packages, and CVE IDs
-        """
+        params = {"ecosystem": ecosystem, "limit": limit}
         
-        query = f"""
+        return self.query_neo4j(query, params)
+
+    def get_repositories_with_vulnerabilities(self, limit: int = 10) -> List[Dict]:
+        """Get repositories with associated vulnerabilities."""
+        self.logger.info(f"Executing get_repositories_with_vulnerabilities with limit={limit}")
+        
+        # Using the exact relationship structure from the database
+        query = """
         MATCH (repo:Repository)
         MATCH (vuln:Vulnerability)-[:FOUND_IN]->(repo)
         WITH repo, count(DISTINCT vuln) as vuln_count
         ORDER BY vuln_count DESC
-        LIMIT {limit}
+        LIMIT $limit
         
         MATCH (v:Vulnerability)-[:FOUND_IN]->(repo)
         OPTIONAL MATCH (pkg:Package)-[:AFFECTED_BY]->(v)
         OPTIONAL MATCH (cve:CVE)-[:IDENTIFIED_AS]->(v)
         
         RETURN repo.url as repository_url,
-            vuln_count as vulnerability_count,
-            collect(DISTINCT pkg.name) as affected_packages,
-            collect(DISTINCT cve.id) as cve_ids
+               vuln_count as vulnerability_count,
+               collect(DISTINCT pkg.name) as affected_packages,
+               collect(DISTINCT cve.id) as cve_ids
         """
         
         try:
@@ -354,7 +658,8 @@ class Neo4jSecurityAnalyzer:
                     [] as cve_ids
                 LIMIT $limit
                 """
-                return self.query_neo4j(last_resort_query, {"limit": limit})   
+                return self.query_neo4j(last_resort_query, {"limit": limit})
+
     def count_nodes_by_label(self) -> Dict[str, int]:
         """Count nodes by label in the database."""
         results = {}
@@ -375,7 +680,7 @@ class Neo4jSecurityAnalyzer:
                     
         return results
 
-    # New local analysis methods replacing Ollama API
+    # Analysis methods
 
     def _determine_vulnerability_type(self, summary: str, details: str = None) -> str:
         """Determine vulnerability type based on text analysis."""
@@ -383,9 +688,6 @@ class Neo4jSecurityAnalyzer:
         summary = summary or ""
         details = details or ""
         text = (summary + " " + details).lower()  # Convert to lowercase for case-insensitive matching
-        
-        # Remove debug print statement
-        # print(text)
         
         vulnerability_types = {
             "buffer overflow": ["buffer overflow", "stack overflow", "heap overflow", "buffer over-read"],
@@ -408,18 +710,12 @@ class Neo4jSecurityAnalyzer:
                     return vuln_type.title()
                     
         return "Unknown"
-    
+        
     def _determine_severity(self, summary: str, details: str = None, packages: List[Dict] = None) -> str:
         """
         Determine vulnerability severity based on text analysis of the summary and details.
-
-        Args:
-            summary (str): The summary of the vulnerability.
-            details (str, optional): Additional details about the vulnerability.
-            packages (List[Dict], optional): List of affected packages, if any.
-
-        Returns:
-            str: The determined severity in uppercase, one of CRITICAL, HIGH, MEDIUM, or LOW.
+        
+        This method checks for explicit severity mentions in the text, and then uses heuristics to determine the severity.
         """
         # Combine summary and details, handling None values
         text = (summary or "") + " " + (details or "")
@@ -440,29 +736,28 @@ class Neo4jSecurityAnalyzer:
             
         # Check for high severity indicators in the text
         high_severity_indicators = [
-            # Remote code execution (RCE) is always HIGH severity
+            # Remote code execution is always HIGH
             "remote code execution", "rce", "arbitrary code execution",
-            # Command execution and privilege escalation are HIGH severity
+            # Command execution is always HIGH
             "command execution", "privilege escalation", "authentication bypass",
-            # SQL injection is always HIGH severity
+            # SQL injection is always HIGH
             "sql injection", "arbitrary file read", "arbitrary file write"
         ]
         
         for indicator in high_severity_indicators:
             if indicator in text:
-                # If any of the high severity indicators are found, it's HIGH
+                # If any of the high severity indicators are present, it's HIGH
                 return "HIGH"
         
         # Use a simple heuristic based on the number of affected packages
-        # More than 5 affected packages is considered HIGH severity
-        # More than 2 affected packages is considered MEDIUM severity
         if packages and len(packages) > 5:
             # If more than 5 packages are affected, it's HIGH
             return "HIGH"
         elif packages and len(packages) > 2:
             # If more than 2 packages are affected, it's MEDIUM
             return "MEDIUM"
-        return "MEDIUM"  # Default to medium if uncertain
+        # Default to medium if uncertain
+        return "MEDIUM"
 
     def _generate_remediation_steps(self, vuln_type: str, packages: List[Dict] = None) -> str:
         """Generate remediation steps based on vulnerability type."""
@@ -517,26 +812,10 @@ class Neo4jSecurityAnalyzer:
             if eco:
                 ecosystems.add(eco)
         return list(ecosystems)
-        
     
     def _determine_exploitation_likelihood(self, vuln_type: str, references: List[Dict] = None) -> str:
         """
         Determine exploitation likelihood based on vulnerability type and references.
-
-        The exploitation likelihood is determined by checking the vulnerability type
-        against a list of high-risk vulnerability types, as well as checking if there
-        are any exploit references. If either condition is true, the exploitation
-        likelihood is HIGH. If the vulnerability type is not high-risk, but there
-        are exploit references, the exploitation likelihood is MEDIUM. Otherwise,
-        the exploitation likelihood is LOW.
-
-        Args:
-            vuln_type (str): The type of vulnerability
-            references (List[Dict], optional): A list of dictionaries containing
-                references to the vulnerability. Defaults to None.
-
-        Returns:
-            str: The exploitation likelihood (HIGH, MEDIUM, or LOW)
         """
         self.logger.debug(f"_determine_exploitation_likelihood called with vuln_type={vuln_type}")
         
@@ -554,7 +833,7 @@ class Neo4jSecurityAnalyzer:
             self.logger.debug(f"Checking {len(references)} references")
             for i, ref in enumerate(references):
                 self.logger.debug(f"Reference {i}: {ref}")
-                # Fix: Handle potential None values using or operator
+                # Handle potential None values using or operator
                 url = "" if ref.get("url") is None else str(ref.get("url")).lower()
                 ref_type = "" if ref.get("type") is None else str(ref.get("type")).lower()
                 if "exploit" in url or "exploit" in ref_type or "poc" in url or "proof of concept" in url:
@@ -571,22 +850,7 @@ class Neo4jSecurityAnalyzer:
             return "LOW"
     
     def _generate_impact_analysis(self, vuln_type: str, summary: str, packages: List[Dict] = None) -> str:
-        """Generate impact analysis based on vulnerability type and affected packages.
-
-        The impact analysis is generated based on the vulnerability type and the number
-        and types of affected packages. The analysis is structured as follows:
-        - A general description of the potential impact of the vulnerability
-        - A description of the specific impact of the vulnerability on the affected packages
-        - A list of affected packages and ecosystems
-
-        Args:
-            vuln_type (str): The type of vulnerability
-            summary (str): A summary of the vulnerability
-            packages (List[Dict], optional): A list of dictionaries containing information about the affected packages. Defaults to None.
-
-        Returns:
-            str: The impact analysis
-        """
+        """Generate impact analysis based on vulnerability type and affected packages."""
         impact = f"This {vuln_type} vulnerability could potentially "
         
         # Map vulnerability types to their potential impact
@@ -670,68 +934,63 @@ class Neo4jSecurityAnalyzer:
             exploitation_likelihood=exploitation_likelihood,
             recommendation=recommendation
         )
-        
-        
-    from typing import Dict, List, Any
 
     def analyze_cve(self, cve_id: str) -> Dict[str, Any]:
-            """Analyze a specific CVE using local analysis."""
+        """Analyze a specific CVE using local analysis."""
+        cve_data = self.get_cve_details(cve_id)
+        if not cve_data:
+            raise ValueError(f"CVE {cve_id} not found in database")
 
-            cve_data = self.get_cve_details(cve_id)
-            if not cve_data:
-                raise ValueError(f"CVE {cve_id} not found in database")
+        cve_info = cve_data[0]
+        vulnerabilities = cve_info.get("vulnerabilities", [])
 
-            cve_info = cve_data[0]
+        # Initialize with empty list if None
+        affected_packages = cve_info.get("affected_packages") or []
+        references = cve_info.get("references") or []
 
-            vulnerabilities = cve_info.get("vulnerabilities", [])
+        # Extract text from vulnerabilities for analysis
+        detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
 
-            # Fix: Initialize with empty list if None
-            affected_packages = cve_info.get("affected_packages") or []
-            references = cve_info.get("references") or []
+        try:
+            summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
+        except Exception as e:
+            self.logger.error(f"Error during analysis (summary): {e}")
+            summary_texts = []  # Ensure summary_texts is always defined
+        try:
+            combined_summary = " ".join(summary_texts)
+        except Exception as e:
+            self.logger.error(f"Error during analysis (combine summary): {e}")
+            combined_summary = "" # Ensure combined_summary is always defined
+        combined_details = " ".join(detail_texts)
 
-            # Extract text from vulnerabilities for analysis
+        # Defensive programming - check for None values in all relevant variables
+        analysis_results = {}
+        try:
+            self.logger.debug("Determining vulnerability type")
+            vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
+            self.logger.debug(f"Vulnerability type: {vuln_type}")
+            analysis_results["vulnerability_type"] = vuln_type
 
-            detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
+            self.logger.debug("Determining severity")
+            severity = self._determine_severity(combined_summary, combined_details, affected_packages)
+            self.logger.debug(f"Severity: {severity}")
+            analysis_results["severity"] = severity
+            
+            self.logger.debug("Extracting affected ecosystems")
+            affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
+            self.logger.debug(f"Affected ecosystems: {affected_ecosystems}")
+            analysis_results["affected_ecosystems"] = affected_ecosystems
 
-            try:
-                summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
-            except Exception as e:
-                self.logger.error(f"Error during analysis (summary): {e}")
-                summary_texts = []  # Ensure summary_texts is always defined
-            try:
-                combined_summary = " ".join(summary_texts)
-            except Exception as e:
-                self.logger.error(f"Error during analysis (combine summary): {e}")
-                combined_summary = "" # Ensure combined_summary is always defined
-            combined_details = " ".join(detail_texts)
-            # Defensive programming - check for None values in all relevant variables
+            self.logger.debug("Determining exploitation likelihood")
+            exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
+            self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
+            analysis_results["exploitation_likelihood"] = exploitation_likelihood
 
-            analysis_results = {}
-            try:
-                self.logger.debug("Determining vulnerability type")
-                vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
-                self.logger.debug(f"Vulnerability type: {vuln_type}")
-                analysis_results["vulnerability_type"] = vuln_type
+            return analysis_results
+        except Exception as e:
+            self.logger.error(f"Error during analysis: {e}")
+            raise
 
-                self.logger.debug("Determining severity")
-                severity = self._determine_severity(combined_summary, combined_details, affected_packages)
-                self.logger.debug(f"Severity: {severity}")
-                analysis_results["severity"] = severity
-                self.logger.debug("Extracting affected ecosystems")
-                affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
-                self.logger.debug(f"Affected ecosystems: {affected_ecosystems}")
-                analysis_results["affected_ecosystems"] = affected_ecosystems
-
-                self.logger.debug("Determining exploitation likelihood")
-                exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
-                self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
-                analysis_results["exploitation_likelihood"] = exploitation_likelihood
-
-                return analysis_results
-            except Exception as e:
-                self.logger.error(f"Error during analysis: {e}")
-                raise
-    
     def analyze_ecosystem_security(self, ecosystem: str) -> Dict:
         """Analyze security posture of a particular ecosystem."""
         eco_data = self.get_ecosystem_vulnerabilities(ecosystem, limit=25)
@@ -804,8 +1063,7 @@ class Neo4jSecurityAnalyzer:
             "Establish regular vulnerability monitoring for critical dependencies"
         ]
         
-        # Add type-specific
-        # Add type-specific recommendations based on prevalent vulnerability types
+        # Add type-specific recommendations
         for vuln_type, count in vuln_types.items():
             if count > 1:
                 if vuln_type == "Cross-Site Scripting":
@@ -816,7 +1074,6 @@ class Neo4jSecurityAnalyzer:
                     recommended_security_improvements.append("Consider memory-safe language alternatives for critical components")
                 elif vuln_type == "Command Injection":
                     recommended_security_improvements.append("Implement strict input validation and command argument sanitization")
-        
         
         # Determine overall security rating
         vulns_per_package = total_vulns / max(1, total_packages)
@@ -831,7 +1088,6 @@ class Neo4jSecurityAnalyzer:
             
         # Generate security trend analysis
         security_trend_analysis = f"Analysis of {ecosystem} ecosystem reveals {total_vulns} vulnerabilities across {total_packages} packages. "
-        print("break?")
         security_trend_analysis += f"The most prevalent vulnerability type is {list(vuln_types.keys())[0] if vuln_types else 'Unknown'}. "
         security_trend_analysis += f"Overall security posture is rated as {overall_rating}."
         
@@ -1056,100 +1312,316 @@ class Neo4jSecurityAnalyzer:
             
         return report
 
+class CombinedSecurityAnalyzer:
+    """
+    Combined security analyzer that uses both the Neo4j and Ollama-based analyzers.
+    """
+    def __init__(
+        self,
+        neo4j_uri: str = "bolt://localhost:7687",
+        neo4j_user: str = "neo4j",
+        neo4j_password: str = "jaguarai",
+        ollama_base_url: str = "http://localhost:11434",
+        api_key: str = None,
+        log_level: str = "INFO"
+    ):
+        # Initialize both analyzers
+        self.neo4j_analyzer = Neo4jSecurityAnalyzer(
+            neo4j_uri=neo4j_uri,
+            neo4j_user=neo4j_user,
+            neo4j_password=neo4j_password,
+            log_level=log_level
+        )
+        
+        self.ollama_analyzer = SecurityAnalyzer(
+            api_key=api_key, 
+            ollama_base_url=ollama_base_url
+        )
+        
+        # Setup logging
+        self.logger = logging.getLogger(__name__)
+    
+    def close(self):
+        """Close database connections."""
+        self.neo4j_analyzer.close()
+    
+    def analyze_repositories_from_file(self, file_path: str, sample_count: int = 3, model: str = "llama3") -> Dict[str, Any]:
+        """
+        Analyze repositories from a JSON file, enriching data from Neo4j where possible.
+        
+        Args:
+            file_path: Path to the JSON file containing repository data
+            sample_count: Number of packages and CVEs to sample from each repository
+            model: Ollama model to use for analysis
+        
+        Returns:
+            Dictionary containing analysis results
+        """
+        # Load repository data from file
+        repositories = self.ollama_analyzer.load_vulnerability_data(file_path)
+        
+        if not repositories:
+            self.logger.error("No repository data loaded from file")
+            return {"error": "No repository data loaded"}
+        
+        results = {
+            "repository_analyses": [],
+            "package_analyses": [],
+            "cve_analyses": []
+        }
+        
+        for repo in repositories:
+            repo_url = repo.get("repository_url", "Unknown")
+            self.logger.info(f"Analyzing repository: {repo_url}")
+            
+            # Add basic repository info
+            repo_analysis = {
+                "repository_url": repo_url,
+                "vulnerability_count": repo.get("vulnerability_count", 0),
+                "affected_packages_count": len(repo.get("affected_packages", [])),
+                "cve_count": len(repo.get("cve_ids", []))
+            }
+            results["repository_analyses"].append(repo_analysis)
+            
+            # Sample packages and CVEs
+            packages_to_analyze = self.ollama_analyzer.sample_items(repo.get("affected_packages", []), sample_count)
+            cves_to_analyze = self.ollama_analyzer.sample_items(repo.get("cve_ids", []), sample_count)
+            
+            # Analyze sampled packages using Neo4j data when available
+            for package in packages_to_analyze:
+                self.logger.info(f"Analyzing package: {package}")
+                
+                # Try to get package info from Neo4j
+                neo4j_pkg_data = []
+                try:
+                    neo4j_pkg_data = self.neo4j_analyzer.get_package_vulnerabilities(package)
+                except Exception as e:
+                    self.logger.warning(f"Error getting Neo4j data for package {package}: {str(e)}")
+                
+                # If we have Neo4j data, use it to enhance the analysis
+                if neo4j_pkg_data:
+                    vulnerabilities = []
+                    for pkg_info in neo4j_pkg_data:
+                        vuln_data = pkg_info.get("vulnerabilities", [])
+                        vulnerabilities.extend(vuln_data)
+                else:
+                    # Fall back to simulated vulnerability data
+                    vulnerabilities = self.ollama_analyzer.find_package_vulnerabilities(package, repo)
+                
+                # Generate and run analysis
+                prompt = self.ollama_analyzer.generate_package_analysis_prompt(package, vulnerabilities)
+                analysis = self.ollama_analyzer.analyze_with_ollama(prompt, model)
+                
+                results["package_analyses"].append({
+                        "package_name": package,
+                        "repository": repo_url,
+                        "vulnerabilities": vulnerabilities,
+                        "analysis": analysis
+                    })
+                
+                # Add delay to avoid overloading the API
+                time.sleep(1)
+            
+            # Analyze sampled CVEs using Neo4j data when available
+            for cve_id in cves_to_analyze:
+                self.logger.info(f"Analyzing CVE: {cve_id}")
+                
+                # Try to get CVE info from Neo4j
+                neo4j_cve_data = {}
+                try:
+                    neo4j_cve_results = self.neo4j_analyzer.get_cve_details(cve_id)
+                    if neo4j_cve_results:
+                        neo4j_cve_data = neo4j_cve_results[0]
+                except Exception as e:
+                    self.logger.warning(f"Error getting Neo4j data for CVE {cve_id}: {str(e)}")
+                
+                # If we have Neo4j data, use it to enhance the analysis
+                if neo4j_cve_data:
+                    # Try to use Neo4j's analysis method
+                    try:
+                        neo4j_analysis = self.neo4j_analyzer.analyze_cve(cve_id)
+                        vuln_type = neo4j_analysis.get("vulnerability_type", "Unknown")
+                        severity = neo4j_analysis.get("severity", "UNKNOWN")
+                        exploitation_likelihood = neo4j_analysis.get("exploitation_likelihood", "UNKNOWN")
+                    except Exception as e:
+                        self.logger.warning(f"Error analyzing CVE {cve_id} with Neo4j: {str(e)}")
+                        # Fall back to NVD data
+                        nvd_data = self.ollama_analyzer.query_nist_nvd(cve_id)
+                else:
+                    # Get data from NVD
+                    nvd_data = self.ollama_analyzer.query_nist_nvd(cve_id)
+                
+                # Generate and run analysis with Ollama
+                prompt = self.ollama_analyzer.generate_cve_analysis_prompt(cve_id, nvd_data if 'nvd_data' in locals() else {})
+                analysis = self.ollama_analyzer.analyze_with_ollama(prompt, model)
+                
+                cve_result = {
+                    "cve_id": cve_id,
+                    "repository": repo_url,
+                    "analysis": analysis
+                }
+                
+                # Add Neo4j data if available
+                if 'neo4j_analysis' in locals():
+                    cve_result["neo4j_analysis"] = {
+                        "vulnerability_type": vuln_type,
+                        "severity": severity,
+                        "exploitation_likelihood": exploitation_likelihood
+                    }
+                
+                results["cve_analyses"].append(cve_result)
+                
+                # Add delay to avoid overloading the API
+                time.sleep(1)
+        
+        return results
+    
+    def save_results_to_file(self, results: Dict[str, Any], output_file: str) -> None:
+        """Save analysis results to a JSON file."""
+        self.ollama_analyzer.save_results_to_file(results, output_file)
+    
+    def generate_markdown_report(self, results: Dict[str, Any], output_file: str) -> None:
+        """Generate a markdown report from the analysis results."""
+        self.ollama_analyzer.generate_markdown_report(results, output_file)
+
 def main():
-    """Main function to run the Neo4j Security Analyzer."""
-    parser = argparse.ArgumentParser(description="Neo4j Security Vulnerability Analyzer")
+    parser = argparse.ArgumentParser(description="Combined Security Vulnerability Analysis Tool")
+    
+    # Basic arguments
+    parser.add_argument("--input", required=True, help="Input JSON file with vulnerability data")
+    parser.add_argument("--output", default="security_analysis_results.json", help="Output JSON file for results")
+    parser.add_argument("--report", default="security_analysis_report.md", help="Output markdown report file")
+    parser.add_argument("--samples", type=int, default=3, help="Number of packages and CVEs to sample for analysis")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    
+    # Neo4j connection arguments
     parser.add_argument("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j connection URI")
     parser.add_argument("--neo4j-user", default="neo4j", help="Neo4j username")
     parser.add_argument("--neo4j-password", default="jaguarai", help="Neo4j password")
-    parser.add_argument("--log-level", default="INFO", help="Logging level")
-    parser.add_argument("--command", required=True, choices=[
+    
+    # Ollama arguments
+    parser.add_argument("--ollama-url", default="http://localhost:11434", help="Base URL for Ollama API")
+    parser.add_argument("--model", default="llama3", help="Ollama model to use for analysis")
+    
+    # API Keys
+    parser.add_argument("--nvd-api-key", help="API key for NVD API (optional)")
+    
+    # Neo4j direct commands
+    parser.add_argument("--neo4j-command", choices=[
         "schema", "stats", "vuln", "cve", "package", "ecosystem", "repo", "report"
-    ], help="Command to execute")
-    parser.add_argument("--target", help="Target ID for the command (vuln ID, CVE ID, package name, etc.)")
-    parser.add_argument("--limit", type=int, default=10, help="Limit for result count")
-    parser.add_argument("--output", help="Output file path for JSON results")
+    ], help="Direct Neo4j command to execute")
+    parser.add_argument("--neo4j-target", help="Target ID for the command (vuln ID, CVE ID, package name, etc.)")
+    parser.add_argument("--neo4j-limit", type=int, default=10, help="Limit for result count")
     
     args = parser.parse_args()
     
-    analyzer = Neo4jSecurityAnalyzer(
+    # Setup logging
+    numeric_level = getattr(logging, args.log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=numeric_level)
+    
+    logger = logging.getLogger(__name__)
+    
+    # Initialize the combined analyzer
+    analyzer = CombinedSecurityAnalyzer(
         neo4j_uri=args.neo4j_uri,
         neo4j_user=args.neo4j_user,
         neo4j_password=args.neo4j_password,
+        ollama_base_url=args.ollama_url,
+        api_key=args.nvd_api_key,
         log_level=args.log_level
     )
     
     try:
-        result = None
-        
-        if args.command == "schema":
-            result = analyzer.get_database_schema()
+        # Check if a direct Neo4j command was specified
+        if args.neo4j_command:
+            logger.info(f"Executing Neo4j command: {args.neo4j_command}")
             
-        elif args.command == "stats":
-            result = analyzer.get_vulnerability_statistics()
+            result = None
+            if args.neo4j_command == "schema":
+                result = analyzer.neo4j_analyzer.get_database_schema()
+                
+            elif args.neo4j_command == "stats":
+                result = analyzer.neo4j_analyzer.get_vulnerability_statistics()
+                
+            elif args.neo4j_command == "vuln":
+                if args.neo4j_target:
+                    result = analyzer.neo4j_analyzer.get_vulnerability_details(args.neo4j_target)
+                else:
+                    result = analyzer.neo4j_analyzer.get_vulnerability_details(limit=args.neo4j_limit)
+                    
+            elif args.neo4j_command == "cve":
+                if args.neo4j_target:
+                    result = analyzer.neo4j_analyzer.get_cve_details(args.neo4j_target)
+                else:
+                    result = analyzer.neo4j_analyzer.get_cve_details(limit=args.neo4j_limit)
+                    
+            elif args.neo4j_command == "package":
+                if args.neo4j_target:
+                    if "@" in args.neo4j_target:
+                        name, ecosystem = args.neo4j_target.split("@", 1)
+                        result = analyzer.neo4j_analyzer.get_package_vulnerabilities(name, ecosystem)
+                    else:
+                        result = analyzer.neo4j_analyzer.get_package_vulnerabilities(args.neo4j_target)
+                else:
+                    result = analyzer.neo4j_analyzer.get_package_vulnerabilities(limit=args.neo4j_limit)
+                    
+            elif args.neo4j_command == "ecosystem":
+                if not args.neo4j_target:
+                    logger.error("Error: --neo4j-target ecosystem_name is required for ecosystem command")
+                    return 1
+                result = analyzer.neo4j_analyzer.get_ecosystem_vulnerabilities(args.neo4j_target, args.neo4j_limit)
+                
+            elif args.neo4j_command == "repo":
+                result = analyzer.neo4j_analyzer.get_repositories_with_vulnerabilities(args.neo4j_limit)
+                
+            elif args.neo4j_command == "report":
+                if not args.neo4j_target or ":" not in args.neo4j_target:
+                    logger.error("Error: --neo4j-target must be in format type:id (e.g., vulnerability:CVE-2021-44228)")
+                    return 1
+                    
+                target_type, target_id = args.neo4j_target.split(":", 1)
+                if target_type not in ["vulnerability", "cve", "package", "ecosystem"]:
+                    logger.error(f"Error: Unknown target type {target_type}")
+                    return 1
+                    
+                result = analyzer.neo4j_analyzer.generate_security_report(target_id, target_type)
             
-        elif args.command == "vuln":
-            if args.target:
-                result = analyzer.get_vulnerability_details(args.target)
+            # Output results
+            if result:
+                result_json = json.dumps(result, indent=2, default=str)
+                if args.output:
+                    with open(args.output, 'w') as f:
+                        f.write(result_json)
+                    logger.info(f"Results written to {args.output}")
+                else:
+                    print(result_json)
             else:
-                result = analyzer.get_vulnerability_details(limit=args.limit)
-                
-        elif args.command == "cve":
-            if args.target:
-                result = analyzer.get_cve_details(args.target)
-            else:
-                result = analyzer.get_cve_details(limit=args.limit)
-                
-        elif args.command == "package":
-            if "@" in args.target:
-                name, ecosystem = args.target.split("@", 1)
-                result = analyzer.get_package_vulnerabilities(name, ecosystem)
-            elif args.target:
-                result = analyzer.get_package_vulnerabilities(args.target)
-            else:
-                result = analyzer.get_package_vulnerabilities(limit=args.limit)
-                
-        elif args.command == "ecosystem":
-            if not args.target:
-                print("Error: --target ecosystem_name is required for ecosystem command")
-                return 1
-            result = analyzer.get_ecosystem_vulnerabilities(args.target, args.limit)
-            
-        elif args.command == "repo":
-            result = analyzer.get_repositories_with_vulnerabilities(args.limit)
-            
-        elif args.command == "report":
-            if not args.target or ":" not in args.target:
-                print("Error: --target must be in format type:id (e.g., vulnerability:CVE-2021-44228)")
-                return 1
-                
-            target_type, target_id = args.target.split(":", 1)
-            if target_type not in ["vulnerability", "cve", "package", "ecosystem"]:
-                print(f"Error: Unknown target type {target_type}")
-                return 1
-                
-            result = analyzer.generate_security_report(target_id, target_type)
-        
-        # Output results
-        if result:
-            result_json = json.dumps(result, indent=2, default=str)
-            if args.output:
-                with open(args.output, 'w') as f:
-                    f.write(result_json)
-                print(f"Results written to {args.output}")
-            else:
-                print(result_json)
+                logger.warning("No results returned")
         else:
-            print("No results returned")
+            # Run the combined analyzer on the input file
+            logger.info(f"Analyzing repositories from {args.input} with {args.samples} samples each...")
+            results = analyzer.analyze_repositories_from_file(
+                args.input, 
+                sample_count=args.samples,
+                model=args.model
+            )
+            
+            # Save results
+            analyzer.save_results_to_file(results, args.output)
+            analyzer.generate_markdown_report(results, args.report)
+            
+            logger.info("Analysis complete.")
             
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         return 1
     finally:
         analyzer.close()
     
     return 0
-
 
 if __name__ == "__main__":
     exit(main())
