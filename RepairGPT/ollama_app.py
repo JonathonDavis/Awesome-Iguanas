@@ -449,47 +449,72 @@ class Neo4jSecurityAnalyzer:
         return remediation
 
     def _extract_affected_ecosystems(self, packages: List[Dict]) -> List[str]:
-        """
-        Extract unique affected ecosystems from package list.
-
-        :param packages: List of dictionaries containing package information
-        :return: List of unique affected ecosystems
-        """
-        if not packages:
+        """Extract unique affected ecosystems from package list."""
+        self.logger.debug(f"_extract_affected_ecosystems called with packages={packages}")
+        
+        if packages is None:
+            self.logger.warning("packages parameter is None, returning empty list")
             return []
-
-        # Initialize an empty set to store unique ecosystems
+            
+        if not isinstance(packages, list):
+            self.logger.warning(f"packages parameter is not a list (type: {type(packages)}), returning empty list")
+            return []
+            
         ecosystems = set()
-
-        # Iterate over each package and extract its ecosystem
         for pkg in packages:
+            if not isinstance(pkg, dict):
+                self.logger.warning(f"Package is not a dict (type: {type(pkg)}), skipping")
+                continue
+                
             eco = pkg.get("ecosystem")
             if eco:
-                # Add the ecosystem to the set (if it's not already there)
                 ecosystems.add(eco)
-
-        # Return the list of unique ecosystems
         return list(ecosystems)
+        
     
     def _determine_exploitation_likelihood(self, vuln_type: str, references: List[Dict] = None) -> str:
-        """Determine exploitation likelihood based on vulnerability type and references."""
-        # Higher risk vulnerability types
+        """
+        Determine exploitation likelihood based on vulnerability type and references.
+
+        The exploitation likelihood is determined by checking the vulnerability type
+        against a list of high-risk vulnerability types, as well as checking if there
+        are any exploit references. If either condition is true, the exploitation
+        likelihood is HIGH. If the vulnerability type is not high-risk, but there
+        are exploit references, the exploitation likelihood is MEDIUM. Otherwise,
+        the exploitation likelihood is LOW.
+
+        Args:
+            vuln_type (str): The type of vulnerability
+            references (List[Dict], optional): A list of dictionaries containing
+                references to the vulnerability. Defaults to None.
+
+        Returns:
+            str: The exploitation likelihood (HIGH, MEDIUM, or LOW)
+        """
+        self.logger.debug(f"_determine_exploitation_likelihood called with vuln_type={vuln_type}")
+        
+        # High-risk vulnerability types
         high_risk_types = ["Remote Code Execution", "SQL Injection", "Authentication Bypass", 
-                         "Command Injection", "Cross-Site Scripting"]
+                        "Command Injection", "Cross-Site Scripting"]
         
-        # Medium risk vulnerability types
+        # Medium-risk vulnerability types
         medium_risk_types = ["Information Disclosure", "Path Traversal", "Cross-Site Request Forgery",
-                           "Denial Of Service"]
+                        "Denial Of Service"]
         
-        # Look for exploit references
+        # Check if there are any exploit references
         has_exploit = False
         if references:
-            for ref in references:
-                url = ref.get("url", "")#
-                ref_type = ref.get("type", "")#
+            self.logger.debug(f"Checking {len(references)} references")
+            for i, ref in enumerate(references):
+                self.logger.debug(f"Reference {i}: {ref}")
+                # Fix: Handle potential None values using or operator
+                url = "" if ref.get("url") is None else str(ref.get("url")).lower()
+                ref_type = "" if ref.get("type") is None else str(ref.get("type")).lower()
                 if "exploit" in url or "exploit" in ref_type or "poc" in url or "proof of concept" in url:
                     has_exploit = True
                     break
+        else:
+            self.logger.debug("No references to check")
         
         if vuln_type in high_risk_types or has_exploit:
             return "HIGH"
@@ -497,11 +522,27 @@ class Neo4jSecurityAnalyzer:
             return "MEDIUM"
         else:
             return "LOW"
-
+    
     def _generate_impact_analysis(self, vuln_type: str, summary: str, packages: List[Dict] = None) -> str:
-        """Generate impact analysis based on vulnerability type and affected packages."""
+        """Generate impact analysis based on vulnerability type and affected packages.
+
+        The impact analysis is generated based on the vulnerability type and the number
+        and types of affected packages. The analysis is structured as follows:
+        - A general description of the potential impact of the vulnerability
+        - A description of the specific impact of the vulnerability on the affected packages
+        - A list of affected packages and ecosystems
+
+        Args:
+            vuln_type (str): The type of vulnerability
+            summary (str): A summary of the vulnerability
+            packages (List[Dict], optional): A list of dictionaries containing information about the affected packages. Defaults to None.
+
+        Returns:
+            str: The impact analysis
+        """
         impact = f"This {vuln_type} vulnerability could potentially "
         
+        # Map vulnerability types to their potential impact
         type_impacts = {
             "Buffer Overflow": "lead to arbitrary code execution, application crashes, or memory corruption.",
             "SQL Injection": "allow attackers to read, modify, or delete database content, potentially accessing sensitive information or bypassing authentication.",
@@ -582,74 +623,66 @@ class Neo4jSecurityAnalyzer:
             exploitation_likelihood=exploitation_likelihood,
             recommendation=recommendation
         )
-
+        
+        
     def analyze_cve(self, cve_id: str) -> Dict:
         """Analyze a specific CVE using local analysis."""
+        self.logger.debug(f"Starting analysis of CVE {cve_id}")
+        
         cve_data = self.get_cve_details(cve_id)
         if not cve_data:
             raise ValueError(f"CVE {cve_id} not found in database")
         
         cve_info = cve_data[0]
+        self.logger.debug(f"CVE info retrieved: {cve_info.keys()}")
+        
         vulnerabilities = cve_info.get("vulnerabilities", [])
+        self.logger.debug(f"Vulnerabilities count: {len(vulnerabilities)}")
         
         # Fix: Initialize with empty list if None
         affected_packages = cve_info.get("affected_packages") or []
         references = cve_info.get("references") or []
+        self.logger.debug(f"Affected packages count: {len(affected_packages)}")
+        self.logger.debug(f"References count: {len(references)}")
         
         # Extract text from vulnerabilities for analysis
         summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
         detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
+        self.logger.debug(f"Summary texts count: {len(summary_texts)}")
+        self.logger.debug(f"Detail texts count: {len(detail_texts)}")
         
         # Combine texts for analysis
         combined_summary = " ".join(summary_texts)
         combined_details = " ".join(detail_texts)
         
-        # Perform analysis
-        vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
-        severity = self._determine_severity(combined_summary, combined_details, affected_packages)
-        affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
-        exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
-        # Extract affected systems
-        # 
-        # affected_systems = []
-        for pkg in affected_packages:
-            name = pkg.get("name")
-            eco = pkg.get("ecosystem")
-            if name and eco:
-                affected_systems.append(f"{name} ({eco})")
-        
-        # Generate exploitation vectors
-        exploitation_vectors = []
-        if "remote" in combined_summary or "remote" in combined_details:
-            exploitation_vectors.append("Remote exploitation")
-        if "local" in combined_summary or "local" in combined_details:
-            exploitation_vectors.append("Local exploitation")
-        if "authentication" in combined_summary or "authentication" in combined_details:
-            exploitation_vectors.append("Authentication bypass")
-        if not exploitation_vectors:
-            exploitation_vectors.append("Unknown exploitation vector")
-        
-        # Generate recommended mitigations
-        remediation_steps = self._generate_remediation_steps(vuln_type, affected_packages)
-        mitigations = remediation_steps.split("\n")
-        
-        # Generate technical analysis
-        technical_analysis = f"CVE {cve_id} is a {vuln_type} vulnerability that affects {len(affected_systems)} known packages. "
-        if summary_texts:
-            technical_analysis += f"The vulnerability is described as: {summary_texts[0]} "
-        if detail_texts:
-            technical_analysis += f"Technical details include: {detail_texts[0][:200]}..."
-        
-        return {
-            "severity": severity,
-            "vulnerability_type": vuln_type,
-            "potential_impact": self._generate_impact_analysis(vuln_type, combined_summary, affected_packages),
-            "affected_systems": affected_systems,
-            "exploitation_vectors": exploitation_vectors,
-            "recommended_mitigations": mitigations,
-            "technical_analysis": technical_analysis
-        }
-
+        # Defensive programming - check for None values in all relevant variables
+        if combined_summary is None:
+            self.logger.warning("combined_summary is None, using empty string")
+            combined_summary = ""
+        if combined_details is None:
+            self.logger.warning("combined_details is None, using empty string")
+            combined_details = ""
+            
+        try:
+            self.logger.debug("Determining vulnerability type")
+            vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
+            self.logger.debug(f"Vulnerability type: {vuln_type}")
+            
+            self.logger.debug("Determining severity")
+            severity = self._determine_severity(combined_summary, combined_details, affected_packages)
+            self.logger.debug(f"Severity: {severity}")
+            
+            self.logger.debug("Extracting affected ecosystems")
+            affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
+            self.logger.debug(f"Affected ecosystems: {affected_ecosystems}")
+            
+            self.logger.debug("Determining exploitation likelihood")
+            exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
+            self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
+        except Exception as e:
+            self.logger.error(f"Error during analysis: {e}")
+            raise
+    
     def analyze_ecosystem_security(self, ecosystem: str) -> Dict:
         """Analyze security posture of a particular ecosystem."""
         eco_data = self.get_ecosystem_vulnerabilities(ecosystem, limit=25)
