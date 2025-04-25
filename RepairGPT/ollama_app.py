@@ -658,35 +658,32 @@ class Neo4jSecurityAnalyzer:
         # Combine texts for analysis
         try:
             combined_summary = " ".join(summary_texts)
-            if combined_summary is None:
-                self.logger.warning("combined_summary is None, using empty string")
-                combined_summary = ""
         except Exception as e:
             self.logger.error(f"Error during analysis: {e}")
         combined_details = " ".join(detail_texts)
-        
+        print('1')
         # Defensive programming - check for None values in all relevant variables
         
-        if combined_details is None:
-            self.logger.warning("combined_details is None, using empty string")
-            combined_details = ""
-            
         try:
             self.logger.debug("Determining vulnerability type")
             vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
             self.logger.debug(f"Vulnerability type: {vuln_type}")
-            
+            print('2')  
+
             self.logger.debug("Determining severity")
             severity = self._determine_severity(combined_summary, combined_details, affected_packages)
             self.logger.debug(f"Severity: {severity}")
-            
+            print('3')  
+
             self.logger.debug("Extracting affected ecosystems")
             affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
             self.logger.debug(f"Affected ecosystems: {affected_ecosystems}")
+            print('4')  
             
             self.logger.debug("Determining exploitation likelihood")
             exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
             self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
+            
         except Exception as e:
             self.logger.error(f"Error during analysis: {e}")
             raise
