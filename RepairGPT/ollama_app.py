@@ -1483,7 +1483,7 @@ class CombinedSecurityAnalyzer:
     def generate_markdown_report(self, results: Dict[str, Any], output_file: str) -> None:
         """Generate a markdown report from the analysis results."""
         self.ollama_analyzer.generate_markdown_report(results, output_file)
-
+'''
 def main():
     parser = argparse.ArgumentParser(description="Combined Security Vulnerability Analysis Tool")
     
@@ -1614,6 +1614,124 @@ def main():
             analyzer.generate_markdown_report(results, args.report)
             
             logger.info("Analysis complete.")
+            
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        return 1
+    finally:
+        analyzer.close()
+    
+    return 0
+'''
+def main():
+    parser = argparse.ArgumentParser(description="Simplified Security Vulnerability Analysis Tool")
+    
+    # Basic arguments
+    parser.add_argument("--command", choices=[
+        "schema", "stats", "vuln", "cve", "package", "ecosystem", "repo", "report"
+    ], help="Command to execute")
+    
+    parser.add_argument("--target", help="Target ID for the command (vuln ID, CVE ID, package name, etc.)")
+    parser.add_argument("--limit", type=int, default=10, help="Limit for result count")
+    parser.add_argument("--output", default="security_analysis_results.json", help="Output JSON file for results")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    
+    # Neo4j connection arguments
+    parser.add_argument("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j connection URI")
+    parser.add_argument("--neo4j-user", default="neo4j", help="Neo4j username")
+    parser.add_argument("--neo4j-password", default="jaguarai", help="Neo4j password")
+    
+    # Optional input file (not required)
+    parser.add_argument("--input", help="Input JSON file with vulnerability data (optional)")
+    
+    args = parser.parse_args()
+    
+    # Setup logging
+    numeric_level = getattr(logging, args.log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=numeric_level)
+    
+    logger = logging.getLogger(__name__)
+    
+    # Initialize the Neo4j analyzer
+    analyzer = Neo4jSecurityAnalyzer(
+        neo4j_uri=args.neo4j_uri,
+        neo4j_user=args.neo4j_user,
+        neo4j_password=args.neo4j_password,
+        log_level=args.log_level
+    )
+    
+    try:
+        # Check if a command was specified
+        if args.command:
+            logger.info(f"Executing command: {args.command}")
+            
+            result = None
+            if args.command == "schema":
+                result = analyzer.get_database_schema()
+                
+            elif args.command == "stats":
+                result = analyzer.get_vulnerability_statistics()
+                
+            elif args.command == "vuln":
+                if args.target:
+                    result = analyzer.get_vulnerability_details(args.target)
+                else:
+                    result = analyzer.get_vulnerability_details(limit=args.limit)
+                    
+            elif args.command == "cve":
+                if args.target:
+                    result = analyzer.get_cve_details(args.target)
+                else:
+                    result = analyzer.get_cve_details(limit=args.limit)
+                    
+            elif args.command == "package":
+                if args.target:
+                    if "@" in args.target:
+                        name, ecosystem = args.target.split("@", 1)
+                        result = analyzer.get_package_vulnerabilities(name, ecosystem)
+                    else:
+                        result = analyzer.get_package_vulnerabilities(args.target)
+                else:
+                    result = analyzer.get_package_vulnerabilities(limit=args.limit)
+                    
+            elif args.command == "ecosystem":
+                if not args.target:
+                    logger.error("Error: --target ecosystem_name is required for ecosystem command")
+                    return 1
+                result = analyzer.get_ecosystem_vulnerabilities(args.target, args.limit)
+                
+            elif args.command == "repo":
+                result = analyzer.get_repositories_with_vulnerabilities(args.limit)
+                
+            elif args.command == "report":
+                if not args.target or ":" not in args.target:
+                    logger.error("Error: --target must be in format type:id (e.g., vulnerability:CVE-2021-44228)")
+                    return 1
+                    
+                target_type, target_id = args.target.split(":", 1)
+                if target_type not in ["vulnerability", "cve", "package", "ecosystem"]:
+                    logger.error(f"Error: Unknown target type {target_type}")
+                    return 1
+                    
+                result = analyzer.generate_security_report(target_id, target_type)
+            
+            # Output results
+            if result:
+                result_json = json.dumps(result, indent=2, default=str)
+                if args.output:
+                    with open(args.output, 'w') as f:
+                        f.write(result_json)
+                    logger.info(f"Results written to {args.output}")
+                else:
+                    print(result_json)
+            else:
+                logger.warning("No results returned")
+        else:
+            logger.error("No command specified. Use --command to specify a command.")
+            return 1
             
     except Exception as e:
         logger.error(f"Error: {str(e)}")
