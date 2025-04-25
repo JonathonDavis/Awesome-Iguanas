@@ -298,49 +298,52 @@ class Neo4jSecurityAnalyzer:
         return self.query_neo4j(query, params)
 
     def get_repositories_with_vulnerabilities(self, limit: int = 10) -> List[Dict]:
-        # through any path of length 1-3
-        query = """
+        """Get repositories with associated vulnerabilities."""
+        self.logger.info(f"Executing get_repositories_with_vulnerabilities with limit={limit}")
+        
+        # First find all repositories
+        repo_query = """
         MATCH (repo:Repository)
-        OPTIONAL MATCH path = (repo)-[*1..3]-(vuln:Vulnerability)
-        WITH repo, collect(distinct vuln) as vulns
-        WHERE size(vulns) > 0
-        RETURN repo.url as repository_url,
-            size(vulns) as vulnerability_count,
-            vulns
-        ORDER BY vulnerability_count DESC
+        RETURN repo.url as repository_url
         LIMIT $limit
         """
         
-        initial_results = self.query_neo4j(query, {"limit": limit})
+        repositories = self.query_neo4j(repo_query, {"limit": limit})
         
-        if not initial_results:
-            print("No repositories with vulnerabilities found")
+        if not repositories:
+            self.logger.info("No repositories found")
             return []
         
-        detailed_results = []
+        results = []
         
-        # For each repository, get detailed information about connected packages and CVEs
-        for result in initial_results:
-            repo_url = result["repository_url"]
+        # For each repository, check if it has connected vulnerabilities
+        for repo in repositories:
+            repo_url = repo["repository_url"]
             
-            detailed_query = """
+            # Query to find vulnerabilities connected to this repository
+            vuln_query = """
             MATCH (repo:Repository {url: $repo_url})
-            MATCH path = (repo)-[*1..3]-(vuln:Vulnerability)
-            OPTIONAL MATCH (vuln)-[*1..2]-(pkg:Package)
-            OPTIONAL MATCH (vuln)-[*1..2]-(cve:CVE)
+            MATCH (vuln:Vulnerability)
+            WHERE EXISTS((repo)-[*1..3]-(vuln))
+            OPTIONAL MATCH (pkg:Package)
+            WHERE EXISTS((repo)-[*1..2]-(pkg)) AND EXISTS((pkg)-[*1..2]-(vuln))
+            OPTIONAL MATCH (cve:CVE)
+            WHERE EXISTS((vuln)-[*1..2]-(cve))
             RETURN repo.url as repository_url,
                 count(DISTINCT vuln) as vulnerability_count,
                 collect(DISTINCT pkg.name) as affected_packages,
                 collect(DISTINCT cve.id) as cve_ids
             """
             
-            detailed_result = self.query_neo4j(detailed_query, {"repo_url": repo_url})
-            if detailed_result and detailed_result[0]["vulnerability_count"] > 0:
-                detailed_results.append(detailed_result[0])
+            vuln_result = self.query_neo4j(vuln_query, {"repo_url": repo_url})
+            
+            if vuln_result and vuln_result[0]["vulnerability_count"] > 0:
+                results.append(vuln_result[0])
         
-        print(f"Found {len(detailed_results)} repositories with vulnerabilities")
-        return detailed_results
-    
+        # Sort results by vulnerability count in descending order
+        results = sorted(results, key=lambda x: x["vulnerability_count"], reverse=True)
+        
+        return results    
     def count_nodes_by_label(self) -> Dict[str, int]:
         """Count nodes by label in the database."""
         results = {}
