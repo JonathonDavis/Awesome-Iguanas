@@ -654,32 +654,25 @@ class Neo4jSecurityAnalyzer:
 
     def analyze_cve(self, cve_id: str) -> Dict[str, Any]:
             """Analyze a specific CVE using local analysis."""
-            #print(f"Starting analysis of CVE {cve_id}")
 
             cve_data = self.get_cve_details(cve_id)
             if not cve_data:
                 raise ValueError(f"CVE {cve_id} not found in database")
 
             cve_info = cve_data[0]
-            #print(f"CVE info retrieved: {cve_info.keys()}")
 
             vulnerabilities = cve_info.get("vulnerabilities", [])
-            #print(f"Vulnerabilities count: {len(vulnerabilities)}")
 
             # Fix: Initialize with empty list if None
             affected_packages = cve_info.get("affected_packages") or []
             references = cve_info.get("references") or []
-            #print(f"Affected packages count: {len(affected_packages)}")
-            #print(f"References count: {len(references)}")
 
             # Extract text from vulnerabilities for analysis
 
             detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
 
-            #print(f"Detail texts count: {len(detail_texts)}")
             try:
                 summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
-                #print(f"Summary texts count: {len(summary_texts)}")
             except Exception as e:
                 self.logger.error(f"Error during analysis (summary): {e}")
                 summary_texts = []  # Ensure summary_texts is always defined
@@ -688,9 +681,7 @@ class Neo4jSecurityAnalyzer:
             except Exception as e:
                 self.logger.error(f"Error during analysis (combine summary): {e}")
                 combined_summary = "" # Ensure combined_summary is always defined
-            #print(detail_texts,'please')
             combined_details = " ".join(detail_texts)
-            #print('1')
             # Defensive programming - check for None values in all relevant variables
 
             analysis_results = {}
@@ -699,25 +690,21 @@ class Neo4jSecurityAnalyzer:
                 vuln_type = self._determine_vulnerability_type(combined_summary, combined_details)
                 self.logger.debug(f"Vulnerability type: {vuln_type}")
                 analysis_results["vulnerability_type"] = vuln_type
-                #print('2')
 
                 self.logger.debug("Determining severity")
                 severity = self._determine_severity(combined_summary, combined_details, affected_packages)
                 self.logger.debug(f"Severity: {severity}")
                 analysis_results["severity"] = severity
-                #print('3')
-
                 self.logger.debug("Extracting affected ecosystems")
                 affected_ecosystems = self._extract_affected_ecosystems(affected_packages)
                 self.logger.debug(f"Affected ecosystems: {affected_ecosystems}")
                 analysis_results["affected_ecosystems"] = affected_ecosystems
-                #print('4')
 
                 self.logger.debug("Determining exploitation likelihood")
                 exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
                 self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
                 analysis_results["exploitation_likelihood"] = exploitation_likelihood
-                #print('5')
+
                 return analysis_results
             except Exception as e:
                 self.logger.error(f"Error during analysis: {e}")
@@ -949,22 +936,35 @@ class Neo4jSecurityAnalyzer:
         elif target_type == "cve":
             try:
                 analysis = self.analyze_cve(target)
-                print(analysis)
-                try:    
-                    report["summary"] = f"Analysis of CVE {target} ({analysis['vulnerability_type']})"
-                except AttributeError as e:
-                    print(f"found the error? {e}")
-                print('last working point')
+                
+                # Create impact analysis based on vulnerability type and affected ecosystems
+                impact_analysis = "The potential impact of this vulnerability depends on the affected systems and deployment context."
+                if "vulnerability_type" in analysis and analysis["vulnerability_type"] != "Unknown":
+                    impact_analysis = f"This {analysis['vulnerability_type']} vulnerability could potentially affect systems using the impacted packages."
+                
+                # Generate remediation steps based on affected ecosystems
+                remediation_steps = "Update to the latest patched version of the affected software components."
+                if "affected_ecosystems" in analysis and analysis["affected_ecosystems"]:
+                    ecosystems = ", ".join(analysis["affected_ecosystems"])
+                    remediation_steps += f" Pay special attention to packages in the {ecosystems} ecosystem(s)."
+                
+                report["summary"] = f"Analysis of CVE {target}"
+                if "vulnerability_type" in analysis and analysis["vulnerability_type"] != "Unknown":
+                    report["summary"] += f" ({analysis['vulnerability_type']})"
+                    
                 report["details"] = {
-                    "severity": analysis["severity"],
-                    "vulnerability_type": analysis["vulnerability_type"],
-                    "potential_impact": analysis["potential_impact"],
-                    "affected_systems": analysis["affected_systems"],
-                    "exploitation_vectors": analysis["exploitation_vectors"],
-                    "technical_analysis": analysis["technical_analysis"]
-                } 
-                print('details')
-                report["recommendations"] = analysis["recommended_mitigations"]
+                    "severity": analysis.get("severity", "UNKNOWN"),
+                    "vulnerability_type": analysis.get("vulnerability_type", "Unknown"),
+                    "affected_ecosystems": analysis.get("affected_ecosystems", []),
+                    "exploitation_likelihood": analysis.get("exploitation_likelihood", "UNKNOWN"),
+                    "impact_analysis": impact_analysis
+                }
+                
+                report["recommendations"] = [
+                    remediation_steps,
+                    "Implement security scanning for affected package dependencies in CI/CD pipelines",
+                    "Establish regular vulnerability monitoring for critical dependencies"
+                ]
                 
             except ValueError as e:
                 report["summary"] = f"Error: {str(e)}"
@@ -1033,7 +1033,6 @@ class Neo4jSecurityAnalyzer:
             report["summary"] = f"Unknown target type: {target_type}"
             
         return report
-
 
 def main():
     """Main function to run the Neo4j Security Analyzer."""
