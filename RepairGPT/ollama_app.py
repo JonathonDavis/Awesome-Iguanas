@@ -658,14 +658,15 @@ class Neo4jSecurityAnalyzer:
         # Combine texts for analysis
         try:
             combined_summary = " ".join(summary_texts)
+            if combined_summary is None:
+                self.logger.warning("combined_summary is None, using empty string")
+                combined_summary = ""
         except Exception as e:
             self.logger.error(f"Error during analysis: {e}")
         combined_details = " ".join(detail_texts)
         
         # Defensive programming - check for None values in all relevant variables
-        if combined_summary is None:
-            self.logger.warning("combined_summary is None, using empty string")
-            combined_summary = ""
+        
         if combined_details is None:
             self.logger.warning("combined_details is None, using empty string")
             combined_details = ""
