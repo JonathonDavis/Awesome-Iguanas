@@ -655,11 +655,11 @@ class Neo4jSecurityAnalyzer:
             print(f"Summary texts count: {len(summary_texts)}")
         except Exception as e:
             self.logger.error(f"Error during analysis: {e}")
-        # Combine texts for analysis
         try:
             combined_summary = " ".join(summary_texts)
         except Exception as e:
             self.logger.error(f"Error during analysis: {e}")
+        print(detail_texts,'please')
         combined_details = " ".join(detail_texts)
         print('1')
         # Defensive programming - check for None values in all relevant variables
