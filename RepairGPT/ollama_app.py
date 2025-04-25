@@ -459,7 +459,7 @@ class Neo4jSecurityAnalyzer:
             if eco:
                 ecosystems.add(eco)
         return list(ecosystems)
-
+    
     def _determine_exploitation_likelihood(self, vuln_type: str, references: List[Dict] = None) -> str:
         """Determine exploitation likelihood based on vulnerability type and references."""
         # Higher risk vulnerability types
