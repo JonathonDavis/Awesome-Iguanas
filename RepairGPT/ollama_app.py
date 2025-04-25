@@ -681,6 +681,7 @@ class Neo4jSecurityAnalyzer:
             print('4')  
             
             self.logger.debug("Determining exploitation likelihood")
+            print(vuln_type,"vul type",references,'ref')
             exploitation_likelihood = self._determine_exploitation_likelihood(vuln_type, references)
             self.logger.debug(f"Exploitation likelihood: {exploitation_likelihood}")
             print("5")
