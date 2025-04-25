@@ -940,6 +940,7 @@ class Neo4jSecurityAnalyzer:
             try:
                 analysis = self.analyze_cve(target)
                 print(analysis)
+                print("error here?")
                 try:    
                     report["summary"] = f"Analysis of CVE {target} ({analysis['vulnerability_type']})"
                 except AttributeError as e:
