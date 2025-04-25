@@ -471,8 +471,8 @@ class Neo4jSecurityAnalyzer:
         has_exploit = False
         if references:
             for ref in references:
-                url = ref.get("url", "").lower()
-                ref_type = ref.get("type", "").lower()
+                url = ref.get("url", "")#.lower()
+                ref_type = ref.get("type", "")#.lower()
                 if "exploit" in url or "exploit" in ref_type or "poc" in url or "proof of concept" in url:
                     has_exploit = True
                     break
