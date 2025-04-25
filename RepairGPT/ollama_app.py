@@ -318,21 +318,62 @@ class Neo4jSecurityAnalyzer:
         return self.query_neo4j(query, params)
 
     def get_repositories_with_vulnerabilities(self, limit: int = 10) -> List[Dict]:
-        """Get repositories with associated vulnerabilities."""
-        query = """
-        MATCH (repo:Repository)<-[]-(pkg:Package)<-[]-(vuln:Vulnerability)
-        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
-        RETURN repo.url as repository_url,
-               count(DISTINCT vuln) as vulnerability_count,
-               collect(DISTINCT pkg.name) as affected_packages,
-               collect(DISTINCT cve.id) as cve_ids
+        print(f"Executing get_repositories_with_vulnerabilities with limit={limit}")
+        
+        # First, check the relationship pattern in the database
+        pattern_check_query = """
+        MATCH (repo:Repository)
+        OPTIONAL MATCH path = (repo)-[*..3]-(vuln:Vulnerability)
+        WITH repo, path
+        WHERE path IS NOT NULL
+        RETURN repo.url as repository_url, 
+            count(DISTINCT vuln) as vulnerability_count
         ORDER BY vulnerability_count DESC
         LIMIT $limit
         """
+        
         params = {"limit": limit}
         
-        return self.query_neo4j(query, params)
-
+        # Try the more flexible query first
+        results = self.query_neo4j(pattern_check_query, params)
+        print(f"Results from pattern check query: {results}")
+        
+        if results:
+            # Now get more detailed information for each repository
+            detailed_results = []
+            for result in results:
+                repo_url = result["repository_url"]
+                detailed_query = """
+                MATCH (repo:Repository {url: $repo_url})
+                MATCH path = (repo)-[*..3]-(vuln:Vulnerability)
+                OPTIONAL MATCH (pkg:Package)-[]-() WHERE pkg IN nodes(path)
+                OPTIONAL MATCH (cve:CVE)-[]-() WHERE cve IN nodes(path)
+                RETURN repo.url as repository_url,
+                    count(DISTINCT vuln) as vulnerability_count,
+                    collect(DISTINCT pkg.name) as affected_packages,
+                    collect(DISTINCT cve.id) as cve_ids
+                """
+                detailed_result = self.query_neo4j(detailed_query, {"repo_url": repo_url})
+                print(f"Results from detailed query for repository {repo_url}: {detailed_result}")
+                if detailed_result:
+                    detailed_results.append(detailed_result[0])
+            
+            return detailed_results
+        
+        # If the flexible query returns no results, try the original query as a fallback
+        original_query = """
+        MATCH (repo:Repository)<-[]-(pkg:Package)<-[]-(vuln:Vulnerability)
+        OPTIONAL MATCH (cve:CVE)-[]->(vuln)
+        RETURN repo.url as repository_url,
+            count(DISTINCT vuln) as vulnerability_count,
+            collect(DISTINCT pkg.name) as affected_packages,
+            collect(DISTINCT cve.id) as cve_ids
+        ORDER BY vulnerability_count DESC
+        LIMIT $limit
+        """
+        
+        print(f"Executing original query as fallback")
+        return self.query_neo4j(original_query, params)
     def count_nodes_by_label(self) -> Dict[str, int]:
         """Count nodes by label in the database."""
         results = {}
