@@ -627,29 +627,29 @@ class Neo4jSecurityAnalyzer:
         
     def analyze_cve(self, cve_id: str) -> Dict:
         """Analyze a specific CVE using local analysis."""
-        self.logger.debug(f"Starting analysis of CVE {cve_id}")
+        print(f"Starting analysis of CVE {cve_id}")
         
         cve_data = self.get_cve_details(cve_id)
         if not cve_data:
             raise ValueError(f"CVE {cve_id} not found in database")
         
         cve_info = cve_data[0]
-        self.logger.debug(f"CVE info retrieved: {cve_info.keys()}")
+        print(f"CVE info retrieved: {cve_info.keys()}")
         
         vulnerabilities = cve_info.get("vulnerabilities", [])
-        self.logger.debug(f"Vulnerabilities count: {len(vulnerabilities)}")
+        print(f"Vulnerabilities count: {len(vulnerabilities)}")
         
         # Fix: Initialize with empty list if None
         affected_packages = cve_info.get("affected_packages") or []
         references = cve_info.get("references") or []
-        self.logger.debug(f"Affected packages count: {len(affected_packages)}")
-        self.logger.debug(f"References count: {len(references)}")
+        print(f"Affected packages count: {len(affected_packages)}")
+        print(f"References count: {len(references)}")
         
         # Extract text from vulnerabilities for analysis
         summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
         detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
-        self.logger.debug(f"Summary texts count: {len(summary_texts)}")
-        self.logger.debug(f"Detail texts count: {len(detail_texts)}")
+        print(f"Summary texts count: {len(summary_texts)}")
+        print(f"Detail texts count: {len(detail_texts)}")
         
         # Combine texts for analysis
         combined_summary = " ".join(summary_texts)
