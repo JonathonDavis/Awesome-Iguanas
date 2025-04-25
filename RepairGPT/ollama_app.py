@@ -646,13 +646,20 @@ class Neo4jSecurityAnalyzer:
         print(f"References count: {len(references)}")
         
         # Extract text from vulnerabilities for analysis
-        summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
-        detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
-        print(f"Summary texts count: {len(summary_texts)}")
-        print(f"Detail texts count: {len(detail_texts)}")
         
+        detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
+        
+        print(f"Detail texts count: {len(detail_texts)}")
+        try:
+            summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
+            print(f"Summary texts count: {len(summary_texts)}")
+        except Exception as e:
+            self.logger.error(f"Error during analysis: {e}")
         # Combine texts for analysis
-        combined_summary = " ".join(summary_texts)
+        try:
+            combined_summary = " ".join(summary_texts)
+        except Exception as e:
+            self.logger.error(f"Error during analysis: {e}")
         combined_details = " ".join(detail_texts)
         
         # Defensive programming - check for None values in all relevant variables
