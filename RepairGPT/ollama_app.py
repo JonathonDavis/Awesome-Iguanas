@@ -441,7 +441,7 @@ class Neo4jSecurityAnalyzer:
                    collect(DISTINCT cve.id) as cve_ids,
                    collect(DISTINCT {name: pkg.name, ecosystem: pkg.ecosystem}) as affected_packages,
                    collect(DISTINCT {url: ref.url, type: ref.type}) as references
-            LIMIT $limit
+            LIMIT {limit}
             """
             params = {"limit": limit}
         
@@ -503,7 +503,7 @@ class Neo4jSecurityAnalyzer:
                    collect(DISTINCT {
                      url: repo.url
                    }) as repositories
-            LIMIT $limit
+            LIMIT {limit}
             """
             params = {"limit": limit}
         
@@ -578,7 +578,7 @@ class Neo4jSecurityAnalyzer:
                      primary_language: ver.primary_language
                    }) as versions,
                    collect(DISTINCT repo.url) as repositories
-            LIMIT $limit
+            LIMIT {limit}
             """
             params = {"limit": limit}
         
@@ -598,7 +598,7 @@ class Neo4jSecurityAnalyzer:
                  details: vuln.details
                }) as vulnerabilities,
                collect(DISTINCT cve.id) as cves
-        LIMIT $limit
+        LIMIT {limit}
         """
         params = {"ecosystem": ecosystem, "limit": limit}
         
@@ -609,12 +609,12 @@ class Neo4jSecurityAnalyzer:
         self.logger.info(f"Executing get_repositories_with_vulnerabilities with limit={limit}")
         
         # Using the exact relationship structure from the database
-        query = """
+        query = f"""
         MATCH (repo:Repository)
         MATCH (vuln:Vulnerability)-[:FOUND_IN]->(repo)
         WITH repo, count(DISTINCT vuln) as vuln_count
         ORDER BY vuln_count DESC
-        LIMIT $limit
+        LIMIT {limit}
         
         MATCH (v:Vulnerability)-[:FOUND_IN]->(repo)
         OPTIONAL MATCH (pkg:Package)-[:AFFECTED_BY]->(v)
@@ -637,7 +637,7 @@ class Neo4jSecurityAnalyzer:
             OPTIONAL MATCH (vuln:Vulnerability)-[:FOUND_IN]->(repo)
             WITH repo, count(DISTINCT vuln) as vuln_count
             ORDER BY vuln_count DESC
-            LIMIT $limit
+            LIMIT {limit}
             RETURN repo.url as repository_url,
                 vuln_count as vulnerability_count,
                 [] as affected_packages,
@@ -656,7 +656,7 @@ class Neo4jSecurityAnalyzer:
                     0 as vulnerability_count,
                     [] as affected_packages,
                     [] as cve_ids
-                LIMIT $limit
+                LIMIT {limit}
                 """
                 return self.query_neo4j(last_resort_query, {"limit": limit})
 
