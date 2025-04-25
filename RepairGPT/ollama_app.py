@@ -298,52 +298,63 @@ class Neo4jSecurityAnalyzer:
         return self.query_neo4j(query, params)
 
     def get_repositories_with_vulnerabilities(self, limit: int = 10) -> List[Dict]:
-        """Get repositories with associated vulnerabilities."""
-        self.logger.info(f"Executing get_repositories_with_vulnerabilities with limit={limit}")
-        
-        # First find all repositories
-        repo_query = """
-        MATCH (repo:Repository)
-        RETURN repo.url as repository_url
-        LIMIT $limit
+        """
+        Get repositories with vulnerabilities, sorted by the number of vulnerabilities.
+
+        :param limit: The maximum number of repositories to return
+        :return: A list of dictionaries containing the repository URL, number of vulnerabilities, affected packages, and CVE IDs
         """
         
-        repositories = self.query_neo4j(repo_query, {"limit": limit})
+        query = f"""
+        MATCH (repo:Repository)
+        MATCH (vuln:Vulnerability)-[:FOUND_IN]->(repo)
+        WITH repo, count(DISTINCT vuln) as vuln_count
+        ORDER BY vuln_count DESC
+        LIMIT {limit}
         
-        if not repositories:
-            self.logger.info("No repositories found")
-            return []
+        MATCH (v:Vulnerability)-[:FOUND_IN]->(repo)
+        OPTIONAL MATCH (pkg:Package)-[:AFFECTED_BY]->(v)
+        OPTIONAL MATCH (cve:CVE)-[:IDENTIFIED_AS]->(v)
         
-        results = []
+        RETURN repo.url as repository_url,
+            vuln_count as vulnerability_count,
+            collect(DISTINCT pkg.name) as affected_packages,
+            collect(DISTINCT cve.id) as cve_ids
+        """
         
-        # For each repository, check if it has connected vulnerabilities
-        for repo in repositories:
-            repo_url = repo["repository_url"]
+        try:
+            return self.query_neo4j(query, {"limit": limit})
+        except Exception as e:
+            self.logger.error(f"Error executing repo query: {str(e)}")
             
-            # Query to find vulnerabilities connected to this repository
-            vuln_query = """
-            MATCH (repo:Repository {url: $repo_url})
-            MATCH (vuln:Vulnerability)
-            WHERE EXISTS((repo)-[*1..3]-(vuln))
-            OPTIONAL MATCH (pkg:Package)
-            WHERE EXISTS((repo)-[*1..2]-(pkg)) AND EXISTS((pkg)-[*1..2]-(vuln))
-            OPTIONAL MATCH (cve:CVE)
-            WHERE EXISTS((vuln)-[*1..2]-(cve))
+            # Simpler fallback query if the main one fails
+            fallback_query = """
+            MATCH (repo:Repository)
+            OPTIONAL MATCH (vuln:Vulnerability)-[:FOUND_IN]->(repo)
+            WITH repo, count(DISTINCT vuln) as vuln_count
+            ORDER BY vuln_count DESC
+            LIMIT $limit
             RETURN repo.url as repository_url,
-                count(DISTINCT vuln) as vulnerability_count,
-                collect(DISTINCT pkg.name) as affected_packages,
-                collect(DISTINCT cve.id) as cve_ids
+                vuln_count as vulnerability_count,
+                [] as affected_packages,
+                [] as cve_ids
             """
             
-            vuln_result = self.query_neo4j(vuln_query, {"repo_url": repo_url})
-            
-            if vuln_result and vuln_result[0]["vulnerability_count"] > 0:
-                results.append(vuln_result[0])
-        
-        # Sort results by vulnerability count in descending order
-        results = sorted(results, key=lambda x: x["vulnerability_count"], reverse=True)
-        
-        return results    
+            try:
+                return self.query_neo4j(fallback_query, {"limit": limit})
+            except Exception as e2:
+                self.logger.error(f"Error executing fallback repo query: {str(e2)}")
+                
+                # Last resort - just return repositories
+                last_resort_query = """
+                MATCH (repo:Repository)
+                RETURN repo.url as repository_url, 
+                    0 as vulnerability_count,
+                    [] as affected_packages,
+                    [] as cve_ids
+                LIMIT $limit
+                """
+                return self.query_neo4j(last_resort_query, {"limit": limit})   
     def count_nodes_by_label(self) -> Dict[str, int]:
         """Count nodes by label in the database."""
         results = {}
