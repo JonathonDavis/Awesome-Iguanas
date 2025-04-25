@@ -811,6 +811,7 @@ class Neo4jSecurityAnalyzer:
             
         # Generate security trend analysis
         security_trend_analysis = f"Analysis of {ecosystem} ecosystem reveals {total_vulns} vulnerabilities across {total_packages} packages. "
+        print("break?")
         security_trend_analysis += f"The most prevalent vulnerability type is {list(vuln_types.keys())[0] if vuln_types else 'Unknown'}. "
         security_trend_analysis += f"Overall security posture is rated as {overall_rating}."
         
@@ -947,7 +948,8 @@ class Neo4jSecurityAnalyzer:
                     "affected_systems": analysis["affected_systems"],
                     "exploitation_vectors": analysis["exploitation_vectors"],
                     "technical_analysis": analysis["technical_analysis"]
-                } print('details')
+                } 
+                print('details')
                 report["recommendations"] = analysis["recommended_mitigations"]
                 
             except ValueError as e:
