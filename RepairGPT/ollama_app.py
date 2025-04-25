@@ -581,6 +581,7 @@ class Neo4jSecurityAnalyzer:
         references = cve_info.get("references", [])
         
         # Extract text from vulnerabilities for analysis
+        print(vulnerabilities)
         summary_texts = [v.get("summary", "") for v in vulnerabilities if v.get("summary")]
         detail_texts = [v.get("details", "") for v in vulnerabilities if v.get("details")]
         print(summary_texts,"summary_texts")
