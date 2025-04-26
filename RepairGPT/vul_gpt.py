@@ -395,7 +395,7 @@ class EvaluationMetrics:
 
 def main():
     # Neo4j connection details (update with actual values)
-    uri = "bolt://localhost:7474"
+    uri = "bolt://localhost:7687"
     username = "neo4j"
     password = "jaguarai"
     
