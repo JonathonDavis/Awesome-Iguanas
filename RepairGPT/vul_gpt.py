@@ -397,7 +397,7 @@ def main():
     # Neo4j connection details (update with actual values)
     uri = "bolt://localhost:7687"
     username = "neo4j"
-    password = "password"
+    password = "jaguarai"
     
     scanner = VulnerabilityScanner(uri, username, password)
     evaluator = EvaluationMetrics()
