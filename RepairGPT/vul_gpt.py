@@ -116,30 +116,39 @@ class VulnerabilityScanner:
                     continue
         
         return code_files
-
     def analyze_with_ollama(self, code_data, vulnerabilities):
         """
         Send code snippets to Ollama for vulnerability analysis
         
         Args:
-            code_data: List of dictionaries with file paths and content
-            vulnerabilities: List of vulnerabilities associated with the repository
+            code_data (list): List of dictionaries with file paths and content
+            vulnerabilities (list): List of vulnerabilities associated with the repository
         
         Returns:
-            Ollama's assessment of potential vulnerabilities
+            list: List of findings from Ollama
         """
         # Create the prompt for Ollama
         prompt = self._create_analysis_prompt(code_data, vulnerabilities)
+        print(f"    Sending prompt of {len(prompt)} characters to Ollama")
         
         # Call Ollama locally (no API, direct shell command)
-        result = subprocess.run(
-            ["ollama", "run", "llama3", prompt],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        return self._parse_ollama_response(result.stdout)
+        try:
+            result = subprocess.run(
+                ["ollama", "run", "llama3", prompt],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print(f"    Received response of {len(result.stdout)} characters")
+            
+            # Parse the response
+            findings = self._parse_ollama_response(result.stdout)
+            print(f"    Extracted {len(findings)} findings from response")
+            return findings
+        except subprocess.CalledProcessError as e:
+            print(f"    Error calling Ollama: {e}")
+            print(f"    Stderr: {e.stderr}")
+            return []
 
     def _create_analysis_prompt(self, code_data, vulnerabilities):
         """
@@ -291,7 +300,7 @@ If no vulnerabilities are found, state this clearly.
                 
                 # Analyze with Ollama
                 analysis = self.analyze_with_ollama(code_files, vulnerabilities)
-                
+                print(f"    Found {len(analysis)} vulnerabilities",'trying to find error')
                 # Store results
                 results.append({
                     "repo_url": repo_url,
@@ -299,6 +308,7 @@ If no vulnerabilities are found, state this clearly.
                     "version_id": version_info["id"],
                     "findings": analysis
                 })
+                print(results,'results')
                 
                 # Clean up temporary directory
                 subprocess.run(["rm", "-rf", repo_dir], check=True)
@@ -395,7 +405,7 @@ class EvaluationMetrics:
 
 def main():
     # Neo4j connection details (update with actual values)
-    uri = "bolt://localhost:7687"
+    uri = "bolt://localhost:7474"
     username = "neo4j"
     password = "jaguarai"
     
@@ -418,8 +428,10 @@ def main():
                 evaluator.add_result(result)
             
             # Save incremental results in case of failure
+            print(results)
             with open("vulnerability_results.json", "w") as f:
                 json.dump(all_results, f, indent=2)
+                print("saved to json")
             
             print(f"Completed scan of {repo}")
         
