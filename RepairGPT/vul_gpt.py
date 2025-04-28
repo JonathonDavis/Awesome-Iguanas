@@ -4,6 +4,7 @@ import os
 import subprocess
 import json
 import requests
+import time
 from typing import List, Dict, Any, Optional
 
 class VulnerabilityScanner:
@@ -15,8 +16,11 @@ class VulnerabilityScanner:
     :param password: The password for authentication
     :param deepseek_api_key: API key for DeepSeek service
     :param deepseek_api_url: URL for the DeepSeek API endpoint
+    :param results_file: Path to the file where results will be saved
     """
-    def __init__(self, uri, username, password, deepseek_api_key, deepseek_api_url="https://api.deepseek.com/v1/chat/completions"):
+    def __init__(self, uri, username, password, deepseek_api_key, 
+                 deepseek_api_url="https://api.deepseek.com/v1/chat/completions",
+                 results_file="vulnerability_results.json"):
         """
         Initialize a VulnerabilityScanner object to interact with the graph database
 
@@ -25,10 +29,12 @@ class VulnerabilityScanner:
         :param password: The password for authentication
         :param deepseek_api_key: API key for DeepSeek service
         :param deepseek_api_url: URL for the DeepSeek API endpoint
+        :param results_file: Path to the file where results will be saved
         """
         self.driver = GraphDatabase.driver(uri, auth=(username, password))
         self.deepseek_api_key = deepseek_api_key
         self.deepseek_api_url = deepseek_api_url
+        self.results_file = results_file
 
         # Blocked file extensions and types
         # These files are not analyzed for security issues
@@ -38,6 +44,68 @@ class VulnerabilityScanner:
         # Files larger than this size are not analyzed
         # This is a reasonable limit to prevent excessive memory usage
         self.max_file_size = 200000  # 200,000 characters
+        
+        # Load existing results if the file exists
+        self.all_results = self._load_existing_results()
+        
+        # Track progress to avoid reprocessing
+        self.processed_versions = self._get_processed_versions()
+
+    def _load_existing_results(self):
+        """
+        Load existing results from the results file if it exists
+        
+        Returns:
+            list: Previously saved results or an empty list if the file doesn't exist
+        """
+        try:
+            if os.path.exists(self.results_file):
+                with open(self.results_file, 'r') as f:
+                    return json.load(f)
+            return []
+        except json.JSONDecodeError:
+            print(f"Error loading results from {self.results_file}. Starting with empty results.")
+            return []
+        except Exception as e:
+            print(f"Unexpected error loading results: {e}. Starting with empty results.")
+            return []
+
+    def _get_processed_versions(self):
+        """
+        Extract already processed repo-version combinations from existing results
+        
+        Returns:
+            set: Set of "repo_url:version_id" strings for already processed versions
+        """
+        processed = set()
+        for result in self.all_results:
+            key = f"{result['repo_url']}:{result['version_id']}"
+            processed.add(key)
+        return processed
+
+    def save_results(self, new_results=None):
+        """
+        Save all results to the specified file with error handling
+        
+        Args:
+            new_results (list, optional): New results to add before saving
+        """
+        try:
+            # Add new results if provided
+            if new_results:
+                self.all_results.extend(new_results)
+            
+            # Create a temporary file first to avoid corruption if the process is killed during write
+            temp_file = f"{self.results_file}.tmp"
+            with open(temp_file, 'w') as f:
+                json.dump(self.all_results, f, indent=2)
+            
+            # Rename the temporary file to the target file (atomic operation)
+            os.replace(temp_file, self.results_file)
+            
+            print(f"Successfully saved {len(self.all_results)} results to {self.results_file}")
+        except Exception as e:
+            print(f"Error saving results to {self.results_file}: {e}")
 
     def close(self):
         """
@@ -75,6 +143,7 @@ class VulnerabilityScanner:
                     version_info["version"] = version_info["version"].split("HEAD -> ")[1]
             
             return versions
+          
     def get_vulnerabilities_for_repo(self, repo_url):
         """
         Get vulnerabilities associated with a repository
@@ -314,40 +383,55 @@ class VulnerabilityScanner:
             "Authorization": f"Bearer {self.deepseek_api_key}"
         }
         
-        try:
-            # Make the API request
-            response = requests.post(
-                self.deepseek_api_url,
-                headers=headers,
-                json=payload
-            )
-            
-            # Check if the request was successful
-            response.raise_for_status()
-            
-            # Parse the response
-            result = response.json()
-            print(f"    Received response from DeepSeek API")
-            
-            # Extract the content from the response
-            if "choices" in result and len(result["choices"]) > 0:
-                content = result["choices"][0]["message"]["content"]
-                print(f"    Response length: {len(content)} characters")
+        # Add retry logic for API requests
+        max_retries = 3
+        retry_delay = 5  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Make the API request
+                response = requests.post(
+                    self.deepseek_api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=60  # Add a timeout to prevent hanging
+                )
                 
-                # Parse the content
-                findings = self._parse_deepseek_response(content)
-                print(f"    Extracted {len(findings)} findings from response")
-                return findings
-            else:
-                print(f"    Unexpected response format: {result}")
-                return []
+                # Check if the request was successful
+                response.raise_for_status()
                 
-        except requests.exceptions.RequestException as e:
-            print(f"    Error calling DeepSeek API: {e}")
-            if hasattr(e, 'response') and e.response:
-                print(f"    Status code: {e.response.status_code}")
-                print(f"    Response: {e.response.text}")
-            return []
+                # Parse the response
+                result = response.json()
+                print(f"    Received response from DeepSeek API")
+                
+                # Extract the content from the response
+                if "choices" in result and len(result["choices"]) > 0:
+                    content = result["choices"][0]["message"]["content"]
+                    print(f"    Response length: {len(content)} characters")
+                    
+                    # Parse the content
+                    findings = self._parse_deepseek_response(content)
+                    print(f"    Extracted {len(findings)} findings from response")
+                    return findings
+                else:
+                    print(f"    Unexpected response format: {result}")
+                    if attempt < max_retries - 1:
+                        print(f"    Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                    else:
+                        return []
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"    Error calling DeepSeek API (attempt {attempt+1}/{max_retries}): {e}")
+                if hasattr(e, 'response') and e.response:
+                    print(f"    Status code: {e.response.status_code}")
+                    print(f"    Response: {e.response.text}")
+                
+                if attempt < max_retries - 1:
+                    print(f"    Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    return []
 
     def _create_analysis_prompt(self, code_data, vulnerabilities):
         """
@@ -410,7 +494,7 @@ Output Format:
                 "analysis": "\[Detailed analysis of vulnerability 1]",
                 "most_relevant_cve_cwe": "\[CVE/CWE Identifier 1]",
                 "most_concerned_functions": \["function1", "function2"\],
-                "most_concerned_filenames": \["file1.txt", "file2.c"\],
+                "most_concerned_filenames": \["file1.txt",a "file2.c"\],
                 "classification": "\[Very Promising | Slightly Promising | Not Promising]"
             },
             {
@@ -475,6 +559,25 @@ If no vulnerabilities are found, state this clearly.
         current_finding = {}
         current_section = None
         
+        # Try to parse JSON response first
+        try:
+            json_data = json.loads(response)
+            if isinstance(json_data, list) and len(json_data) > 0 and "vulnerabilities" in json_data[0]:
+                vulns = json_data[0]["vulnerabilities"]
+                for vuln in vulns:
+                    finding = {
+                        "headline": vuln.get("headline", ""),
+                        "analysis": vuln.get("analysis", ""),
+                        "cve": vuln.get("most_relevant_cve_cwe", ""),
+                        "key_functions": ", ".join(vuln.get("most_concerned_functions", [])),
+                        "classification": vuln.get("classification", "")
+                    }
+                    findings.append(finding)
+                return findings
+        except json.JSONDecodeError:
+            # Not valid JSON, continue with text parsing
+            pass
+        
         # Iterate through each line of the response
         for line in response.split('\n'):
             line = line.strip()
@@ -538,8 +641,17 @@ If no vulnerabilities are found, state this clearly.
         versions = self.get_repository_versions(repo_url)
         vulnerabilities = self.get_vulnerabilities_for_repo(repo_url)
         
+        # Process each version of the repository
         for version_info in versions:
             version = version_info["version"]
+            version_id = version_info["id"]
+            
+            # Skip already processed versions
+            version_key = f"{repo_url}:{version_id}"
+            if version_key in self.processed_versions:
+                print(f"  Skipping already processed version: {version}")
+                continue
+                
             print(f"  Processing version: {version}")
             
             try:
@@ -554,18 +666,35 @@ If no vulnerabilities are found, state this clearly.
                 analysis = self.analyze_with_deepseek(code_files, vulnerabilities)
                 print(f"    Found {len(analysis)} vulnerabilities")
                 
-                # Store results
-                results.append({
+                # Create a result for this version
+                version_result = {
                     "repo_url": repo_url,
                     "version": version,
-                    "version_id": version_info["id"],
+                    "version_id": version_id,
                     "findings": analysis
-                })
+                }
+                
+                # Add to results list
+                results.append(version_result)
+                
+                # Save intermediate results after each version
+                self.save_results([version_result])
+                
+                # Update processed versions
+                self.processed_versions.add(version_key)
                 
                 # Clean up temporary directory
                 subprocess.run(["rm", "-rf", repo_dir], check=True)
+                
+                print(f"    Successfully processed version {version}")
             except Exception as e:
                 print(f"    Error processing version {version}: {e}")
+                # Try to clean up if the directory exists
+                try:
+                    if 'repo_dir' in locals() and os.path.exists(repo_dir):
+                        subprocess.run(["rm", "-rf", repo_dir], check=False)
+                except:
+                    pass
         
         return results
 
@@ -692,7 +821,11 @@ def main():
     # DeepSeek API key (replace with your actual API key)
     deepseek_api_key = "your_deepseek_api_key_here"
     
-    scanner = VulnerabilityScanner(uri, username, password, deepseek_api_key)
+    # Results file path
+    results_file = "vulnerability_results.json"
+    
+    # Create the scanner with specified results file
+    scanner = VulnerabilityScanner(uri, username, password, deepseek_api_key, results_file=results_file)
     evaluator = EvaluationMetrics()
     
     try:
@@ -700,23 +833,21 @@ def main():
         repos = scanner.get_repositories()
         # repos = ["https://github.com/abantecart/abantecart-src"]  # For testing/debugging
         
-        all_results = []
-        
+        # Process each repository with error handling
         for repo in repos:
-            results = scanner.scan_repository(repo)
-            all_results.extend(results)
-            
-            # Add results to evaluator
-            for result in results:
-                evaluator.add_result(result)
-            
-            # Save incremental results in case of failure
-            with open("vulnerability_results.json", "w") as f:
-                # Save the results to a JSON file
-                json.dump(all_results, f, indent=2)
-                print(f"Saved results for {repo} to vulnerability_results.json")
-            
-            print(f"Completed scan of {repo}")
+            try:
+                print(f"Starting scan of repository: {repo}")
+                results = scanner.scan_repository(repo)
+                
+                # Add results to evaluator
+                for result in results:
+                    evaluator.add_result(result)
+                
+                print(f"Completed scan of {repo}")
+            except Exception as e:
+                print(f"Error scanning repository {repo}: {e}")
+                # Continue with next repository even if one fails
+                continue
         
         # Calculate and save metrics
         metrics = evaluator.calculate_metrics()
@@ -728,7 +859,10 @@ def main():
         print(json.dumps(metrics, indent=2))
         
         print("All scans completed successfully!")
+    except Exception as e:
+        print(f"Unexpected error in main function: {e}")
     finally:
+        # Always close the scanner to properly shut down database connections
         scanner.close()
 
 
