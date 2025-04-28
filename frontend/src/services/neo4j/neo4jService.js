@@ -10,7 +10,7 @@ import nvdService from './nvdService';
 
 class Neo4jService {
   constructor() {
-    this.uri = import.meta.env.VITE_NEO4J_URI
+    this.uri = import.meta.env.VITE_NEO4J_URI || import.meta.env.PRODUCTION.VITE_NEO4J_URI || 'bolt://localhost:7687'
     this.user = import.meta.env.VITE_NEO4J_USER
     this.password = import.meta.env.VITE_NEO4J_PASSWORD
     

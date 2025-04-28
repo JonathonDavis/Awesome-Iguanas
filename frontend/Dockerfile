@@ -35,6 +35,6 @@ RUN apk add --no-cache openssl && \
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # Expose both HTTP and HTTPS ports
-EXPOSE 80 443 8080
+EXPOSE 80 443 8080 11434 7867
 
 CMD ["nginx", "-g", "daemon off;"]
