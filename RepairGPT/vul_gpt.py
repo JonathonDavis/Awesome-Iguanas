@@ -3,98 +3,220 @@ import mimetypes
 import os
 import subprocess
 import json
+import requests
+from typing import List, Dict, Any, Optional
 
 class VulnerabilityScanner:
-    def __init__(self, uri, username, password):
+    """
+    Initialize a VulnerabilityScanner object to interact with the graph database
+
+    :param uri: The URI for the graph database
+    :param username: The username for authentication
+    :param password: The password for authentication
+    :param deepseek_api_key: API key for DeepSeek service
+    :param deepseek_api_url: URL for the DeepSeek API endpoint
+    """
+    def __init__(self, uri, username, password, deepseek_api_key, deepseek_api_url="https://api.deepseek.com/v1/chat/completions"):
+        """
+        Initialize a VulnerabilityScanner object to interact with the graph database
+
+        :param uri: The URI for the graph database
+        :param username: The username for authentication
+        :param password: The password for authentication
+        :param deepseek_api_key: API key for DeepSeek service
+        :param deepseek_api_url: URL for the DeepSeek API endpoint
+        """
         self.driver = GraphDatabase.driver(uri, auth=(username, password))
+        self.deepseek_api_key = deepseek_api_key
+        self.deepseek_api_url = deepseek_api_url
+
         # Blocked file extensions and types
+        # These files are not analyzed for security issues
         self.blocked_extensions = ['.css', '.lock', '.md', '.min.js', '.scss', '.txt', '.rst']
+
+        # Maximum file size for analysis
+        # Files larger than this size are not analyzed
+        # This is a reasonable limit to prevent excessive memory usage
         self.max_file_size = 200000  # 200,000 characters
 
     def close(self):
+        """
+        Close the connection to the graph database
+        """
         self.driver.close()
 
     def get_repositories(self):
-        """Fetch all repositories from the database"""
+        """
+        Fetch all repositories from the database
+
+        :return: A list of URLs for all repositories in the database
+        """
         with self.driver.session() as session:
             result = session.run("MATCH (r:Repository) RETURN r.url as url")
             return [record["url"] for record in result]
 
+
     def get_repository_versions(self, repo_url):
-        """Get all versions (revisions) for a specific repository"""
+        """
+        Get all versions (revisions) for a specific repository
+
+        :param repo_url: The URL of the repository to fetch versions for
+        :return: A list of dictionaries containing the version and ID of each version
+        """
         with self.driver.session() as session:
+            # Query the database for all versions of the given repository
             query = """
             MATCH (r:Repository {url: $repo_url})-[:HAS_VERSION]->(v:Version)
             RETURN v.version as version, v.id as id
             """
             result = session.run(query, repo_url=repo_url)
+
+            # Return the results as a list of dictionaries
             return [{"version": record["version"], "id": record["id"]} for record in result]
 
     def get_vulnerabilities_for_repo(self, repo_url):
-        """Get vulnerabilities associated with a repository"""
+        """
+        Get vulnerabilities associated with a repository
+
+        Parameters
+        ----------
+        repo_url : str
+            The URL of the repository to fetch vulnerabilities for
+
+        Returns
+        -------
+        list
+            A list of dictionaries containing the ID, details, severity, and severity score of each vulnerability
+        """
         with self.driver.session() as session:
+            # Query the database for all vulnerabilities associated with the given repository
             query = """
             MATCH (v:Vulnerability)-[:FOUND_IN]->(r:Repository {url: $repo_url})
             RETURN v.id as id, v.details as details, v.severity as severity,
                    v.severityScore as score
             """
+            # Run the query
             result = session.run(query, repo_url=repo_url)
+
+            # Return the results as a list of dictionaries
             return [dict(record) for record in result]
 
     def get_related_cves(self, vulnerability_id):
-        """Get related CVEs for a vulnerability"""
+        """
+        Get related CVEs for a vulnerability
+
+        Parameters
+        ----------
+        vulnerability_id : str
+            The ID of the vulnerability to fetch related CVEs for
+
+        Returns
+        -------
+        list
+            A list of CVE IDs related to the given vulnerability
+        """
         with self.driver.session() as session:
             query = """
             MATCH (v:Vulnerability {id: $vuln_id})-[:RELATED_TO]->(cve:CVE)
             RETURN cve.id as id
             """
             result = session.run(query, vuln_id=vulnerability_id)
+            # Return the results as a list of CVE IDs
             return [record["id"] for record in result]
         
     def should_process_file(self, file_path, content):
         """
         Determine if a file should be processed based on filtering criteria:
-        - Not in blocked extensions
-        - Not in a path starting with a dot
-        - Not larger than max file size
-        - Has a text MIME type
+
+        1. Not in blocked extensions
+        2. Not in a path starting with a dot (hidden files/directories)
+        3. Not larger than max file size
+        4. Has a text MIME type
+
+        Parameters
+        ----------
+        file_path : str
+            The path of the file to check
+        content : str
+            The content of the file
+
+        Returns
+        -------
+        bool
+            True if the file should be processed, False otherwise
         """
-        # Check file extension
+        # 1. Check file extension
         _, ext = os.path.splitext(file_path)
         if ext.lower() in self.blocked_extensions:
+            # If the file has a blocked extension, don't process it
             return False
         
-        # Check if path starts with a dot (hidden files/directories)
+        # 2. Check if path starts with a dot (hidden files/directories)
         if any(part.startswith('.') for part in file_path.split('/')):
+            # If the path starts with a dot, don't process it
             return False
         
-        # Check file size
+        # 3. Check file size
         if len(content) > self.max_file_size:
+            # If the file is too large, don't process it
             return False
         
-        # Check MIME type (ensure it's text)
+        # 4. Check MIME type (ensure it's text)
         mime_type, _ = mimetypes.guess_type(file_path)
         if mime_type and not mime_type.startswith('text/'):
+            # If the MIME type is not text, don't process it
             return False
         
+        # If the file passes all filters, process it
         return True
 
     def clone_repository(self, repo_url, version):
-        """Clone a repository and checkout a specific version"""
+        """
+        Clone a repository and checkout a specific version.
+
+        Parameters
+        ----------
+        repo_url : str
+            The URL of the repository to clone
+        version : str
+            The version of the repository to checkout
+
+        Returns
+        -------
+        str
+            The path to the temporary directory containing the cloned repository
+        """
         repo_name = repo_url.split('/')[-1]
         temp_dir = f"temp_{repo_name}_{version.replace('/', '_')}"
         
         # Clone repo
         if not os.path.exists(temp_dir):
+            # Clone the repository if it doesn't already exist
             subprocess.run(["git", "clone", repo_url, temp_dir], check=True)
         
         # Checkout specific version
+        # Checkout the specified version of the repository
         subprocess.run(["git", "-C", temp_dir, "checkout", version], check=True)
         
         return temp_dir
 
     def get_code_files(self, repo_dir):
-        """Get all relevant code files from a repository"""
+        """
+        Get all relevant code files from a repository
+        
+        Walks the directory tree and checks each file to see if it should be processed.
+        If the file should be processed, its path and content are added to the list of code files.
+        
+        Parameters
+        ----------
+        repo_dir : str
+            The directory of the repository
+        
+        Returns
+        -------
+        list
+            List of dictionaries with file paths and content
+        """
         code_files = []
         
         for root, _, files in os.walk(repo_dir):
@@ -108,6 +230,7 @@ class VulnerabilityScanner:
                     
                     if self.should_process_file(rel_path, content):
                         code_files.append({
+                            # Store the relative path so that we can reconstruct the file later
                             "path": rel_path,
                             "content": content
                         })
@@ -116,54 +239,90 @@ class VulnerabilityScanner:
                     continue
         
         return code_files
-    def analyze_with_ollama(self, code_data, vulnerabilities):
+
+    def analyze_with_deepseek(self, code_data, vulnerabilities):
         """
-        Send code snippets to Ollama for vulnerability analysis
+        Send code snippets to DeepSeek API for vulnerability analysis
         
         Args:
             code_data (list): List of dictionaries with file paths and content
             vulnerabilities (list): List of vulnerabilities associated with the repository
         
         Returns:
-            list: List of findings from Ollama
+            list: List of findings from DeepSeek
         """
-        # Create the prompt for Ollama
+        # Create the prompt for DeepSeek
         prompt = self._create_analysis_prompt(code_data, vulnerabilities)
-        print(f"    Sending prompt of {len(prompt)} characters to Ollama")
+        print(f"    Sending prompt of {len(prompt)} characters to DeepSeek API")
         
-        # Call Ollama locally (no API, direct shell command)
+        # Prepare the request payload
+        payload = {
+            "model": "deepseek-chat",  # or the specific model ID you want to use
+            "messages": [
+                {"role": "system", "content": "You are VulGPT, an expert in identifying security vulnerabilities in code."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1,  # Lower temperature for more deterministic responses
+            "max_tokens": 4000   # Adjust based on expected response length
+        }
+        
+        # Add headers with API key
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.deepseek_api_key}"
+        }
+        
         try:
-            result = subprocess.run(
-                ["ollama", "run", "llama3", prompt],
-                capture_output=True,
-                text=True,
-                check=True
+            # Make the API request
+            response = requests.post(
+                self.deepseek_api_url,
+                headers=headers,
+                json=payload
             )
-            print(f"    Received response of {len(result.stdout)} characters")
+            
+            # Check if the request was successful
+            response.raise_for_status()
             
             # Parse the response
-            findings = self._parse_ollama_response(result.stdout)
-            print(f"    Extracted {len(findings)} findings from response")
-            return findings
-        except subprocess.CalledProcessError as e:
-            print(f"    Error calling Ollama: {e}")
-            print(f"    Stderr: {e.stderr}")
+            result = response.json()
+            print(f"    Received response from DeepSeek API")
+            
+            # Extract the content from the response
+            if "choices" in result and len(result["choices"]) > 0:
+                content = result["choices"][0]["message"]["content"]
+                print(f"    Response length: {len(content)} characters")
+                
+                # Parse the content
+                findings = self._parse_deepseek_response(content)
+                print(f"    Extracted {len(findings)} findings from response")
+                return findings
+            else:
+                print(f"    Unexpected response format: {result}")
+                return []
+                
+        except requests.exceptions.RequestException as e:
+            print(f"    Error calling DeepSeek API: {e}")
+            if hasattr(e, 'response') and e.response:
+                print(f"    Status code: {e.response.status_code}")
+                print(f"    Response: {e.response.text}")
             return []
 
     def _create_analysis_prompt(self, code_data, vulnerabilities):
         """
-        Create a structured prompt for Ollama based on code snippets and vulnerabilities
+        Create a structured prompt for DeepSeek based on provided code snippets and vulnerabilities.
         
         Args:
-            code_data: List of dictionaries with file paths and content
-            vulnerabilities: List of vulnerabilities associated with the repository
+            code_data (list): List of dictionaries containing file paths and content of code snippets.
+            vulnerabilities (list): List of vulnerabilities associated with the repository.
         
         Returns:
-            A string prompt for Ollama to analyze the code snippets for potential security issues
+            str: A formatted string prompt for DeepSeek to analyze the code snippets for potential security issues.
         """
-        # Create a list of CVE/CWE references
+        
+        # Create a list of vulnerability references with related CVEs
         vulnerability_references = []
         for vuln in vulnerabilities:
+            # Get related CVEs for each vulnerability
             cves = self.get_related_cves(vuln["id"])
             vulnerability_references.append({
                 "id": vuln["id"],
@@ -173,10 +332,9 @@ class VulnerabilityScanner:
                 "related_cves": cves
             })
         
-        # Construct the prompt
+        # Start constructing the prompt with an introductory message
         prompt = """
-You are VulGPT, an expert in identifying security vulnerabilities in code. 
-Analyze the following code snippets for potential security issues.
+Analyze the following code snippets for potential security vulnerabilities.
 
 For each vulnerability you identify, provide:
 1. HEADLINE: A concise title for the vulnerability
@@ -188,17 +346,19 @@ For each vulnerability you identify, provide:
 CODE SNIPPETS:
 """
         
-        # Add code snippets (limit total size if needed)
+        # Add code snippets to the prompt, respecting a character limit
         total_chars = 0
         for file in code_data:
-            if total_chars + len(file["content"]) > 50000:  # Reasonable limit for LLM context
+            # Check if adding the file would exceed the character limit
+            if total_chars + len(file["content"]) > 50000:  # Limit for LLM context
                 prompt += f"\n[Additional files omitted due to size constraints]\n"
                 break
-                
+            
+            # Append the file path and content to the prompt
             prompt += f"\n--- {file['path']} ---\n{file['content']}\n"
             total_chars += len(file["content"])
         
-        # Add vulnerability reference information
+        # Add reference information for vulnerabilities
         prompt += "\nREFERENCE VULNERABILITIES:\n"
         for vuln in vulnerability_references:
             prompt += f"\nID: {vuln['id']}\n"
@@ -207,20 +367,19 @@ CODE SNIPPETS:
             prompt += f"SCORE: {vuln['score'] if vuln['score'] else 'Unknown'}\n"
             if vuln['related_cves']:
                 prompt += f"RELATED CVEs: {', '.join(vuln['related_cves'])}\n"
-            
+        
+        # Conclude the prompt with instructions for analysis
         prompt += """
 Please analyze the code carefully and return your findings in the specified format.
 If no vulnerabilities are found, state this clearly.
 """
         return prompt
 
-    def _parse_ollama_response(self, response):
-        """Parse the response from Ollama into a structured format
-        
-        This is a simplified parser - you may need more robust parsing depending on Ollama's output format
+    def _parse_deepseek_response(self, response):
+        """Parse the response from DeepSeek API into a structured format
         
         Args:
-            response (str): The response from Ollama
+            response (str): The response from DeepSeek API
         
         Returns:
             list: A list of dictionaries representing the findings, each with keys:
@@ -234,12 +393,15 @@ If no vulnerabilities are found, state this clearly.
         current_finding = {}
         current_section = None
         
+        # Iterate through each line of the response
         for line in response.split('\n'):
             line = line.strip()
             
+            # Skip empty lines
             if not line:
                 continue
                 
+            # Parse the line based on the section
             if line.startswith("HEADLINE:"):
                 # Start a new finding with the headline
                 if current_finding and 'headline' in current_finding:
@@ -275,10 +437,18 @@ If no vulnerabilities are found, state this clearly.
     
     def scan_repository(self, repo_url):
         """
-        Scan a repository for vulnerabilities:
-        1. Get all versions of the repository
-        2. For each version, retrieve and filter code
-        3. Analyze the code using Ollama
+        Scan a repository for vulnerabilities.
+        
+        The process involves:
+        1. Getting all versions of the repository
+        2. For each version, retrieving and filtering code
+        3. Analyzing the code using DeepSeek API
+        
+        Args:
+            repo_url (str): The URL of the repository to scan
+        
+        Returns:
+            list: A list of dictionaries, each containing the results of a scan for a particular version of the repository
         """
         results = []
         
@@ -298,9 +468,10 @@ If no vulnerabilities are found, state this clearly.
                 code_files = self.get_code_files(repo_dir)
                 print(f"    Found {len(code_files)} relevant files")
                 
-                # Analyze with Ollama
-                analysis = self.analyze_with_ollama(code_files, vulnerabilities)
-                print(f"    Found {len(analysis)} vulnerabilities",'trying to find error')
+                # Analyze with DeepSeek API
+                analysis = self.analyze_with_deepseek(code_files, vulnerabilities)
+                print(f"    Found {len(analysis)} vulnerabilities")
+                
                 # Store results
                 results.append({
                     "repo_url": repo_url,
@@ -308,7 +479,6 @@ If no vulnerabilities are found, state this clearly.
                     "version_id": version_info["id"],
                     "findings": analysis
                 })
-                print(results,'results')
                 
                 # Clean up temporary directory
                 subprocess.run(["rm", "-rf", repo_dir], check=True)
@@ -317,21 +487,43 @@ If no vulnerabilities are found, state this clearly.
         
         return results
 
+
 class EvaluationMetrics:
     def __init__(self, ground_truth=None):
         """
         Initialize with optional ground truth data
-        Ground truth should be a dict with repo+version as keys and lists of known vulnerabilities as values
+        
+        Ground truth should be a dictionary where the keys are strings of the format "repo+version" and the values are lists of dictionaries with the following keys:
+            - headline: a string describing the vulnerability
+            - analysis: a string describing the analysis
+            - cve: a string containing the CVE number
+            - key_functions: a string containing the key functions and filenames
+            - classification: a string containing the classification of the vulnerability
         """
         self.ground_truth = ground_truth or {}
         self.results = []
     
     def add_result(self, result):
-        """Add a scan result to the evaluation"""
+        """
+        Add a scan result to the evaluation
+        
+        Args:
+            result (dict): A dictionary containing the results of a scan for a particular version of the repository
+        """
         self.results.append(result)
     
     def calculate_metrics(self):
-        """Calculate evaluation metrics"""
+        """Calculate evaluation metrics
+        
+        Returns a dictionary with the following keys:
+            - total_repos_scanned: The number of unique repositories scanned
+            - total_versions_scanned: The total number of versions scanned
+            - vulnerability_counts: A dictionary with the number of vulnerabilities found by classification
+            - avg_vulnerabilities_per_version: The average number of vulnerabilities found per version
+            - precision: The precision of the model (TP / (TP + FP))
+            - recall: The recall of the model (TP / (TP + FN))
+            - f1_score: The F1 score of the model (2 * (precision * recall) / (precision + recall))
+        """
         metrics = {
             "total_repos_scanned": len(set(r["repo_url"] for r in self.results)),
             "total_versions_scanned": len(self.results),
@@ -403,13 +595,22 @@ class EvaluationMetrics:
         
         return metrics
 
+
 def main():
+    """Main entry point for the script
+    
+    This function connects to Neo4j, creates a VulnerabilityScanner object, and runs it
+    on all repositories in the database. The results are saved to a JSON file.
+    """
     # Neo4j connection details (update with actual values)
-    uri = "bolt://localhost:7474"
+    uri = "bolt://localhost:7687"
     username = "neo4j"
     password = "jaguarai"
     
-    scanner = VulnerabilityScanner(uri, username, password)
+    # DeepSeek API key (replace with your actual API key)
+    deepseek_api_key = "your_deepseek_api_key_here"
+    
+    scanner = VulnerabilityScanner(uri, username, password, deepseek_api_key)
     evaluator = EvaluationMetrics()
     
     try:
@@ -428,16 +629,17 @@ def main():
                 evaluator.add_result(result)
             
             # Save incremental results in case of failure
-            print(results)
             with open("vulnerability_results.json", "w") as f:
+                # Save the results to a JSON file
                 json.dump(all_results, f, indent=2)
-                print("saved to json")
+                print(f"Saved results for {repo} to vulnerability_results.json")
             
             print(f"Completed scan of {repo}")
         
         # Calculate and save metrics
         metrics = evaluator.calculate_metrics()
         with open("evaluation_metrics.json", "w") as f:
+            # Save the evaluation metrics to a JSON file
             json.dump(metrics, f, indent=2)
         
         print("Evaluation metrics:")
@@ -446,6 +648,7 @@ def main():
         print("All scans completed successfully!")
     finally:
         scanner.close()
+
 
 if __name__ == "__main__":
     main()
