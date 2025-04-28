@@ -334,15 +334,55 @@ class VulnerabilityScanner:
         
         # Start constructing the prompt with an introductory message
         prompt = """
-Analyze the following code snippets for potential security vulnerabilities.
+You are an expert security analyst specializing in identifying software vulnerabilities. Your task is to analyze code revisions and assess the likelihood of introduced vulnerabilities.
 
-For each vulnerability you identify, provide:
-1. HEADLINE: A concise title for the vulnerability
-2. ANALYSIS: A detailed explanation of the vulnerability
-3. MOST RELEVANT CVE: The CVE/CWE that most closely matches this vulnerability
-4. KEY FUNCTIONS & FILENAMES: The specific functions and files where the vulnerability exists
-5. CLASSIFICATION: Categorize as "Very promising" (high-risk), "Slightly promising" (moderate-risk), or "Not promising" (low-risk)
+Instructions:
 
+1.  Analyze the provided codebase revision for potential vulnerabilities. Consider common vulnerability types, including but not limited to those listed in the provided CVEs/CWEs. Pay close attention to changes in code logic, data flow, and function calls.
+2.  For each potential vulnerability identified, provide the following information in a structured format:
+
+    Headline: A concise and descriptive title for the vulnerability.
+    Analysis: A detailed explanation of the vulnerability, including:
+        * The specific code changes that introduced or exacerbated the vulnerability.
+        * The potential impact or exploit scenario.
+        * Why this change is concerning from a security perspective.
+    Most Relevant CVE/CWE:** The most relevant Common Vulnerabilities and Exposures (CVE) or Common Weakness Enumeration (CWE) identifier that categorizes the vulnerability type. If a direct match is not available, provide the closest applicable CVE/CWE.
+    List of Most Concerned Functions: A list of the function names within the provided code revision that are most directly involved in the vulnerability.
+    List of Most Concerned Filenames: A list of the filenames within the provided code revision that are most directly involved in the vulnerability.
+    Classification: A classification of the likelihood of this being a real, exploitable vulnerability:
+        * "Very Promising": The vulnerability is highly likely to be exploitable and poses a significant security risk. Requires immediate attention.
+        * "Slightly Promising": The vulnerability has the potential to be exploitable, but the risk is lower or requires specific conditions. Further investigation is warranted.
+        * "Not Promising": The code change is unlikely to introduce a real vulnerability. This requires less urgent attention.
+
+3.  Present your findings in a clear and organized manner. If no vulnerabilities are found, explicitly state "No vulnerabilities found."
+
+4.  Strictly adhere to the output format. Inconsistent formatting will be penalized.
+
+Output Format:
+
+\[
+    {
+        "vulnerabilities": \[
+            {
+                "headline": "\[Vulnerability Headline 1]",
+                "analysis": "\[Detailed analysis of vulnerability 1]",
+                "most_relevant_cve_cwe": "\[CVE/CWE Identifier 1]",
+                "most_concerned_functions": \["function1", "function2"\],
+                "most_concerned_filenames": \["file1.txt", "file2.c"\],
+                "classification": "\[Very Promising | Slightly Promising | Not Promising]"
+            },
+            {
+                "headline": "\[Vulnerability Headline 2]",
+                "analysis": "\[Detailed analysis of vulnerability 2]",
+                "most_relevant_cve_cwe": "\[CVE/CWE Identifier 2]",
+                 "most_concerned_functions": \["functionA", "functionB", "functionC"\],
+                "most_concerned_filenames": \["fileX.py" ],
+                "classification": "\[Very Promising | Slightly Promising | Not Promising]"
+            },
+            // ... more vulnerabilities as needed
+        ]
+    }
+]
 CODE SNIPPETS:
 """
         
