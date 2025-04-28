@@ -57,12 +57,6 @@ class VulnerabilityScanner:
 
 
     def get_repository_versions(self, repo_url):
-        """
-        Get all versions (revisions) for a specific repository
-
-        :param repo_url: The URL of the repository to fetch versions for
-        :return: A list of dictionaries containing the version and ID of each version
-        """
         with self.driver.session() as session:
             # Query the database for all versions of the given repository
             query = """
@@ -72,8 +66,15 @@ class VulnerabilityScanner:
             result = session.run(query, repo_url=repo_url)
 
             # Return the results as a list of dictionaries
-            return [{"version": record["version"], "id": record["id"]} for record in result]
-
+            versions = [{"version": record["version"], "id": record["id"]} for record in result]
+            
+            # Clean up the version strings to remove 'HEAD ->' prefixes
+            for version_info in versions:
+                if version_info["version"] and "HEAD -> " in version_info["version"]:
+                    # Extract just the branch name after 'HEAD -> '
+                    version_info["version"] = version_info["version"].split("HEAD -> ")[1]
+            
+            return versions
     def get_vulnerabilities_for_repo(self, repo_url):
         """
         Get vulnerabilities associated with a repository
@@ -172,34 +173,75 @@ class VulnerabilityScanner:
 
     def clone_repository(self, repo_url, version):
         """
-        Clone a repository and checkout a specific version.
+        Clone a GitHub repository to a temporary directory.
+
+        This method clones a given GitHub repository to a temporary directory
+        and checks out the specified version (branch or tag). If the version
+        string contains "HEAD -> ", it will be cleaned up to only contain the
+        actual branch/tag name.
 
         Parameters
         ----------
         repo_url : str
-            The URL of the repository to clone
+            The URL of the GitHub repository to clone.
         version : str
-            The version of the repository to checkout
+            The version (branch/tag) to check out in the cloned repository.
 
         Returns
         -------
         str
-            The path to the temporary directory containing the cloned repository
+            The path to the temporary directory containing the cloned repository.
         """
+        if version and "HEAD -> " in version:
+            version = version.split("HEAD -> ")[1]
+        
         repo_name = repo_url.split('/')[-1]
         temp_dir = f"temp_{repo_name}_{version.replace('/', '_')}"
         
-        # Clone repo
-        if not os.path.exists(temp_dir):
-            # Clone the repository if it doesn't already exist
-            subprocess.run(["git", "clone", repo_url, temp_dir], check=True)
+        try:
+            # Clone repo if it doesn't exist
+            if not os.path.exists(temp_dir):
+                print(f"Cloning into '{temp_dir}'...")
+                subprocess.run(["git", "clone", repo_url, temp_dir], check=True)
+            
+            # Fetch latest changes
+            subprocess.run(["git", "-C", temp_dir, "fetch", "origin"], check=True)
+            
+            # Try different checkout strategies
+            try:
+                # Try direct checkout
+                subprocess.run(["git", "-C", temp_dir, "checkout", version], check=True)
+            except subprocess.CalledProcessError:
+                try:
+                    # Try checkout with origin prefix
+                    subprocess.run(["git", "-C", temp_dir, "checkout", f"origin/{version}"], check=True)
+                except subprocess.CalledProcessError:
+                    # Try checking if it's already on the correct branch
+                    result = subprocess.run(
+                        ["git", "-C", temp_dir, "rev-parse", "--abbrev-ref", "HEAD"], 
+                        capture_output=True, 
+                        text=True,
+                        check=True
+                    )
+                    current_branch = result.stdout.strip()
+                    
+                    if current_branch == version:
+                        # Already on the correct branch, no need to do anything
+                        print(f"Already on branch '{version}'")
+                    else:
+                        # If all checkout attempts fail, print available branches and raise exception
+                        print(f"Could not checkout version '{version}'. Available branches:")
+                        subprocess.run(["git", "-C", temp_dir, "branch", "-a"], check=False)
+                        raise ValueError(f"Could not checkout version '{version}' in any way")
+            
+            return temp_dir
+        except Exception as e:
+            print(f"Error in clone_repository: {e}")
+            # Clean up the directory if it exists and we encountered an error
+            if os.path.exists(temp_dir):
+                subprocess.run(["rm", "-rf", temp_dir], check=False)
+            raise
         
-        # Checkout specific version
-        # Checkout the specified version of the repository
-        subprocess.run(["git", "-C", temp_dir, "checkout", version], check=True)
-        
-        return temp_dir
-
     def get_code_files(self, repo_dir):
         """
         Get all relevant code files from a repository
