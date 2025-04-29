@@ -360,7 +360,7 @@ class VulnerabilityScanner:
             vulnerabilities (list): List of vulnerabilities associated with the repository
         
         Returns:
-            list: List of findings from DeepSeek
+            list: List of findings from DeepSeek and the raw API response
         """
         # Create the prompt for DeepSeek
         prompt = self._create_analysis_prompt(code_data, vulnerabilities)
@@ -409,9 +409,29 @@ class VulnerabilityScanner:
                     content = result["choices"][0]["message"]["content"]
                     print(f"    Response length: {len(content)} characters")
                     
+                    # Save raw response for debugging
+                    raw_response = content
+                    
                     # Parse the content
                     findings = self._parse_deepseek_response(content)
                     print(f"    Extracted {len(findings)} findings from response")
+                    
+                    # Add raw response to findings
+                    if len(findings) == 0:
+                        # If no structured findings were found, create a placeholder with the raw response
+                        findings = [{
+                            "headline": "Raw DeepSeek Response",
+                            "analysis": raw_response[:500] + "..." if len(raw_response) > 500 else raw_response,
+                            "cve": "N/A",
+                            "key_functions": "N/A",
+                            "classification": "N/A",
+                            "raw_response": raw_response
+                        }]
+                    else:
+                        # Add raw response to each finding
+                        for finding in findings:
+                            finding["raw_response"] = raw_response
+                    
                     return findings
                 else:
                     print(f"    Unexpected response format: {result}")
@@ -419,19 +439,37 @@ class VulnerabilityScanner:
                         print(f"    Retrying in {retry_delay} seconds...")
                         time.sleep(retry_delay)
                     else:
-                        return []
+                        # Return the error as a finding
+                        return [{
+                            "headline": "DeepSeek API Error",
+                            "analysis": f"Unexpected response format: {json.dumps(result)[:500]}...",
+                            "cve": "N/A",
+                            "key_functions": "N/A",
+                            "classification": "N/A",
+                            "raw_response": json.dumps(result)
+                        }]
                     
             except requests.exceptions.RequestException as e:
                 print(f"    Error calling DeepSeek API (attempt {attempt+1}/{max_retries}): {e}")
+                error_details = ""
                 if hasattr(e, 'response') and e.response:
                     print(f"    Status code: {e.response.status_code}")
                     print(f"    Response: {e.response.text}")
+                    error_details = f"Status code: {e.response.status_code}, Response: {e.response.text[:300]}..."
                 
                 if attempt < max_retries - 1:
                     print(f"    Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                 else:
-                    return []
+                    # Return the error as a finding
+                    return [{
+                        "headline": "DeepSeek API Request Error",
+                        "analysis": f"Error calling DeepSeek API: {str(e)[:500]}... {error_details}",
+                        "cve": "N/A",
+                        "key_functions": "N/A",
+                        "classification": "N/A",
+                        "raw_response": f"Error: {str(e)}, Details: {error_details}"
+                    }]
 
     def _create_analysis_prompt(self, code_data, vulnerabilities):
         """
@@ -559,24 +597,36 @@ If no vulnerabilities are found, state this clearly.
         current_finding = {}
         current_section = None
         
+        # First, try to extract "No vulnerabilities found" statement
+        if "No vulnerabilities found" in response:
+            print("    DeepSeek reported no vulnerabilities found")
+            return []
+        
         # Try to parse JSON response first
         try:
-            json_data = json.loads(response)
-            if isinstance(json_data, list) and len(json_data) > 0 and "vulnerabilities" in json_data[0]:
-                vulns = json_data[0]["vulnerabilities"]
-                for vuln in vulns:
-                    finding = {
-                        "headline": vuln.get("headline", ""),
-                        "analysis": vuln.get("analysis", ""),
-                        "cve": vuln.get("most_relevant_cve_cwe", ""),
-                        "key_functions": ", ".join(vuln.get("most_concerned_functions", [])),
-                        "classification": vuln.get("classification", "")
-                    }
-                    findings.append(finding)
-                return findings
-        except json.JSONDecodeError:
-            # Not valid JSON, continue with text parsing
-            pass
+            # Find the JSON part in the response (it might be surrounded by other text)
+            json_start = response.find('[')
+            json_end = response.rfind(']') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_text = response[json_start:json_end]
+                json_data = json.loads(json_text)
+                
+                if isinstance(json_data, list) and len(json_data) > 0 and "vulnerabilities" in json_data[0]:
+                    vulns = json_data[0]["vulnerabilities"]
+                    for vuln in vulns:
+                        finding = {
+                            "headline": vuln.get("headline", ""),
+                            "analysis": vuln.get("analysis", ""),
+                            "cve": vuln.get("most_relevant_cve_cwe", ""),
+                            "key_functions": ", ".join(vuln.get("most_concerned_functions", [])),
+                            "key_filenames": ", ".join(vuln.get("most_concerned_filenames", [])),
+                            "classification": vuln.get("classification", "")
+                        }
+                        findings.append(finding)
+                    return findings
+        except (json.JSONDecodeError, IndexError, KeyError) as e:
+            print(f"    JSON parsing error: {e}. Falling back to text parsing.")
         
         # Iterate through each line of the response
         for line in response.split('\n'):
@@ -587,28 +637,32 @@ If no vulnerabilities are found, state this clearly.
                 continue
                 
             # Parse the line based on the section
-            if line.startswith("HEADLINE:"):
+            if line.startswith("HEADLINE:") or line.startswith("Headline:"):
                 # Start a new finding with the headline
                 if current_finding and 'headline' in current_finding:
                     findings.append(current_finding)
                     current_finding = {}
-                current_finding['headline'] = line[len("HEADLINE:"):].strip()
+                current_finding['headline'] = line.split(":", 1)[1].strip()
                 current_section = 'headline'
-            elif line.startswith("ANALYSIS:"):
+            elif line.startswith("ANALYSIS:") or line.startswith("Analysis:"):
                 # Set the analysis for the current finding
-                current_finding['analysis'] = line[len("ANALYSIS:"):].strip()
+                current_finding['analysis'] = line.split(":", 1)[1].strip()
                 current_section = 'analysis'
-            elif line.startswith("MOST RELEVANT CVE:"):
+            elif line.startswith("MOST RELEVANT CVE:") or line.startswith("Most Relevant CVE:") or line.startswith("MOST RELEVANT CVE/CWE:") or line.startswith("Most Relevant CVE/CWE:"):
                 # Set the CVE for the current finding
-                current_finding['cve'] = line[len("MOST RELEVANT CVE:"):].strip()
+                current_finding['cve'] = line.split(":", 1)[1].strip()
                 current_section = 'cve'
-            elif line.startswith("KEY FUNCTIONS & FILENAMES:"):
-                # Set the key functions and filenames for the current finding
-                current_finding['key_functions'] = line[len("KEY FUNCTIONS & FILENAMES:"):].strip()
+            elif line.startswith("KEY FUNCTIONS & FILENAMES:") or line.startswith("Key Functions & Filenames:") or line.startswith("MOST CONCERNED FUNCTIONS:") or line.startswith("Most Concerned Functions:"):
+                # Set the key functions for the current finding
+                current_finding['key_functions'] = line.split(":", 1)[1].strip()
                 current_section = 'key_functions'
-            elif line.startswith("CLASSIFICATION:"):
+            elif line.startswith("MOST CONCERNED FILENAMES:") or line.startswith("Most Concerned Filenames:"):
+                # Set the filenames for the current finding
+                current_finding['key_filenames'] = line.split(":", 1)[1].strip()
+                current_section = 'key_filenames'
+            elif line.startswith("CLASSIFICATION:") or line.startswith("Classification:"):
                 # Set the classification for the current finding
-                current_finding['classification'] = line[len("CLASSIFICATION:"):].strip()
+                current_finding['classification'] = line.split(":", 1)[1].strip()
                 current_section = 'classification'
             elif current_section:
                 # Append to the current section if continuation
@@ -689,16 +743,36 @@ If no vulnerabilities are found, state this clearly.
                 print(f"    Successfully processed version {version}")
             except Exception as e:
                 print(f"    Error processing version {version}: {e}")
+                
+                # Create an error finding
+                error_finding = {
+                    "headline": f"Error Processing {version}",
+                    "analysis": f"An error occurred while processing this version: {str(e)}",
+                    "cve": "N/A",
+                    "key_functions": "N/A",
+                    "classification": "Error",
+                    "raw_error": str(e)
+                }
+                
+                # Create a result with the error
+                error_result = {
+                    "repo_url": repo_url,
+                    "version": version,
+                    "version_id": version_id,
+                    "findings": [error_finding]
+                }
+                
+                # Add to results and save
+                results.append(error_result)
+                self.save_results([error_result])
+                
                 # Try to clean up if the directory exists
                 try:
                     if 'repo_dir' in locals() and os.path.exists(repo_dir):
                         subprocess.run(["rm", "-rf", repo_dir], check=False)
                 except:
-                    pass
-        
-        return results
-
-
+                    pass 
+            
 class EvaluationMetrics:
     def __init__(self, ground_truth=None):
         """
@@ -734,6 +808,7 @@ class EvaluationMetrics:
             - precision: The precision of the model (TP / (TP + FP))
             - recall: The recall of the model (TP / (TP + FN))
             - f1_score: The F1 score of the model (2 * (precision * recall) / (precision + recall))
+            - raw_response_stats: Statistics about raw responses
         """
         metrics = {
             "total_repos_scanned": len(set(r["repo_url"] for r in self.results)),
@@ -741,7 +816,15 @@ class EvaluationMetrics:
             "vulnerability_counts": {
                 "very_promising": 0,
                 "slightly_promising": 0,
-                "not_promising": 0
+                "not_promising": 0,
+                "error": 0,
+                "raw_response_only": 0
+            },
+            "raw_response_stats": {
+                "total_responses": 0, 
+                "avg_length": 0,
+                "min_length": float('inf'),
+                "max_length": 0
             },
             "avg_vulnerabilities_per_version": 0,
             "precision": None,
@@ -749,22 +832,48 @@ class EvaluationMetrics:
             "f1_score": None
         }
         
-        # Count vulnerabilities by classification
+        # Count vulnerabilities by classification and collect raw response stats
         total_findings = 0
+        total_raw_responses = 0
+        total_raw_response_length = 0
+        min_raw_response_length = float('inf')
+        max_raw_response_length = 0
+        
         for result in self.results:
             for finding in result["findings"]:
                 total_findings += 1
-                classification = finding["classification"].lower()
+                
+                # Track raw responses
+                if "raw_response" in finding:
+                    total_raw_responses += 1
+                    raw_length = len(finding["raw_response"])
+                    total_raw_response_length += raw_length
+                    min_raw_response_length = min(min_raw_response_length, raw_length)
+                    max_raw_response_length = max(max_raw_response_length, raw_length)
+                
+                # Count by classification
+                classification = finding.get("classification", "").lower()
                 if "very promising" in classification:
                     metrics["vulnerability_counts"]["very_promising"] += 1
                 elif "slightly promising" in classification:
                     metrics["vulnerability_counts"]["slightly_promising"] += 1
                 elif "not promising" in classification:
                     metrics["vulnerability_counts"]["not_promising"] += 1
+                elif "error" in classification:
+                    metrics["vulnerability_counts"]["error"] += 1
+                elif finding.get("headline") == "Raw DeepSeek Response":
+                    metrics["vulnerability_counts"]["raw_response_only"] += 1
         
         # Calculate average vulnerabilities per version
         if metrics["total_versions_scanned"] > 0:
             metrics["avg_vulnerabilities_per_version"] = total_findings / metrics["total_versions_scanned"]
+        
+        # Calculate raw response statistics
+        if total_raw_responses > 0:
+            metrics["raw_response_stats"]["total_responses"] = total_raw_responses
+            metrics["raw_response_stats"]["avg_length"] = total_raw_response_length / total_raw_responses
+            metrics["raw_response_stats"]["min_length"] = min_raw_response_length if min_raw_response_length != float('inf') else 0
+            metrics["raw_response_stats"]["max_length"] = max_raw_response_length
         
         # Calculate precision, recall, F1 (if ground truth available)
         if self.ground_truth:
@@ -782,7 +891,7 @@ class EvaluationMetrics:
                     # High and medium risk findings from LLM
                     found_vulns = set()
                     for finding in result["findings"]:
-                        classification = finding["classification"].lower()
+                        classification = finding.get("classification", "").lower()
                         if "very promising" in classification or "slightly promising" in classification:
                             # Use CVE ID or headline as identifier
                             vuln_id = finding.get("cve", "").strip() or finding["headline"]
@@ -806,7 +915,6 @@ class EvaluationMetrics:
         
         return metrics
 
-
 def main():
     """Main entry point for the script
     
@@ -822,7 +930,12 @@ def main():
     deepseek_api_key = "your_deepseek_api_key_here"
     
     # Results file path
-    results_file = "vulnerability_results.json"
+    results_file = "vulnerability_results_debug.json"
+    
+    # Create a debug log file
+    log_file = "vulnerability_scanner_debug.log"
+    with open(log_file, 'w') as f:
+        f.write(f"Starting vulnerability scan at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     
     # Create the scanner with specified results file
     scanner = VulnerabilityScanner(uri, username, password, deepseek_api_key, results_file=results_file)
@@ -831,12 +944,22 @@ def main():
     try:
         # Get all repositories or specify particular ones
         repos = scanner.get_repositories()
-        # repos = ["https://github.com/abantecart/abantecart-src"]  # For testing/debugging
+        # For testing/debugging, you might want to limit to a few repositories
+        # repos = ["https://github.com/abantecart/abantecart-src"]
+        
+        # Log the repositories to be scanned
+        with open(log_file, 'a') as f:
+            f.write(f"Found {len(repos)} repositories to scan\n")
+            for repo in repos:
+                f.write(f"  {repo}\n")
         
         # Process each repository with error handling
         for repo in repos:
             try:
                 print(f"Starting scan of repository: {repo}")
+                with open(log_file, 'a') as f:
+                    f.write(f"Starting scan of repository: {repo}\n")
+                
                 results = scanner.scan_repository(repo)
                 
                 # Add results to evaluator
@@ -844,23 +967,36 @@ def main():
                     evaluator.add_result(result)
                 
                 print(f"Completed scan of {repo}")
+                with open(log_file, 'a') as f:
+                    f.write(f"Completed scan of {repo}\n")
+                    
             except Exception as e:
                 print(f"Error scanning repository {repo}: {e}")
+                with open(log_file, 'a') as f:
+                    f.write(f"Error scanning repository {repo}: {e}\n")
                 # Continue with next repository even if one fails
                 continue
         
         # Calculate and save metrics
         metrics = evaluator.calculate_metrics()
-        with open("evaluation_metrics.json", "w") as f:
+        with open("evaluation_metrics_debug.json", "w") as f:
             # Save the evaluation metrics to a JSON file
             json.dump(metrics, f, indent=2)
         
         print("Evaluation metrics:")
         print(json.dumps(metrics, indent=2))
+        with open(log_file, 'a') as f:
+            f.write("Evaluation metrics:\n")
+            f.write(json.dumps(metrics, indent=2) + "\n")
         
         print("All scans completed successfully!")
+        with open(log_file, 'a') as f:
+            f.write(f"All scans completed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            
     except Exception as e:
         print(f"Unexpected error in main function: {e}")
+        with open(log_file, 'a') as f:
+            f.write(f"Unexpected error in main function: {e}\n")
     finally:
         # Always close the scanner to properly shut down database connections
         scanner.close()
