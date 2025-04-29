@@ -79,8 +79,9 @@ class VulnerabilityScanner:
         """
         processed = set()
         for result in self.all_results:
-            key = f"{result['repo_url']}:{result['version_id']}"
-            processed.add(key)
+            if isinstance(result, dict) and 'repo_url' in result and 'version_id' in result:
+                key = f"{result['repo_url']}:{result['version_id']}"
+                processed.add(key)
         return processed
 
     def save_results(self, new_results=None):
@@ -88,12 +89,17 @@ class VulnerabilityScanner:
         Save all results to the specified file with error handling
         
         Args:
-            new_results (list, optional): New results to add before saving
+            new_results (list or dict, optional): New results to add before saving
         """
         try:
             # Add new results if provided
             if new_results:
-                self.all_results.extend(new_results)
+                # Handle if new_results is a single dict (not a list)
+                if isinstance(new_results, dict):
+                    self.all_results.append(new_results)
+                else:
+                    # If it's a list, extend the results list
+                    self.all_results.extend(new_results)
             
             # Create a temporary file first to avoid corruption if the process is killed during write
             temp_file = f"{self.results_file}.tmp"
@@ -107,6 +113,7 @@ class VulnerabilityScanner:
         except Exception as e:
             print(f"Error saving results to {self.results_file}: {e}")
 
+
     def close(self):
         """
         Close the connection to the graph database
@@ -115,13 +122,22 @@ class VulnerabilityScanner:
 
     def get_repositories(self):
         """
-        Fetch all repositories from the database
+        Fetch all repositories from the database, excluding the Linux repository
 
-        :return: A list of URLs for all repositories in the database
+        :return: A list of URLs for repositories in the database (excluding Linux)
         """
         with self.driver.session() as session:
             result = session.run("MATCH (r:Repository) RETURN r.url as url")
-            return [record["url"] for record in result]
+            repos = [record["url"] for record in result]
+            
+            # Filter out the Linux repository
+            filtered_repos = [repo for repo in repos if repo != "https://github.com/torvalds/linux"]
+            
+            # Log the skipped repository
+            if len(repos) != len(filtered_repos):
+                print(f"Skipping repository: https://github.com/torvalds/linux")
+                
+            return filtered_repos
 
 
     def get_repository_versions(self, repo_url):
@@ -309,7 +325,7 @@ class VulnerabilityScanner:
             # Clean up the directory if it exists and we encountered an error
             if os.path.exists(temp_dir):
                 subprocess.run(["rm", "-rf", temp_dir], check=False)
-            raise
+            raisef
         
     def get_code_files(self, repo_dir):
         """
@@ -578,6 +594,98 @@ Please analyze the code carefully and return your findings in the specified form
 If no vulnerabilities are found, state this clearly.
 """
         return prompt
+    def save_deepseek_output(self, repo_url, version_id, raw_response):
+        """
+        Save the raw output from DeepSeek API to Neo4j as a DeepSeekOutput node
+        
+        This method creates a new DeepSeekOutput node for the raw response from DeepSeek
+        and links it to the appropriate Repository and Version nodes. This allows for
+        storing the complete, unprocessed output from DeepSeek for later analysis or
+        debugging purposes.
+        
+        Args:
+            repo_url (str): The URL of the repository
+            version_id (str): The ID of the version
+            raw_response (str): The raw response from DeepSeek API
+            
+        Returns:
+            bool: True if the output was successfully saved, False otherwise
+        """
+        if not raw_response:
+            print(f"    No DeepSeek output to save for {repo_url}, version {version_id}")
+            return False
+            
+        print(f"    Saving DeepSeek output to Neo4j for {repo_url}, version {version_id}")
+        
+        try:
+            with self.driver.session() as session:
+                # Generate a unique ID for the DeepSeek output
+                output_id = f"{repo_url.replace('/', '_')}_{version_id}_deepseek_output"
+                
+                # Extract properties for the DeepSeekOutput node
+                properties = {
+                    "id": output_id,
+                    "raw_output": raw_response[:65535] if len(raw_response) > 65535 else raw_response,  # Limit size to Neo4j constraints
+                    "timestamp": int(time.time()),
+                    "output_length": len(raw_response)
+                }
+                
+                # If output is too large, add a flag and truncation notice
+                if len(raw_response) > 65535:
+                    properties["truncated"] = True
+                    properties["truncation_notice"] = f"Output truncated from {len(raw_response)} to 65535 characters due to Neo4j property size limits"
+                else:
+                    properties["truncated"] = False
+                
+                # Create query to create DeepSeekOutput node and relationships
+                # Using WITH clauses between MATCH statements to fix syntax errors
+                query = """
+                MATCH (r:Repository {url: $repo_url})
+                WITH r
+                MATCH (v:Version {id: $version_id})
+                
+                // Create DeepSeekOutput node
+                CREATE (o:DeepSeekOutput {
+                    id: $id,
+                    raw_output: $raw_output,
+                    timestamp: $timestamp,
+                    output_length: $output_length,
+                    truncated: $truncated
+                })
+                
+                // If truncated, add truncation notice
+                WITH o, r, v, $truncated as trunc, $truncation_notice as notice
+                WHERE trunc = true
+                SET o.truncation_notice = notice
+                
+                // Create relationship from DeepSeekOutput to Repository and Version
+                WITH o, r, v
+                CREATE (o)-[:ANALYSIS_FOR]->(r)
+                CREATE (o)-[:VERSION_ANALYZED]->(v)
+                
+                RETURN o.id as id
+                """
+                
+                # Execute the query with parameters
+                result = session.run(
+                    query,
+                    repo_url=repo_url,
+                    version_id=version_id,
+                    **properties
+                )
+                
+                # Check if creation was successful
+                record = result.single()
+                if record:
+                    print(f"    Created DeepSeekOutput node {output_id}")
+                    return True
+                else:
+                    print(f"    Failed to create DeepSeekOutput node {output_id}")
+                    return False
+                    
+        except Exception as e:
+            print(f"    Error saving DeepSeek output: {e}")
+            return False
 
     def _parse_deepseek_response(self, response):
         """Parse the response from DeepSeek API into a structured format
@@ -673,15 +781,111 @@ If no vulnerabilities are found, state this clearly.
             findings.append(current_finding)
             
         return findings
-    
+    def save_findings_to_neo4j(self, repo_url, version_id, findings):
+        """
+        Store vulnerability findings in Neo4j database
+        
+        This method creates new AIVulnerabilityFinding nodes for each finding and 
+        links them to the appropriate Repository and Version nodes.
+        
+        Args:
+            repo_url (str): The URL of the repository
+            version_id (str): The ID of the version
+            findings (list): A list of dictionaries representing the findings
+        
+        Returns:
+            int: The number of findings successfully stored in the database
+        """
+        if not findings:
+            print(f"    No findings to save for {repo_url}, version {version_id}")
+            return 0
+            
+        print(f"    Found {len(findings)} vulnerabilities")
+        count = 0
+        
+        with self.driver.session() as session:
+            for i, finding in enumerate(findings):
+                try:
+                    # Generate a unique ID for the finding
+                    finding_id = f"{repo_url.replace('/', '_')}_{version_id}_{i}"
+                    
+                    # Extract properties for the AIVulnerabilityFinding node
+                    properties = {
+                        "id": finding_id,
+                        "headline": finding.get("headline", ""),
+                        "analysis": finding.get("analysis", ""),
+                        "cve_reference": finding.get("cve", ""),
+                        "key_functions": finding.get("key_functions", ""),
+                        "key_filenames": finding.get("key_filenames", ""),
+                        "classification": finding.get("classification", ""),
+                        "timestamp": int(time.time()),
+                        "source": "DeepSeek",
+                        # Truncate raw_response to avoid exceeding Neo4j property size limits
+                        "raw_response": finding.get("raw_response", "")[:65535] if finding.get("raw_response") else ""
+                    }
+                    
+                    # Create query to create AIVulnerabilityFinding node and relationships
+                    # Adding WITH clause between MATCH statements to fix the syntax error
+                    query = """
+                    MATCH (r:Repository {url: $repo_url})
+                    WITH r
+                    MATCH (v:Version {id: $version_id})
+                    
+                    // Create AIVulnerabilityFinding node
+                    CREATE (f:AIVulnerabilityFinding {
+                        id: $id,
+                        headline: $headline,
+                        analysis: $analysis,
+                        cve_reference: $cve_reference,
+                        key_functions: $key_functions,
+                        key_filenames: $key_filenames,
+                        classification: $classification,
+                        timestamp: $timestamp,
+                        source: $source,
+                        raw_response: $raw_response
+                    })
+                    
+                    // Create relationship from AIVulnerabilityFinding to Repository
+                    CREATE (f)-[:AFFECTS]->(r)
+                    
+                    // Create relationship from AIVulnerabilityFinding to Version
+                    CREATE (f)-[:FOUND_IN_VERSION]->(v)
+                    
+                    RETURN f.id as id
+                    """
+                    
+                    # Execute the query with parameters
+                    result = session.run(
+                        query,
+                        repo_url=repo_url,
+                        version_id=version_id,
+                        **properties
+                    )
+                    
+                    # Check if creation was successful
+                    record = result.single()
+                    if record:
+                        count += 1
+                        print(f"    Created AIVulnerabilityFinding {finding_id}")
+                    else:
+                        print(f"    Failed to create AIVulnerabilityFinding {finding_id}")
+                
+                except Exception as e:
+                    print(f"    Error saving finding to Neo4j: {e}")
+            
+            print(f"    Saved {count}/{len(findings)} findings to Neo4j")
+        
+        return count
     def scan_repository(self, repo_url):
         """
-        Scan a repository for vulnerabilities.
+        Scan a repository for vulnerabilities, skipping the Linux repository.
         
         The process involves:
-        1. Getting all versions of the repository
-        2. For each version, retrieving and filtering code
-        3. Analyzing the code using DeepSeek API
+        1. Checking if the repository is the Linux repository (and skipping if it is)
+        2. Getting all versions of the repository
+        3. For each version, retrieving and filtering code
+        4. Analyzing the code using DeepSeek API
+        5. Saving the findings to Neo4j
         
         Args:
             repo_url (str): The URL of the repository to scan
@@ -689,12 +893,17 @@ If no vulnerabilities are found, state this clearly.
         Returns:
             list: A list of dictionaries, each containing the results of a scan for a particular version of the repository
         """
+        # Skip the Linux repository
+        if repo_url == "https://github.com/torvalds/linux":
+            print(f"Skipping Linux repository: {repo_url}")
+            return []
+            
         results = []
         
         print(f"Scanning repository: {repo_url}")
         versions = self.get_repository_versions(repo_url)
         vulnerabilities = self.get_vulnerabilities_for_repo(repo_url)
-        
+            
         # Process each version of the repository
         for version_info in versions:
             version = version_info["version"]
@@ -719,6 +928,10 @@ If no vulnerabilities are found, state this clearly.
                 # Analyze with DeepSeek API
                 analysis = self.analyze_with_deepseek(code_files, vulnerabilities)
                 print(f"    Found {len(analysis)} vulnerabilities")
+                
+                # Save findings to Neo4j
+                saved_count = self.save_findings_to_neo4j(repo_url, version_id, analysis)
+                print(f"    Saved {saved_count} findings to Neo4j")
                 
                 # Create a result for this version
                 version_result = {
@@ -766,12 +979,20 @@ If no vulnerabilities are found, state this clearly.
                 results.append(error_result)
                 self.save_results([error_result])
                 
+                # Try to save error to Neo4j
+                try:
+                    self.save_findings_to_neo4j(repo_url, version, version_id, [error_finding])
+                except Exception as ne:
+                    print(f"    Error saving error finding to Neo4j: {ne}")
+                
                 # Try to clean up if the directory exists
                 try:
                     if 'repo_dir' in locals() and os.path.exists(repo_dir):
                         subprocess.run(["rm", "-rf", repo_dir], check=False)
                 except:
                     pass 
+            
+        return results
             
 class EvaluationMetrics:
     def __init__(self, ground_truth=None):
@@ -944,14 +1165,16 @@ def main():
     try:
         # Get all repositories or specify particular ones
         repos = scanner.get_repositories()
-        # For testing/debugging, you might want to limit to a few repositories
-        # repos = ["https://github.com/abantecart/abantecart-src"]
+        
+        # Filter out the Linux repository (if not already filtered in get_repositories)
+        repos = [repo for repo in repos if repo != "https://github.com/torvalds/linux"]
         
         # Log the repositories to be scanned
         with open(log_file, 'a') as f:
-            f.write(f"Found {len(repos)} repositories to scan\n")
+            f.write(f"Found {len(repos)} repositories to scan (excluding Linux)\n")
             for repo in repos:
                 f.write(f"  {repo}\n")
+
         
         # Process each repository with error handling
         for repo in repos:
