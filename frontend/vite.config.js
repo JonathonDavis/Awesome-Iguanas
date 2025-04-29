@@ -59,6 +59,30 @@ export default defineConfig({
           });
         },
       },
+      // Add direct-ollama endpoint for development mode
+      '/api/direct-ollama': {
+        target: 'http://localhost:11434',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/direct-ollama/, ''),
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Direct Ollama Proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Set the origin header to make Ollama accept the request
+            proxyReq.setHeader('Origin', 'http://localhost:11434');
+            // Log the request for debugging
+            console.log('Sending Request to Direct Ollama API:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from Direct Ollama API:', proxyRes.statusCode, req.url);
+          });
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        }
+      }
     },
   }
 })
