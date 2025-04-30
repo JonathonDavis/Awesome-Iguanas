@@ -514,57 +514,55 @@ class VulnerabilityScanner:
         
         # Start constructing the prompt with an introductory message
         prompt = """
-You are an expert security analyst specializing in identifying software vulnerabilities. Your task is to analyze code revisions and assess the likelihood of introduced vulnerabilities.
+    You are an expert security analyst specializing in identifying software vulnerabilities. Your task is to analyze code revisions and assess the likelihood of introduced vulnerabilities.
 
-Instructions:
+    Instructions:
 
-1.  Analyze the provided codebase revision for potential vulnerabilities. Consider common vulnerability types, including but not limited to those listed in the provided CVEs/CWEs. Pay close attention to changes in code logic, data flow, and function calls.
-2.  For each potential vulnerability identified, provide the following information in a structured format:
+    1.  Analyze the provided codebase revision for potential vulnerabilities. Consider common vulnerability types, including but not limited to those listed in the provided CVEs/CWEs. Pay close attention to changes in code logic, data flow, and function calls.
+    2.  For each potential vulnerability identified, provide the following information in a structured format:
 
-    Headline: A concise and descriptive title for the vulnerability.
-    Analysis: A detailed explanation of the vulnerability, including:
-        * The specific code changes that introduced or exacerbated the vulnerability.
-        * The potential impact or exploit scenario.
-        * Why this change is concerning from a security perspective.
-    Most Relevant CVE/CWE:** The most relevant Common Vulnerabilities and Exposures (CVE) or Common Weakness Enumeration (CWE) identifier that categorizes the vulnerability type. If a direct match is not available, provide the closest applicable CVE/CWE.
-    List of Most Concerned Functions: A list of the function names within the provided code revision that are most directly involved in the vulnerability.
-    List of Most Concerned Filenames: A list of the filenames within the provided code revision that are most directly involved in the vulnerability.
-    Classification: A classification of the likelihood of this being a real, exploitable vulnerability:
-        * "Very Promising": The vulnerability is highly likely to be exploitable and poses a significant security risk. Requires immediate attention.
-        * "Slightly Promising": The vulnerability has the potential to be exploitable, but the risk is lower or requires specific conditions. Further investigation is warranted.
-        * "Not Promising": The code change is unlikely to introduce a real vulnerability. This requires less urgent attention.
+        Headline: A concise and descriptive title for the vulnerability.
+        Analysis: A detailed explanation of the vulnerability, including:
+            * The specific code changes that introduced or exacerbated the vulnerability.
+            * The potential impact or exploit scenario.
+            * Why this change is concerning from a security perspective.
+        Most Relevant CVE/CWE:** The most relevant Common Vulnerabilities and Exposures (CVE) or Common Weakness Enumeration (CWE) identifier that categorizes the vulnerability type. If a direct match is not available, provide the closest applicable CVE/CWE.
+        List of Most Concerned Functions: A list of the function names within the provided code revision that are most directly involved in the vulnerability.
+        List of Most Concerned Filenames: A list of the filenames within the provided code revision that are most directly involved in the vulnerability.
+        Classification: A classification of the likelihood of this being a real, exploitable vulnerability:
+            * "Very Promising": The vulnerability is highly likely to be exploitable and poses a significant security risk. Requires immediate attention.
+            * "Slightly Promising": The vulnerability has the potential to be exploitable, but the risk is lower or requires specific conditions. Further investigation is warranted.
+            * "Not Promising": The code change is unlikely to introduce a real vulnerability. This requires less urgent attention.
 
-3.  Present your findings in a clear and organized manner. If no vulnerabilities are found, explicitly state "No vulnerabilities found."
+    3.  Present your findings in a clear and organized manner. If no vulnerabilities are found, explicitly state "No vulnerabilities found."
 
-4.  Strictly adhere to the output format. Inconsistent formatting will be penalized.
+    4.  Strictly adhere to the output format. Inconsistent formatting will be penalized.
 
-Output Format:
+    Output Format:
 
-\[
     {
-        "vulnerabilities": \[
+        "vulnerabilities": [
             {
-                "headline": "\[Vulnerability Headline 1]",
-                "analysis": "\[Detailed analysis of vulnerability 1]",
-                "most_relevant_cve_cwe": "\[CVE/CWE Identifier 1]",
-                "most_concerned_functions": \["function1", "function2"\],
-                "most_concerned_filenames": \["file1.txt",a "file2.c"\],
-                "classification": "\[Very Promising | Slightly Promising | Not Promising]"
+                "headline": "[Vulnerability Headline 1]",
+                "analysis": "[Detailed analysis of vulnerability 1]",
+                "most_relevant_cve_cwe": "[CVE/CWE Identifier 1]",
+                "most_concerned_functions": ["function1", "function2"],
+                "most_concerned_filenames": ["file1.txt", "file2.c"],
+                "classification": "[Very Promising | Slightly Promising | Not Promising]"
             },
             {
-                "headline": "\[Vulnerability Headline 2]",
-                "analysis": "\[Detailed analysis of vulnerability 2]",
-                "most_relevant_cve_cwe": "\[CVE/CWE Identifier 2]",
-                 "most_concerned_functions": \["functionA", "functionB", "functionC"\],
-                "most_concerned_filenames": \["fileX.py" ],
-                "classification": "\[Very Promising | Slightly Promising | Not Promising]"
-            },
-            // ... more vulnerabilities as needed
+                "headline": "[Vulnerability Headline 2]",
+                "analysis": "[Detailed analysis of vulnerability 2]",
+                "most_relevant_cve_cwe": "[CVE/CWE Identifier 2]",
+                "most_concerned_functions": ["functionA", "functionB", "functionC"],
+                "most_concerned_filenames": ["fileX.py"],
+                "classification": "[Very Promising | Slightly Promising | Not Promising]"
+            }
         ]
     }
-]
-CODE SNIPPETS:
-"""
+
+    CODE SNIPPETS:
+    """
         
         # Add code snippets to the prompt, respecting a character limit
         total_chars = 0
@@ -590,9 +588,12 @@ CODE SNIPPETS:
         
         # Conclude the prompt with instructions for analysis
         prompt += """
-Please analyze the code carefully and return your findings in the specified format.
-If no vulnerabilities are found, state this clearly.
-"""
+    Please analyze the code carefully and return your findings in the specified format.
+    If no vulnerabilities are found, state this clearly.
+
+    IMPORTANT: Your response MUST be a valid JSON object with the structure shown in the Output Format section above.
+    Do NOT use escaped brackets or any other characters that would make the JSON invalid.
+    """
         return prompt
     def save_deepseek_output(self, repo_url, version_id, raw_response):
         """
@@ -702,8 +703,6 @@ If no vulnerabilities are found, state this clearly.
                 classification (str): Categorize as "Very promising" (high-risk), "Slightly promising" (moderate-risk), or "Not promising" (low-risk)
         """
         findings = []
-        current_finding = {}
-        current_section = None
         
         # First, try to extract "No vulnerabilities found" statement
         if "No vulnerabilities found" in response:
@@ -713,15 +712,16 @@ If no vulnerabilities are found, state this clearly.
         # Try to parse JSON response first
         try:
             # Find the JSON part in the response (it might be surrounded by other text)
-            json_start = response.find('[')
-            json_end = response.rfind(']') + 1
+            # Look for the standard JSON format starting with {
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
             
             if json_start >= 0 and json_end > json_start:
                 json_text = response[json_start:json_end]
                 json_data = json.loads(json_text)
                 
-                if isinstance(json_data, list) and len(json_data) > 0 and "vulnerabilities" in json_data[0]:
-                    vulns = json_data[0]["vulnerabilities"]
+                if isinstance(json_data, dict) and "vulnerabilities" in json_data:
+                    vulns = json_data["vulnerabilities"]
                     for vuln in vulns:
                         finding = {
                             "headline": vuln.get("headline", ""),
@@ -735,6 +735,10 @@ If no vulnerabilities are found, state this clearly.
                     return findings
         except (json.JSONDecodeError, IndexError, KeyError) as e:
             print(f"    JSON parsing error: {e}. Falling back to text parsing.")
+        
+        # If JSON parsing fails, try to extract information from the text format
+        current_finding = {}
+        current_section = None
         
         # Iterate through each line of the response
         for line in response.split('\n'):
@@ -779,8 +783,9 @@ If no vulnerabilities are found, state this clearly.
         # Add the last finding if exists
         if current_finding and 'headline' in current_finding:
             findings.append(current_finding)
-            
+                
         return findings
+    
     def save_findings_to_neo4j(self, repo_url, version_id, findings):
         """
         Store vulnerability findings in Neo4j database
