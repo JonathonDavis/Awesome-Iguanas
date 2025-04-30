@@ -89,12 +89,17 @@ class VulnerabilityScanner:
         Save all results to the specified file with error handling
         
         Args:
-            new_results (list, optional): New results to add before saving
+            new_results (list or dict, optional): New results to add before saving
         """
         try:
             # Add new results if provided
             if new_results:
-                self.all_results.extend(new_results)
+                # Handle if new_results is a single dict (not a list)
+                if isinstance(new_results, dict):
+                    self.all_results.append(new_results)
+                else:
+                    # If it's a list, extend the results list
+                    self.all_results.extend(new_results)
             
             # Create a temporary file first to avoid corruption if the process is killed during write
             temp_file = f"{self.results_file}.tmp"
@@ -107,6 +112,7 @@ class VulnerabilityScanner:
             print(f"Successfully saved {len(self.all_results)} results to {self.results_file}")
         except Exception as e:
             print(f"Error saving results to {self.results_file}: {e}")
+
 
     def close(self):
         """
@@ -310,7 +316,7 @@ class VulnerabilityScanner:
             # Clean up the directory if it exists and we encountered an error
             if os.path.exists(temp_dir):
                 subprocess.run(["rm", "-rf", temp_dir], check=False)
-            raise
+            raisef
         
     def get_code_files(self, repo_dir):
         """
@@ -579,6 +585,98 @@ Please analyze the code carefully and return your findings in the specified form
 If no vulnerabilities are found, state this clearly.
 """
         return prompt
+    def save_deepseek_output(self, repo_url, version_id, raw_response):
+        """
+        Save the raw output from DeepSeek API to Neo4j as a DeepSeekOutput node
+        
+        This method creates a new DeepSeekOutput node for the raw response from DeepSeek
+        and links it to the appropriate Repository and Version nodes. This allows for
+        storing the complete, unprocessed output from DeepSeek for later analysis or
+        debugging purposes.
+        
+        Args:
+            repo_url (str): The URL of the repository
+            version_id (str): The ID of the version
+            raw_response (str): The raw response from DeepSeek API
+            
+        Returns:
+            bool: True if the output was successfully saved, False otherwise
+        """
+        if not raw_response:
+            print(f"    No DeepSeek output to save for {repo_url}, version {version_id}")
+            return False
+            
+        print(f"    Saving DeepSeek output to Neo4j for {repo_url}, version {version_id}")
+        
+        try:
+            with self.driver.session() as session:
+                # Generate a unique ID for the DeepSeek output
+                output_id = f"{repo_url.replace('/', '_')}_{version_id}_deepseek_output"
+                
+                # Extract properties for the DeepSeekOutput node
+                properties = {
+                    "id": output_id,
+                    "raw_output": raw_response[:65535] if len(raw_response) > 65535 else raw_response,  # Limit size to Neo4j constraints
+                    "timestamp": int(time.time()),
+                    "output_length": len(raw_response)
+                }
+                
+                # If output is too large, add a flag and truncation notice
+                if len(raw_response) > 65535:
+                    properties["truncated"] = True
+                    properties["truncation_notice"] = f"Output truncated from {len(raw_response)} to 65535 characters due to Neo4j property size limits"
+                else:
+                    properties["truncated"] = False
+                
+                # Create query to create DeepSeekOutput node and relationships
+                # Using WITH clauses between MATCH statements to fix syntax errors
+                query = """
+                MATCH (r:Repository {url: $repo_url})
+                WITH r
+                MATCH (v:Version {id: $version_id})
+                
+                // Create DeepSeekOutput node
+                CREATE (o:DeepSeekOutput {
+                    id: $id,
+                    raw_output: $raw_output,
+                    timestamp: $timestamp,
+                    output_length: $output_length,
+                    truncated: $truncated
+                })
+                
+                // If truncated, add truncation notice
+                WITH o, r, v, $truncated as trunc, $truncation_notice as notice
+                WHERE trunc = true
+                SET o.truncation_notice = notice
+                
+                // Create relationship from DeepSeekOutput to Repository and Version
+                WITH o, r, v
+                CREATE (o)-[:ANALYSIS_FOR]->(r)
+                CREATE (o)-[:VERSION_ANALYZED]->(v)
+                
+                RETURN o.id as id
+                """
+                
+                # Execute the query with parameters
+                result = session.run(
+                    query,
+                    repo_url=repo_url,
+                    version_id=version_id,
+                    **properties
+                )
+                
+                # Check if creation was successful
+                record = result.single()
+                if record:
+                    print(f"    Created DeepSeekOutput node {output_id}")
+                    return True
+                else:
+                    print(f"    Failed to create DeepSeekOutput node {output_id}")
+                    return False
+                    
+        except Exception as e:
+            print(f"    Error saving DeepSeek output: {e}")
+            return False
 
     def _parse_deepseek_response(self, response):
         """Parse the response from DeepSeek API into a structured format
@@ -674,102 +772,102 @@ If no vulnerabilities are found, state this clearly.
             findings.append(current_finding)
             
         return findings
-    def save_findings_to_neo4j(self, repo_url, version, version_id, findings):
+    def save_findings_to_neo4j(self, repo_url, version_id, findings):
         """
-        Save the DeepSeek analysis findings to Neo4j
+        Store vulnerability findings in Neo4j database
         
-        This function creates nodes and relationships in Neo4j to store 
-        the vulnerability findings from DeepSeek.
+        This method creates new AIVulnerabilityFinding nodes for each finding and 
+        links them to the appropriate Repository and Version nodes.
         
         Args:
-            repo_url (str): The URL of the repository 
-            version (str): The version string
-            version_id (str): The version ID in Neo4j
-            findings (list): The findings from DeepSeek analysis
-            
+            repo_url (str): The URL of the repository
+            version_id (str): The ID of the version
+            findings (list): A list of dictionaries representing the findings
+        
         Returns:
-            int: The number of findings successfully saved to Neo4j
+            int: The number of findings successfully stored in the database
         """
         if not findings:
-            print(f"    No findings to save for {repo_url} version {version}")
+            print(f"    No findings to save for {repo_url}, version {version_id}")
             return 0
             
-        saved_count = 0
+        print(f"    Found {len(findings)} vulnerabilities")
+        count = 0
         
         with self.driver.session() as session:
             for i, finding in enumerate(findings):
                 try:
-                    # Generate a unique ID for this finding
-                    finding_id = f"{version_id}_finding_{i+1}"
+                    # Generate a unique ID for the finding
+                    finding_id = f"{repo_url.replace('/', '_')}_{version_id}_{i}"
                     
-                    # Extract finding data, with fallbacks for missing fields
-                    headline = finding.get("headline", "Unknown vulnerability")
-                    analysis = finding.get("analysis", "")
-                    cve = finding.get("cve", "N/A")
-                    key_functions = finding.get("key_functions", "")
-                    key_filenames = finding.get("key_filenames", "")
-                    classification = finding.get("classification", "Unknown")
-                    raw_response = finding.get("raw_response", "")
+                    # Extract properties for the AIVulnerabilityFinding node
+                    properties = {
+                        "id": finding_id,
+                        "headline": finding.get("headline", ""),
+                        "analysis": finding.get("analysis", ""),
+                        "cve_reference": finding.get("cve", ""),
+                        "key_functions": finding.get("key_functions", ""),
+                        "key_filenames": finding.get("key_filenames", ""),
+                        "classification": finding.get("classification", ""),
+                        "timestamp": int(time.time()),
+                        "source": "DeepSeek",
+                        # Truncate raw_response to avoid exceeding Neo4j property size limits
+                        "raw_response": finding.get("raw_response", "")[:65535] if finding.get("raw_response") else ""
+                    }
                     
-                    # Create a finding node in Neo4j
+                    # Create query to create AIVulnerabilityFinding node and relationships
+                    # Adding WITH clause between MATCH statements to fix the syntax error
                     query = """
-                    MERGE (f:Finding {id: $finding_id})
-                    SET f.headline = $headline,
-                        f.analysis = $analysis,
-                        f.cve = $cve,
-                        f.keyFunctions = $key_functions,
-                        f.keyFilenames = $key_filenames,
-                        f.classification = $classification,
-                        f.rawResponse = $raw_response,
-                        f.createdAt = datetime()
-                    
-                    WITH f
-                    
-                    // Link to Version
-                    MATCH (v:Version {id: $version_id})
-                    MERGE (f)-[:FOUND_IN]->(v)
-                    
-                    // Link to Repository
                     MATCH (r:Repository {url: $repo_url})
-                    MERGE (f)-[:BELONGS_TO]->(r)
+                    WITH r
+                    MATCH (v:Version {id: $version_id})
                     
-                    // Link to CVE if applicable and exists
-                    FOREACH (cve_id IN CASE WHEN $cve <> 'N/A' AND NOT $cve CONTAINS 'CWE' THEN [$cve] ELSE [] END |
-                        MERGE (cve:CVE {id: cve_id})
-                        MERGE (f)-[:REFERS_TO]->(cve)
-                    )
+                    // Create AIVulnerabilityFinding node
+                    CREATE (f:AIVulnerabilityFinding {
+                        id: $id,
+                        headline: $headline,
+                        analysis: $analysis,
+                        cve_reference: $cve_reference,
+                        key_functions: $key_functions,
+                        key_filenames: $key_filenames,
+                        classification: $classification,
+                        timestamp: $timestamp,
+                        source: $source,
+                        raw_response: $raw_response
+                    })
                     
-                    RETURN f.id
+                    // Create relationship from AIVulnerabilityFinding to Repository
+                    CREATE (f)-[:AFFECTS]->(r)
+                    
+                    // Create relationship from AIVulnerabilityFinding to Version
+                    CREATE (f)-[:FOUND_IN_VERSION]->(v)
+                    
+                    RETURN f.id as id
                     """
                     
+                    # Execute the query with parameters
                     result = session.run(
                         query,
-                        finding_id=finding_id,
-                        headline=headline,
-                        analysis=analysis,
-                        cve=cve,
-                        key_functions=key_functions,
-                        key_filenames=key_filenames,
-                        classification=classification,
-                        raw_response=raw_response,
+                        repo_url=repo_url,
                         version_id=version_id,
-                        repo_url=repo_url
+                        **properties
                     )
                     
-                    # Check if finding was saved
+                    # Check if creation was successful
                     record = result.single()
-                    if record and record[0] == finding_id:
-                        saved_count += 1
-                        print(f"    Saved finding '{headline}' to Neo4j")
+                    if record:
+                        count += 1
+                        print(f"    Created AIVulnerabilityFinding {finding_id}")
                     else:
-                        print(f"    Failed to save finding '{headline}' to Neo4j")
-                        
+                        print(f"    Failed to create AIVulnerabilityFinding {finding_id}")
+                
                 except Exception as e:
                     print(f"    Error saving finding to Neo4j: {e}")
-                    continue
-                    
-        print(f"    Saved {saved_count}/{len(findings)} findings to Neo4j")
-        return saved_count
+            
+            print(f"    Saved {count}/{len(findings)} findings to Neo4j")
+        
+        return count
+
     def scan_repository(self, repo_url):
         """
         Scan a repository for vulnerabilities.
