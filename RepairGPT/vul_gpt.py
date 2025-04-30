@@ -122,13 +122,22 @@ class VulnerabilityScanner:
 
     def get_repositories(self):
         """
-        Fetch all repositories from the database
+        Fetch all repositories from the database, excluding the Linux repository
 
-        :return: A list of URLs for all repositories in the database
+        :return: A list of URLs for repositories in the database (excluding Linux)
         """
         with self.driver.session() as session:
             result = session.run("MATCH (r:Repository) RETURN r.url as url")
-            return [record["url"] for record in result]
+            repos = [record["url"] for record in result]
+            
+            # Filter out the Linux repository
+            filtered_repos = [repo for repo in repos if repo != "https://github.com/torvalds/linux"]
+            
+            # Log the skipped repository
+            if len(repos) != len(filtered_repos):
+                print(f"Skipping repository: https://github.com/torvalds/linux")
+                
+            return filtered_repos
 
 
     def get_repository_versions(self, repo_url):
@@ -867,16 +876,16 @@ If no vulnerabilities are found, state this clearly.
             print(f"    Saved {count}/{len(findings)} findings to Neo4j")
         
         return count
-
     def scan_repository(self, repo_url):
         """
-        Scan a repository for vulnerabilities.
+        Scan a repository for vulnerabilities, skipping the Linux repository.
         
         The process involves:
-        1. Getting all versions of the repository
-        2. For each version, retrieving and filtering code
-        3. Analyzing the code using DeepSeek API
-        4. Saving the findings to Neo4j
+        1. Checking if the repository is the Linux repository (and skipping if it is)
+        2. Getting all versions of the repository
+        3. For each version, retrieving and filtering code
+        4. Analyzing the code using DeepSeek API
+        5. Saving the findings to Neo4j
         
         Args:
             repo_url (str): The URL of the repository to scan
@@ -884,12 +893,17 @@ If no vulnerabilities are found, state this clearly.
         Returns:
             list: A list of dictionaries, each containing the results of a scan for a particular version of the repository
         """
+        # Skip the Linux repository
+        if repo_url == "https://github.com/torvalds/linux":
+            print(f"Skipping Linux repository: {repo_url}")
+            return []
+            
         results = []
         
         print(f"Scanning repository: {repo_url}")
         versions = self.get_repository_versions(repo_url)
         vulnerabilities = self.get_vulnerabilities_for_repo(repo_url)
-        
+            
         # Process each version of the repository
         for version_info in versions:
             version = version_info["version"]
@@ -916,7 +930,7 @@ If no vulnerabilities are found, state this clearly.
                 print(f"    Found {len(analysis)} vulnerabilities")
                 
                 # Save findings to Neo4j
-                saved_count = self.save_findings_to_neo4j(repo_url, version, version_id, analysis)
+                saved_count = self.save_findings_to_neo4j(repo_url, version_id, analysis)
                 print(f"    Saved {saved_count} findings to Neo4j")
                 
                 # Create a result for this version
@@ -1151,14 +1165,16 @@ def main():
     try:
         # Get all repositories or specify particular ones
         repos = scanner.get_repositories()
-        # For testing/debugging, you might want to limit to a few repositories
-        # repos = ["https://github.com/abantecart/abantecart-src"]
+        
+        # Filter out the Linux repository (if not already filtered in get_repositories)
+        repos = [repo for repo in repos if repo != "https://github.com/torvalds/linux"]
         
         # Log the repositories to be scanned
         with open(log_file, 'a') as f:
-            f.write(f"Found {len(repos)} repositories to scan\n")
+            f.write(f"Found {len(repos)} repositories to scan (excluding Linux)\n")
             for repo in repos:
                 f.write(f"  {repo}\n")
+
         
         # Process each repository with error handling
         for repo in repos:
