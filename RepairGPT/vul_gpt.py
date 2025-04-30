@@ -674,7 +674,102 @@ If no vulnerabilities are found, state this clearly.
             findings.append(current_finding)
             
         return findings
-    
+    def save_findings_to_neo4j(self, repo_url, version, version_id, findings):
+        """
+        Save the DeepSeek analysis findings to Neo4j
+        
+        This function creates nodes and relationships in Neo4j to store 
+        the vulnerability findings from DeepSeek.
+        
+        Args:
+            repo_url (str): The URL of the repository 
+            version (str): The version string
+            version_id (str): The version ID in Neo4j
+            findings (list): The findings from DeepSeek analysis
+            
+        Returns:
+            int: The number of findings successfully saved to Neo4j
+        """
+        if not findings:
+            print(f"    No findings to save for {repo_url} version {version}")
+            return 0
+            
+        saved_count = 0
+        
+        with self.driver.session() as session:
+            for i, finding in enumerate(findings):
+                try:
+                    # Generate a unique ID for this finding
+                    finding_id = f"{version_id}_finding_{i+1}"
+                    
+                    # Extract finding data, with fallbacks for missing fields
+                    headline = finding.get("headline", "Unknown vulnerability")
+                    analysis = finding.get("analysis", "")
+                    cve = finding.get("cve", "N/A")
+                    key_functions = finding.get("key_functions", "")
+                    key_filenames = finding.get("key_filenames", "")
+                    classification = finding.get("classification", "Unknown")
+                    raw_response = finding.get("raw_response", "")
+                    
+                    # Create a finding node in Neo4j
+                    query = """
+                    MERGE (f:Finding {id: $finding_id})
+                    SET f.headline = $headline,
+                        f.analysis = $analysis,
+                        f.cve = $cve,
+                        f.keyFunctions = $key_functions,
+                        f.keyFilenames = $key_filenames,
+                        f.classification = $classification,
+                        f.rawResponse = $raw_response,
+                        f.createdAt = datetime()
+                    
+                    WITH f
+                    
+                    // Link to Version
+                    MATCH (v:Version {id: $version_id})
+                    MERGE (f)-[:FOUND_IN]->(v)
+                    
+                    // Link to Repository
+                    MATCH (r:Repository {url: $repo_url})
+                    MERGE (f)-[:BELONGS_TO]->(r)
+                    
+                    // Link to CVE if applicable and exists
+                    FOREACH (cve_id IN CASE WHEN $cve <> 'N/A' AND NOT $cve CONTAINS 'CWE' THEN [$cve] ELSE [] END |
+                        MERGE (cve:CVE {id: cve_id})
+                        MERGE (f)-[:REFERS_TO]->(cve)
+                    )
+                    
+                    RETURN f.id
+                    """
+                    
+                    result = session.run(
+                        query,
+                        finding_id=finding_id,
+                        headline=headline,
+                        analysis=analysis,
+                        cve=cve,
+                        key_functions=key_functions,
+                        key_filenames=key_filenames,
+                        classification=classification,
+                        raw_response=raw_response,
+                        version_id=version_id,
+                        repo_url=repo_url
+                    )
+                    
+                    # Check if finding was saved
+                    record = result.single()
+                    if record and record[0] == finding_id:
+                        saved_count += 1
+                        print(f"    Saved finding '{headline}' to Neo4j")
+                    else:
+                        print(f"    Failed to save finding '{headline}' to Neo4j")
+                        
+                except Exception as e:
+                    print(f"    Error saving finding to Neo4j: {e}")
+                    continue
+                    
+        print(f"    Saved {saved_count}/{len(findings)} findings to Neo4j")
+        return saved_count
     def scan_repository(self, repo_url):
         """
         Scan a repository for vulnerabilities.
@@ -683,6 +778,7 @@ If no vulnerabilities are found, state this clearly.
         1. Getting all versions of the repository
         2. For each version, retrieving and filtering code
         3. Analyzing the code using DeepSeek API
+        4. Saving the findings to Neo4j
         
         Args:
             repo_url (str): The URL of the repository to scan
@@ -720,6 +816,10 @@ If no vulnerabilities are found, state this clearly.
                 # Analyze with DeepSeek API
                 analysis = self.analyze_with_deepseek(code_files, vulnerabilities)
                 print(f"    Found {len(analysis)} vulnerabilities")
+                
+                # Save findings to Neo4j
+                saved_count = self.save_findings_to_neo4j(repo_url, version, version_id, analysis)
+                print(f"    Saved {saved_count} findings to Neo4j")
                 
                 # Create a result for this version
                 version_result = {
@@ -767,12 +867,20 @@ If no vulnerabilities are found, state this clearly.
                 results.append(error_result)
                 self.save_results([error_result])
                 
+                # Try to save error to Neo4j
+                try:
+                    self.save_findings_to_neo4j(repo_url, version, version_id, [error_finding])
+                except Exception as ne:
+                    print(f"    Error saving error finding to Neo4j: {ne}")
+                
                 # Try to clean up if the directory exists
                 try:
                     if 'repo_dir' in locals() and os.path.exists(repo_dir):
                         subprocess.run(["rm", "-rf", repo_dir], check=False)
                 except:
                     pass 
+            
+        return results
             
 class EvaluationMetrics:
     def __init__(self, ground_truth=None):
