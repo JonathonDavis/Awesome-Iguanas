@@ -79,8 +79,9 @@ class VulnerabilityScanner:
         """
         processed = set()
         for result in self.all_results:
-            key = f"{result['repo_url']}:{result['version_id']}"
-            processed.add(key)
+            if isinstance(result, dict) and 'repo_url' in result and 'version_id' in result:
+                key = f"{result['repo_url']}:{result['version_id']}"
+                processed.add(key)
         return processed
 
     def save_results(self, new_results=None):
