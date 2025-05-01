@@ -986,7 +986,7 @@ class VulnerabilityScanner:
                 
                 # Try to save error to Neo4j
                 try:
-                    self.save_findings_to_neo4j(repo_url, version, version_id, [error_finding])
+                    self.save_properly_formatted_findings(repo_url, version, version_id, [error_finding])
                 except Exception as ne:
                     print(f"    Error saving error finding to Neo4j: {ne}")
                 
@@ -998,6 +998,185 @@ class VulnerabilityScanner:
                     pass 
             
         return results
+    def parse_deepseek_response(self,raw_response):
+        """
+        Parse and clean DeepSeek response to extract properly formatted JSON.
+        
+        Args:
+            raw_response (str): The raw response string from DeepSeek API
+            
+        Returns:
+            dict: A properly formatted JSON object with vulnerabilities list
+        """
+        import json
+        import re
+        
+        # Default structure if parsing fails
+        default_result = {
+            "vulnerabilities": []
+        }
+        
+        if not raw_response:
+            return default_result
+        
+        # Try to find JSON block inside markdown code blocks
+        code_block_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
+        code_block_match = re.search(code_block_pattern, raw_response, re.DOTALL)
+        
+        if code_block_match:
+            try:
+                # Extract JSON from code block
+                json_str = code_block_match.group(1)
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to find JSON-like structure with \[ and \] (escaped brackets)
+        escaped_brackets_pattern = r"\\\[\s*\{.*?\}\s*\\\]"
+        if re.search(escaped_brackets_pattern, raw_response, re.DOTALL):
+            # Replace escaped brackets
+            cleaned = raw_response.replace("\\[", "[").replace("\\]", "]")
+            
+            # Try to extract JSON object
+            json_pattern = r"\[\s*\{.*?\}\s*\]"
+            json_match = re.search(json_pattern, cleaned, re.DOTALL)
+            
+            if json_match:
+                try:
+                    json_str = json_match.group(0)
+                    parsed = json.loads(json_str)
+                    if isinstance(parsed, list) and len(parsed) > 0:
+                        return parsed[0]  # Return the first object in the array
+                    return default_result
+                except json.JSONDecodeError:
+                    pass
+        
+        # Try to find any JSON object with vulnerabilities
+        try:
+            json_pattern = r"\{\s*\"vulnerabilities\"\s*:\s*\[.*?\]\s*\}"
+            json_match = re.search(json_pattern, raw_response, re.DOTALL)
+            
+            if json_match:
+                json_str = json_match.group(0)
+                return json.loads(json_str)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        
+        # For "No vulnerabilities found" responses
+        if "No vulnerabilities found" in raw_response:
+            return default_result
+        
+        # Last attempt: try to manually extract information
+        try:
+            vulnerabilities = []
+            sections = re.split(r"headline:|headline", raw_response, flags=re.IGNORECASE)[1:]
+            
+            for section in sections:
+                headline = ""
+                analysis = ""
+                cve = ""
+                key_functions = ""
+                key_filenames = ""
+                classification = ""
+                
+                # Try to extract headline
+                headline_match = re.search(r"\"?(.*?)\"?\s*(?:analysis:|$)", section, re.IGNORECASE | re.DOTALL)
+                if headline_match:
+                    headline = headline_match.group(1).strip().strip('"')
+                
+                # Try to extract analysis
+                analysis_match = re.search(r"analysis:\s*\"?(.*?)\"?\s*(?:most_relevant_cve|most_concerned_functions|cve|classification:|$)", 
+                                        section, re.IGNORECASE | re.DOTALL)
+                if analysis_match:
+                    analysis = analysis_match.group(1).strip().strip('"')
+                
+                # Try to extract CVE
+                cve_match = re.search(r"(?:most_relevant_cve(?:_cwe)?|cve):\s*\"?(.*?)\"?\s*(?:most_concerned_functions|key_functions|classification:|$)", 
+                                    section, re.IGNORECASE | re.DOTALL)
+                if cve_match:
+                    cve = cve_match.group(1).strip().strip('"')
+                
+                # Try to extract key functions
+                funcs_match = re.search(r"(?:most_concerned_functions|key_functions):\s*(?:\[)?(.*?)(?:\])?(?:most_concerned_filenames|classification:|$)", 
+                                    section, re.IGNORECASE | re.DOTALL)
+                if funcs_match:
+                    key_functions = funcs_match.group(1).strip().strip('"')
+                
+                # Try to extract key filenames
+                files_match = re.search(r"(?:most_concerned_filenames|key_filenames):\s*(?:\[)?(.*?)(?:\])?(?:classification:|$)", 
+                                    section, re.IGNORECASE | re.DOTALL)
+                if files_match:
+                    key_filenames = files_match.group(1).strip().strip('"')
+                
+                # Try to extract classification
+                class_match = re.search(r"classification:\s*\"?(.*?)\"?\s*(?:$|\})", 
+                                    section, re.IGNORECASE | re.DOTALL)
+                if class_match:
+                    classification = class_match.group(1).strip().strip('"')
+                
+                if headline or analysis:
+                    vulnerabilities.append({
+                        "headline": headline,
+                        "analysis": analysis,
+                        "cve_reference": cve,
+                        "key_functions": key_functions,
+                        "key_filenames": key_filenames,
+                        "classification": classification
+                    })
+            
+            if vulnerabilities:
+                return {"vulnerabilities": vulnerabilities}
+        except Exception:
+            pass
+        
+        # If all parsing attempts fail, return the default structure
+        return default_result
+    def save_properly_formatted_findings(self, repo_url, version_id, findings):
+        """
+        Process raw DeepSeek findings and save properly formatted results to Neo4j
+        
+        Args:
+            scanner: The VulnerabilityScanner instance
+            repo_url (str): The URL of the repository
+            version_id (str): The ID of the version
+            findings (list): The raw findings from DeepSeek API
+            
+        Returns:
+            int: The number of findings successfully saved
+        """
+        processed_findings = []
+        
+        for finding in findings:
+            # Process DeepSeek raw response to extract proper JSON
+            if "raw_response" in finding:
+                parsed_json = self.parse_deepseek_response(finding["raw_response"])
+                
+                # Extract vulnerabilities from parsed JSON
+                if "vulnerabilities" in parsed_json and parsed_json["vulnerabilities"]:
+                    for vuln in parsed_json["vulnerabilities"]:
+                        processed_finding = {
+                            "headline": vuln.get("headline", "Unknown"),
+                            "analysis": vuln.get("analysis", ""),
+                            "cve": vuln.get("most_relevant_cve_cwe", vuln.get("cve_reference", "")),
+                            "key_functions": ", ".join(vuln.get("most_concerned_functions", [])) 
+                                            if isinstance(vuln.get("most_concerned_functions", []), list) 
+                                            else vuln.get("most_concerned_functions", ""),
+                            "key_filenames": ", ".join(vuln.get("most_concerned_filenames", [])) 
+                                            if isinstance(vuln.get("most_concerned_filenames", []), list) 
+                                            else vuln.get("most_concerned_filenames", ""),
+                            "classification": vuln.get("classification", ""),
+                            "raw_response": finding.get("raw_response", "")
+                        }
+                        processed_findings.append(processed_finding)
+                else:
+                    # If no vulnerabilities found, keep the original finding
+                    processed_findings.append(finding)
+            else:
+                # If no raw_response, keep the original finding
+                processed_findings.append(finding)
+        
+        # Save processed findings to Neo4j
+        return self.save_findings_to_neo4j(repo_url, version_id, processed_findings)
             
 class EvaluationMetrics:
     def __init__(self, ground_truth=None):
