@@ -9,6 +9,17 @@
     <div class="filter-section">
       <div class="search-container">
         <div class="filter-group">
+          <label for="headline-filter">Headline/Title:</label>
+          <input 
+            id="headline-filter"
+            type="text" 
+            v-model="headlineFilter" 
+            placeholder="Search by headline..." 
+            @input="applyFilters"
+            class="search-input"
+          />
+        </div>
+        <div class="filter-group">
           <label for="github-filter">GitHub Repository:</label>
           <input 
             id="github-filter"
@@ -159,6 +170,7 @@ export default {
     const error = ref(null)
     const githubFilter = ref('')
     const classificationFilter = ref('')
+    const headlineFilter = ref('')
 
     const fetchVulnerabilityFindings = async () => {
       loading.value = true
@@ -209,9 +221,14 @@ export default {
     }
 
     const applyFilters = () => {
-      console.log('Applying filters - GitHub:', githubFilter.value, 'Classification:', classificationFilter.value)
+      console.log('Applying filters - Headline:', headlineFilter.value, 'GitHub:', githubFilter.value, 'Classification:', classificationFilter.value)
       
       findings.value = allFindings.value.filter(finding => {
+        // Filter by headline/title
+        const headline = (finding.headline || finding.properties?.headline || '').toLowerCase()
+        const matchesHeadline = !headlineFilter.value.trim() || 
+                               headline.includes(headlineFilter.value.toLowerCase().trim())
+                               
         // Filter by GitHub ID
         const githubId = (finding.id || finding.properties?.id || '').toLowerCase()
         const matchesGithub = !githubFilter.value.trim() || 
@@ -230,9 +247,9 @@ export default {
                                  classification === classificationFilter.value;
         }
         
-        // Both filters must match
-        const matches = matchesGithub && matchesClassification
-        console.log(`Finding ${finding.id}: GitHub match: ${matchesGithub}, Classification match: ${matchesClassification}, Classification value: "${classification}"`)
+        // All filters must match
+        const matches = matchesHeadline && matchesGithub && matchesClassification
+        console.log(`Finding ${finding.id}: Headline match: ${matchesHeadline}, GitHub match: ${matchesGithub}, Classification match: ${matchesClassification}`)
         
         return matches
       })
@@ -241,6 +258,7 @@ export default {
     }
     
     const clearFilters = () => {
+      headlineFilter.value = ''
       githubFilter.value = ''
       classificationFilter.value = ''
       findings.value = [...allFindings.value]
@@ -336,6 +354,7 @@ export default {
       error,
       githubFilter,
       classificationFilter,
+      headlineFilter,
       showFindingDetails,
       applyFilters,
       clearFilters,
