@@ -140,7 +140,7 @@
                 <strong>Published:</strong> {{ formatDate(cve.publishedDate) }}
               </div>
               <div class="detail-item">
-                <strong>Last Modified:</strong> {{ formatDate(cve.modifiedDate) }}
+                <strong>Last Checked:</strong> {{ formatDate(cve.modifiedDate) }}
               </div>
               <div class="detail-item full-width" v-if="cve.details">
                 <strong>Details:</strong>
