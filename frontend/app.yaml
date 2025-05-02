@@ -1,2 +1,0 @@
-runtime: nodejs16
-entrypoint: node server.js 
