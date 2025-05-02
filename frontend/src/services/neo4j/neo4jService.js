@@ -248,48 +248,6 @@ class Neo4jService {
     }
   }
 
-  // Execute a custom Cypher query and return the results
-  async executeCustomQuery(query, params = {}) {
-    console.log('Neo4j executeCustomQuery called with:', { 
-      queryFirstLine: query.split('\n')[0],
-      paramsCount: Object.keys(params).length
-    });
-    
-    const session = this.driver.session();
-    try {
-      console.log('Opening Neo4j session and running query...');
-      const startTime = Date.now();
-      const result = await session.run(query, params);
-      const endTime = Date.now();
-      console.log(`Neo4j query executed in ${endTime - startTime}ms with ${result.records.length} records returned`);
-      
-      return result.records.map(record => {
-        const recordObject = {};
-        for (const key of record.keys) {
-          const value = record.get(key);
-          recordObject[key] = value;
-        }
-        return recordObject;
-      });
-    } catch (error) {
-      console.error('Error executing custom Neo4j query:', error);
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        name: error.name
-      });
-      throw error;
-    } finally {
-      try {
-        console.log('Closing Neo4j session...');
-        await session.close();
-        console.log('Neo4j session closed successfully');
-      } catch (closeError) {
-        console.error('Error closing Neo4j session:', closeError);
-      }
-    }
-  }
-
   // Schedule updates to run quietly in the background
   async scheduleDailyUpdatesQuietly() {
     try {
