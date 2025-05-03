@@ -8,17 +8,17 @@ Awesome Iguanas Vulnerability Detection Tool
 
 ## WHAT
 
-  `IguanaGPT` is a LLM online vulnerability detection tool that aims to fix software bugs using Large Language Models (LLMs). `IguanaGPT` utilizes a Neo4j CWE database in  combination with Llama. This tool prioritizes ease-of-use for the casual programmer.
+  `IguanaGPT` is an LLM online vulnerability detection tool that aims to fix software bugs using large language models (LLMs). It utilizes a Neo4j CWE database in  combination with Llama. This tool prioritizes ease-of-use for the casual programmer.
 
-  As a proof of concept, `IguanaGPT` capabilities include:
+  As proof of concept, `IguanaGPT` capabilities include:
 
   >  1. Dynamic solutions for memory safety vulnerabilities in any programming language.
-  >  2. Constantly updating CWE database logic.
+  >  2. Constantly updating the CWE database logic.
   >  3. User-friendly online interface that prioritizes programmers of any skill level. 
 
 ## HOW TO USE
 
-  `IguanaGPT` utilizes a Vue.js-based frontend which can be accessed through our web interface. For local development:
+  `IguanaGPT` utilizes a Vue.js-based frontend, which can be accessed through our web interface. For local development:
 
   1. Clone this repository
   2. Navigate to the `frontend` directory
@@ -49,19 +49,19 @@ The methodology behind `IguanaGPT` involves the following steps:
 
 4. **User Interface**:
    - Provides an intuitive Vue.js-based web interface for users to upload code and receive feedback
-   - Features responsive design that works across desktop and mobile devices
+   - Features a responsive design that works across desktop and mobile devices
    - Designed to accommodate users of all skill levels, from beginners to advanced programmers
 
 5. **Feedback Loop**:
    - Incorporates user feedback to improve the accuracy and relevance of the tool's suggestions
    - Continuously refines the LLM and database logic for better results
-   - Implements versioning to track effectiveness of vulnerability detection over time
+   - Implements versioning to track the effectiveness of vulnerability detection over time
 
-By combining cutting-edge AI technology with an up-to-date vulnerability database, `IguanaGPT` aims to streamline the process of identifying and addressing software vulnerabilities.
+Combining cutting-edge AI technology with an up-to-date vulnerability database, `IguanaGPT` aims to streamline the identification and addressing of software vulnerabilities.
 
 ## UTILITY SCRIPT(S)
 
-The repository three powerful utility scripts that support the main functionality of `IguanaGPT`:
+The repository contains three powerful utility scripts that support the main functionality of `IguanaGPT`:
 
 ### 1. Database Handler (`VulGPT_OSV/TestOSVGIT3.py`)
 
@@ -73,7 +73,7 @@ This file handles the bulk of the backend with continuous OSV Database scraping 
 - Comprehensive Neo4j graph creation with multiple node types:
   - Vulnerability nodes (OSV entries)
     - id: <i>Vulnerability ID</i>
-    - schema_version, published, modiifed, summary, details
+    - schema_version, published, modified, summary, details
     - severity: <i>JSON severity string</i>
     - affected: <i>JSON string of affected packages</i>
     - database_specific: <i>JSON blob</i>
@@ -118,11 +118,11 @@ This utility script helps maintain the backend infrastructure that powers `Iguan
 
 ### 2. Update Timestamps (`VulGPT_OSV/daily_osv_update.sh`)
 
-This shell script handles logging the node updates for Neo4J. This will run when `daily_osv_update.sh` is executed.
+This shell script logs the node updates for Neo4J. It will run when `daily_osv_update.sh` is executed.
 
 #### Technical Details:
-- This file dynamically logs node updates in Neo4J allowing for easy troubleshooting and error logging
-- When completed this script closes its connection with Neo4J
+- This file dynamically logs node updates in Neo4J, allowing for easy troubleshooting and error logging
+- When completed, this script closes its connection with Neo4J
 
 This timestamp script allows us to maintain a detailed log of Neo4J infrastructure updates.
 
@@ -132,13 +132,13 @@ This shell script handles updating the nodes in Neo4J. It is linked to a cron jo
 
 #### Technical Details:
 - This file will trigger a cron job at `3:00 AM GMT Daily` within the VM handling this Neo4J database
-- This file is set to run the update script `TestOSVGIT3.py` first then `update_tracking_timestamp.py`
+- This file is set to run the update script `TestOSVGIT3.py` first, then `update_tracking_timestamp.py`
   - `TestOSVGIT3.py` for updating purposes
-  - `update_tracking_timestamp.py` logging purposes
+  - `update_tracking_timestamp.py` for logging purposes
 - Error handling for missing file locations
 - Confirmation of completion when updates are completed to the console
 
-This shell script helps maintain the update structure of the scripts.
+This shell script helps maintain the updated structure of the scripts.
 
 ## FEATURES
 
@@ -164,10 +164,10 @@ This shell script helps maintain the update structure of the scripts.
 
 ## DISCLAIMER
 
-> This tool is for testing and academic purposes all responses from IguanaGPT should NOT be considered axioms.
-> LLM scores can vary in quality even on a session to session basis. Using this tool 
-> as your only benchmark for software quality can have serious consequences. It is the
-> end users responsibility to ensure that their programs are adequately tested for quality assurance.
+> This tool is for testing and academic purposes; all responses from IguanaGPT should NOT be considered axioms.
+> LLM scores can vary in quality even on a session-to-session basis. Using this tool 
+> as your only benchmark for software quality can have serious consequences. The
+> end user are responsible for ensuring that their programs are adequately tested for quality assurance.
 > Developers assume no liability and are not responsible for any damage caused by this tool and software.
 
 ## CREDIT
@@ -177,15 +177,18 @@ This shell script helps maintain the update structure of the scripts.
 
 **Frontend Developers:** 
 - [Jonathon Davis](https://github.com/JonathanDavis)
-- [Yesmin Hernandez](https://github.com/Yesmin301)
 
 **Backend Developers:** 
-- [Joshua Ludolf](https://github.com/Joshua-Ludolf)
 - [Matthew Trevino](https://github.com/MattjTrev)
+- [Joshua Ludolf](https://github.com/Joshua-Ludolf)
+
+**LLM Developer**
 - [Alexander James](https://github.com/pacificocean1912)
 
 **Documentation Updates:**
 - [Samantha Jackson](https://github.com/Erosssore)
 
+**Team Member**
+- [Yesmin Hernandez](https://github.com/Yesmin301)
 ## LICENSE
 This project is licensed under the Apache License Version 2.0 - see the [LICENSE](LICENSE) file for details.
