@@ -1,0 +1,21 @@
+iguanasgpt.space {
+    # Route to frontend
+    route /* {
+        reverse_proxy frontend:8080
+    }
+
+    # Route to RepairGPT API
+    route /api/repair/* {
+        uri strip_prefix /api/repair
+        reverse_proxy repairgpt:5000
+    }
+
+    # Route to VulGPT API
+    route /api/vulgpt/* {
+        uri strip_prefix /api/vulgpt
+        reverse_proxy vulgpt:5000
+    }
+
+    # Enable compression
+    encode gzip
+}
