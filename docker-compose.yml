@@ -1,0 +1,79 @@
+version: '3'
+
+services:
+  # Frontend service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - awesome-iguana-network
+    volumes:
+      - ./frontend:/app
+      - node_modules_frontend:/app/node_modules
+
+  # RepairGPT service
+  repairgpt:
+    build:
+      context: ./RepairGPT
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - awesome-iguana-network
+    volumes:
+      - ./RepairGPT:/app
+      - node_modules_repairgpt:/app/node_modules
+
+  # VulGPT_OSV service
+  vulgpt:
+    build:
+      context: ./VulGPT_OSV
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - awesome-iguana-network
+    volumes:
+      - ./VulGPT_OSV:/app
+      - node_modules_vulgpt:/app/node_modules
+    
+  # Database for the application
+  db:
+    image: postgres:14
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=iguanas
+    networks:
+      - awesome-iguana-network
+
+  # Caddy for reverse proxy
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - awesome-iguana-network
+
+networks:
+  awesome-iguana-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  node_modules_frontend:
+  node_modules_repairgpt:
+  node_modules_vulgpt:
