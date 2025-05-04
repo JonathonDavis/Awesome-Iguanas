@@ -8,13 +8,13 @@ Awesome Iguanas Vulnerability Detection Tool
 
 ## WHAT
 
-  `IguanaGPT` is an LLM online vulnerability detection tool that aims to fix software bugs using large language models (LLMs). It utilizes a Neo4j CWE database in  combination with Llama. This tool prioritizes ease-of-use for the casual programmer.
+  `IguanaGPT` is an LLM online vulnerability detection tool that aims to fix software bugs using large language models (LLMs). It utilizes a Neo4j CVE database in  combination with Deepseek R1:8B.
 
   As proof of concept, `IguanaGPT` capabilities include:
 
-  >  1. Dynamic solutions for memory safety vulnerabilities in any programming language.
+  >  1. Dynamic identification of memory safety vulnerabilities in any programming language.
   >  2. Constantly updating the CWE database logic.
-  >  3. User-friendly online interface that prioritizes programmers of any skill level. 
+  >  3. User-friendly online interface with detailed database analysis. 
 
 ## HOW TO USE
 
@@ -38,19 +38,18 @@ The methodology behind `IguanaGPT` involves the following steps:
    - Correlates vulnerability patterns across different programming languages and frameworks
 
 2. **LLM Integration**:
-   - Utilizes Llama to analyze and detect vulnerabilities in code
+   - Utilizes DeepseekR1:8B to analyze and detect vulnerabilities in code
    - Fine-tuned specifically for code analysis and vulnerability detection
    - Implements prompt engineering to optimize model responses for security contexts
 
 3. **Dynamic Analysis**:
-   - Performs real-time analysis of user-provided code snippets
+   - Performs real-time analysis of CVE vulnerabilities
    - Generates tailored solutions based on the context and programming language
    - Prioritizes fixes for high-risk vulnerabilities according to CVSS scoring
 
 4. **User Interface**:
-   - Provides an intuitive Vue.js-based web interface for users to upload code and receive feedback
+   - Provides an intuitive Vue.js-based web interface with database analysis features
    - Features a responsive design that works across desktop and mobile devices
-   - Designed to accommodate users of all skill levels, from beginners to advanced programmers
 
 5. **Feedback Loop**:
    - Incorporates user feedback to improve the accuracy and relevance of the tool's suggestions
