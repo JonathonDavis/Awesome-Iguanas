@@ -143,8 +143,6 @@ This shell script helps maintain the updated structure of the scripts.
 
 - <b>Language Agnostic Detection</b>: Works with multiple programming languages
 - <b>Interactive Visualization</b>: Neo4j-based graph visualization of vulnerability relationships
-- TODO: <b>Customizable Security Rules</b>: Adjust sensitivity based on project requirements
-- TODO: <b>Detailed Reporting</b>: Comprehensive vulnerability reports with remediation suggestions
 
 ## MILESTONES VIDEO REPORTS
 <h2 align="center">Milestone 1 </h2>
