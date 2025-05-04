@@ -1,13 +1,10 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import dotenv from 'dotenv'
-
 // Load environment variables
 dotenv.config()
-
 // Get the API key from environment
 const apiKey = process.env.VITE_NIST_API_KEY
-
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
@@ -36,6 +33,12 @@ export default defineConfig({
           'Content-Type': 'application/json'
         }
       }
-    }
+    },
+    host: true,
+    allowedHosts: ['iguanasgpt.space']
+  },
+  preview: {
+    host: true,
+    allowedHosts: ['iguanasgpt.space']
   }
 })
