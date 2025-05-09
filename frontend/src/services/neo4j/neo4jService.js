@@ -21,7 +21,11 @@ class Neo4jService {
     
     this.driver = neo4j.driver(
       this.uri,
-      neo4j.auth.basic(this.user, this.password)
+      neo4j.auth.basic(this.user, this.password),
+      {
+        encrypted: 'ENCRYPTION_ON',
+        trust: 'TRUST_ALL_CERTIFICATES'
+      }
     )
     console.log('Neo4j connection established')
     
