@@ -9,6 +9,11 @@ www.iguanasgpt.space {
     redir https://www.iguanasgpt.space{uri}
     }
 
+    # Route to Neo4j API
+    route /neo4j/* {
+        reverse_proxy neo4j:7687
+    }
+
     # Route to RepairGPT API
     route /api/repair/* {
         uri strip_prefix /api/repair
