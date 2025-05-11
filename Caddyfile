@@ -11,7 +11,7 @@ www.iguanasgpt.space {
 
     # Route to Neo4j API
     route /neo4j/* {
-        reverse_proxy neo4j:7687
+        reverse_proxy localhost:7687
     }
 
     # Route to RepairGPT API
