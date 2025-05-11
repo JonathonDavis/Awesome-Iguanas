@@ -1,7 +1,12 @@
-iguanasgpt.space {
+www.iguanasgpt.space {
     # Route to frontend
     route /* {
         reverse_proxy frontend:8080
+        tls temp_email@gmail.com
+    }
+
+    iguanasgpt.space {
+    redir https://www.iguanasgpt.space{uri}
     }
 
     # Route to RepairGPT API
