@@ -23,7 +23,7 @@ www.iguanasgpt.space {
 
     # Route to Neo4j API
     route /neo4j/* {
-        reverse_proxy https://34.122.179.126:7687
+        reverse_proxy http://34.122.179.126:7687
     }
 
     # Enable compression
