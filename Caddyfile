@@ -1,12 +1,12 @@
-www.iguanasgpt.space {
+www.iguanasgpt.space, iguanasgpt.space {
+    # Redirect non-www to www
+    @nonwww host iguanasgpt.space
+    redir @nonwww https://www.iguanasgpt.space{uri}
+
     # Route to frontend
     route /* {
         reverse_proxy frontend:8080
         tls temp_email@gmail.com
-    }
-
-    iguanasgpt.space {
-    redir https://www.iguanasgpt.space{uri}
     }
 
     # Route to Neo4j API
