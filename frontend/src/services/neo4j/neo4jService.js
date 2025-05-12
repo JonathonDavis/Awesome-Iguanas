@@ -14,6 +14,8 @@ class Neo4jService {
     this.user = import.meta.env.VITE_NEO4J_USER
     this.password = import.meta.env.VITE_NEO4J_PASSWORD
     
+    console.log('Neo4j URI:', this.uri)
+    
     if (!this.uri || !this.user || !this.password) {
       console.error('Neo4j environment variables missing: VITE_NEO4J_URI, VITE_NEO4J_USER, VITE_NEO4J_PASSWORD must be set in .env file')
       throw new Error('Neo4j configuration missing')
