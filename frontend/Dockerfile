@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # Expose port 8080
-EXPOSE 8080
+EXPOSE 443
 
 # Preview the production build (better for production-like environment)
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "443"]
