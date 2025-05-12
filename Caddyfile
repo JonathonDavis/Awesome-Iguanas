@@ -9,22 +9,22 @@ www.iguanasgpt.space, iguanasgpt.space {
         tls temp_email@gmail.com
     }
 
-    # Route to Neo4j API
-    route /neo4j/* {
-        reverse_proxy localhost:7687
-    }
+    # # Route to Neo4j API
+    # route /neo4j/* {
+    #     reverse_proxy localhost:7687
+    # }
 
-    # Route to RepairGPT API
-    route /api/repair/* {
-        uri strip_prefix /api/repair
-        reverse_proxy repairgpt:5000
-    }
+    # # Route to RepairGPT API
+    # route /api/repair/* {
+    #     uri strip_prefix /api/repair
+    #     reverse_proxy repairgpt:5000
+    # }
 
-    # Route to VulGPT API
-    route /api/vulgpt/* {
-        uri strip_prefix /api/vulgpt
-        reverse_proxy vulgpt:5000
-    }
+    # # Route to VulGPT API
+    # route /api/vulgpt/* {
+    #     uri strip_prefix /api/vulgpt
+    #     reverse_proxy vulgpt:5000
+    # }
 
     # Enable compression
     encode gzip
