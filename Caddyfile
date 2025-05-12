@@ -6,7 +6,6 @@ www.iguanasgpt.space, iguanasgpt.space {
     # Route to frontend
     route /* {
         reverse_proxy frontend:8080
-        tls temp_email@gmail.com
     }
 
     # # Route to Neo4j API
