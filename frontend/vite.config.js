@@ -35,10 +35,10 @@ export default defineConfig({
       }
     },
     host: true,
-    allowedHosts: ['iguanasgpt.space']
+    allowedHosts: ['iguanasgpt.space', 'www.iguanasgpt.space']
   },
   preview: {
     host: true,
-    allowedHosts: ['iguanasgpt.space']
+    allowedHosts: ['iguanasgpt.space', 'www.iguanasgpt.space']
   }
 })
