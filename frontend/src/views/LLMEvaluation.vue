@@ -310,14 +310,14 @@ export default {
       if (!fullId) return 'Unknown repository'
       
       try {
-        if (fullId.includes('github.com')) {
-          const parts = fullId.replace(/https:__/g, 'https://').split('_')
-          for (const part of parts) {
-            if (part.includes('github.com/') && !part.includes('@')) {
-              return part
-            }
+        try {
+          const url = new URL(fullId.replace(/https:__/g, 'https://'));
+          if (url.hostname === 'github.com' || url.hostname.endsWith('.github.com')) {
+            return url.pathname.replace(/^\/+|\/+$/g, ''); // Clean up leading/trailing slashes
           }
-        }
+        } catch (err) {
+          // Invalid URL, fallback to returning fullId
+          return fullId;
         return fullId
       } catch (err) {
         return fullId
