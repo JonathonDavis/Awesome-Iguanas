@@ -12,7 +12,7 @@
     "axios": "^1.8.4",
     "chart.js": "^4.4.8",
     "d3": "^7.9.0",
-    "neo4j-driver": "^5.28.1",
+    "neo4j-driver": "^6.0.0",
     "node-schedule": "^2.1.1",
     "vis-network": "^9.1.9",
     "vue": "^3.5.13",
