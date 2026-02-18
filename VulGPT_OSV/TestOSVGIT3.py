@@ -17,6 +17,7 @@ from tqdm import tqdm
 from neo4j import GraphDatabase
 from collections import defaultdict
 from ortools.sat.python import cp_model
+from urllib.parse import urlparse
 
 # -------------------------
 # CONFIGURATION
@@ -528,6 +529,19 @@ def extract_repo_info(vuln):
         return None
 
     # Check package information for all ecosystems
+    def is_github_url(url: str) -> bool:
+        """
+        Return True if the given URL clearly points to github.com.
+        """
+        if not url:
+            return False
+        parsed = urlparse(url)
+        # If no scheme is present, try parsing again assuming https.
+        if not parsed.scheme:
+            parsed = urlparse("https://" + url)
+        host = parsed.hostname or ""
+        return host.lower() in ("github.com", "www.github.com")
+
     for affected in vuln.get("affected", []):
         package = affected.get("package", {})
         pkg_name = package.get("name", "")
@@ -559,7 +573,7 @@ def extract_repo_info(vuln):
             # Find GitHub repo from references
             for ref in vuln.get("references", []):
                 url = ref.get("url", "")
-                if "github.com" in url and pkg_name.lower() in url.lower():
+                if is_github_url(url) and pkg_name.lower() in url.lower():
                     clean_url = clean_github_url(url)
                     if clean_url:
                         repos.add(clean_url)
@@ -579,7 +593,7 @@ def extract_repo_info(vuln):
 
         # Check Package URL (PURL)
         purl = package.get("purl", "")
-        if purl and "github.com" in purl:
+        if is_github_url(purl):
             clean_url = clean_github_url(purl)
             if clean_url:
                 repos.add(clean_url)
