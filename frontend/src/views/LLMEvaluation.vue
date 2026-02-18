@@ -310,11 +310,18 @@ export default {
       if (!fullId) return 'Unknown repository'
       
       try {
-        if (fullId.includes('github.com')) {
-          const parts = fullId.replace(/https:__/g, 'https://').split('_')
-          for (const part of parts) {
-            if (part.includes('github.com/') && !part.includes('@')) {
-              return part
+        const normalized = fullId.replace(/https:__/g, 'https://')
+        const parts = normalized.split('_')
+        for (const part of parts) {
+          // Only attempt to parse as URL if it looks like one
+          if (typeof part === 'string' && (part.startsWith('http://') || part.startsWith('https://'))) {
+            try {
+              const url = new URL(part)
+              if (url.hostname === 'github.com' && !part.includes('@')) {
+                return part
+              }
+            } catch (e) {
+              // Ignore parts that are not valid URLs
             }
           }
         }
