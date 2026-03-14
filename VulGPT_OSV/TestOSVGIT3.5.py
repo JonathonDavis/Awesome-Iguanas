@@ -316,7 +316,7 @@ def safe_clone_repository(repo_url, base_dir=REPO_BASE_DIR, max_retries=3):
     """
     # Add GitHub token to URL if it's a GitHub repository and token is available
     authenticated_url = repo_url
-    if 'github.com' in repo_url and GITHUB_TOKEN and not repo_url.startswith('git@'):
+    if repo_url.startswith('https://github.com/') and GITHUB_TOKEN and not repo_url.startswith('git@'):
         authenticated_url = repo_url.replace('https://github.com/', f'https://{GITHUB_TOKEN}@github.com/')
 
     # Sanitize repository name for local path
@@ -350,8 +350,8 @@ def safe_clone_repository(repo_url, base_dir=REPO_BASE_DIR, max_retries=3):
                     pass
 
             # Alternative strategies
-            if attempt == 0:
-                # Try HTTPS to SSH conversion
+            if attempt == 0 and repo_url.startswith('https://github.com/'):
+                # Try HTTPS to SSH conversion for GitHub repositories
                 ssh_url = repo_url.replace('https://github.com/', 'git@github.com:')
                 try:
                     print(f"Trying SSH URL: {ssh_url}")
