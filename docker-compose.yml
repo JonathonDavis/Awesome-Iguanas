@@ -52,6 +52,19 @@ services:
     networks:
       - awesome-iguana-network
 
+  neo4j:
+    image: neo4j:5
+    restart: unless-stopped
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/neo4j
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - awesome-iguana-network
+
   # Caddy for reverse proxy
   caddy:
     image: caddy:2
@@ -72,6 +85,7 @@ networks:
 
 volumes:
   postgres_data:
+  neo4j_data:
   caddy_data:
   caddy_config:
   node_modules_frontend:

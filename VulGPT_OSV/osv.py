@@ -3,8 +3,6 @@ import os
 import re
 import json
 import gc
-import zipfile
-import io
 import requests
 import shutil
 import datetime
@@ -18,14 +16,42 @@ from neo4j import GraphDatabase
 from collections import defaultdict
 from ortools.sat.python import cp_model
 from urllib.parse import urlparse
+from urllib.parse import quote
 
 # -------------------------
 # CONFIGURATION
 # -------------------------
-NEO4J_URI = "neo4j://localhost:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = "jaguarai"
-OSV_ZIP_URL = "https://storage.googleapis.com/osv-vulnerabilities/all.zip"
+def load_env_file(env_file_path):
+    """
+    Load key=value pairs from an env file into environment variables if not already set.
+    """
+    if not os.path.exists(env_file_path):
+        return
+
+    try:
+        with open(env_file_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as e:
+        print(f"Warning: Could not load env file {env_file_path}: {e}")
+
+
+DEFAULT_ENV_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", ".env.production")
+)
+load_env_file(os.environ.get("APP_ENV_FILE", DEFAULT_ENV_PATH))
+
+NEO4J_URI = os.environ.get("VITE_NEO4J_URI", os.environ.get("NEO4J_URI", "neo4j://localhost:7687"))
+NEO4J_USER = os.environ.get("VITE_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j"))
+NEO4J_PASSWORD = os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", ""))
+OSV_API_URL = os.environ.get("OSV_API_URL", "https://api.osv.dev/v1/vulns")
 BATCH_SIZE = 100
 PROCESSING_BATCH_SIZE = 100
 MAX_WORKERS = 8
@@ -36,13 +62,19 @@ KEEP_REPOS = True  # Always keep repositories for continuous updates
 CHECKPOINT_FILE = "osv_checkpoint.json"
 REPOSITORY_PROGRESS_FILE = "repo_progress.json"
 CONTINUE_FROM_CHECKPOINT = True  # Set to True to continue from last run
-OSV_ZIP_CACHE = "osv_all.zip"  # Cache the downloaded zip file
 STARTING_REPO_BATCH_SIZE = 50  # Increased from 5 to 50
 MAX_REPO_BATCH_SIZE = 100  # Increased from 20 to 100
 REPO_BATCH_SIZE_INCREMENT = 5  # Increased from 1 to 5
+OSV_QUERY_SEED_ALIASES = [
+    "CVE-2021-44228",
+    "GHSA-f7q4-pwc6-w24p",
+    "GO-2021-0053",
+    "PYSEC-2023-62",
+    "RUSTSEC-2020-0071"
+]
 
 # GitHub token from environment or set directly
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')  # Replace with your token
+GITHUB_TOKEN = os.environ.get('VITE_GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
 
 
 # -------------------------
@@ -239,50 +271,42 @@ def setup_git_ssh():
 # -------------------------
 # OSV DOWNLOAD & PROCESSING
 # -------------------------
-def download_osv_all_zip(url):
+def fetch_osv_vulnerabilities_from_api(max_records=MAX_RECORDS_PER_RUN):
     """
-    Downloads the OSV 'all vulnerabilities' zip file from the given URL.
+    Fetch vulnerabilities directly from OSV API by alias ID lookups.
 
     Args:
-        url (str): The URL to download the zip file from.
+        max_records (int): Maximum number of vulnerability records to return.
 
     Returns:
-        BytesIO: A BytesIO object containing the downloaded zip file content.
+        list: List of vulnerability JSON objects from OSV.
     """
-    print(f"Downloading OSV data from {url} ...")
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
+    print(f"Fetching OSV data from API base: {OSV_API_URL}")
+    vulnerabilities_by_id = {}
 
-    # Get content length for progress bar if available
-    total_size = int(response.headers.get('content-length', 0))
+    for alias in OSV_QUERY_SEED_ALIASES:
+        if len(vulnerabilities_by_id) >= max_records:
+            break
+        try:
+            response = requests.get(f"{OSV_API_URL}/{quote(alias, safe='')}", timeout=30)
+            if response.status_code == 200:
+                vuln = response.json()
+                vuln_id = vuln.get("id")
+                if vuln_id:
+                    vulnerabilities_by_id[vuln_id] = vuln
+        except Exception as e:
+            print(f"Warning: OSV API lookup failed for alias {alias}: {e}")
 
-    # Setup progress bar with the total size of the download
-    progress_bar = tqdm(total=total_size, unit='B', unit_scale=True, desc="Downloading")
+    vulnerabilities = list(vulnerabilities_by_id.values())
+    print(f"Fetched {len(vulnerabilities)} vulnerabilities from OSV API")
+    return vulnerabilities
 
-    # Create a BytesIO object to store the downloaded content
-    content = io.BytesIO()
-
-    # Download the file in chunks and update the progress bar
-    for chunk in response.iter_content(chunk_size=8192):
-        if chunk:
-            progress_bar.update(len(chunk))
-            content.write(chunk)
-
-    # Close the progress bar after download is complete
-    progress_bar.close()
-
-    # Reset the content position to the beginning
-    content.seek(0)
-    print("Download complete!")
-    return content
-
-def process_vulnerabilities(zip_bytes, max_records=MAX_RECORDS_PER_RUN):
+def process_vulnerabilities(vulnerability_records, max_records=MAX_RECORDS_PER_RUN):
     """
-    Opens the provided ZIP and extracts vulnerability records incrementally.
-    Uses checkpoints to continue from last run.
+    Process vulnerability records incrementally using checkpoints.
 
     Args:
-        zip_bytes (BytesIO): The BytesIO object containing the downloaded zip file content.
+        vulnerability_records (list): Vulnerability records fetched from OSV API.
         max_records (int, optional): The maximum number of vulnerability records to process at once.
             Defaults to MAX_RECORDS_PER_RUN.
 
@@ -290,65 +314,27 @@ def process_vulnerabilities(zip_bytes, max_records=MAX_RECORDS_PER_RUN):
         List of processed vulnerability records.
     """
     vulnerabilities = []
-    processed_files, _ = load_checkpoint()
-    new_processed_files = processed_files.copy()
+    processed_ids, _ = load_checkpoint()
+    new_processed_ids = processed_ids.copy()
 
-    def process_file(file):
-        """
-        Process a single file from the ZIP archive.
+    records_to_process = [
+        record for record in vulnerability_records
+        if record.get("id") and record.get("id") not in processed_ids
+    ][:max_records]
 
-        Args:
-            file (str): The name of the file to process.
+    print(f"Processing {len(records_to_process)} new records out of {len(vulnerability_records)} fetched records")
 
-        Returns:
-            dict or None: The JSON content of the file as a dictionary, or None if an error occurs.
-        """
-        try:
-            # Open the file within the ZIP archive
-            with zf.open(file) as f:
-                # Load and return the JSON content
-                return json.load(f)
-        except Exception as e:
-            # Print an error message if any exception occurs
-            print(f"\nError processing file {file}: {e}")
-            return None
-
-    with zipfile.ZipFile(zip_bytes, 'r') as zf:
-        file_list = zf.namelist()
-        total_files = len(file_list)
-        print(f"Found {total_files} files in the archive.")
-
-        # Find unprocessed files
-        unprocessed_files = [f for f in file_list if f not in processed_files]
-        files_to_process = unprocessed_files[:max_records]
-
-        print(f"Processing {len(files_to_process)} new files out of {len(unprocessed_files)} unprocessed files")
-
-        # Process files in batches using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            with tqdm(total=len(files_to_process), desc="Processing files", unit="files") as pbar:
-                for batch_start in range(0, len(files_to_process), PROCESSING_BATCH_SIZE):
-                    batch_files = files_to_process[batch_start:batch_start + PROCESSING_BATCH_SIZE]
-                    results = list(executor.map(process_file, batch_files))
-
-                    # Only add successful results to vulnerabilities
-                    valid_results = list(filter(None, results))
-                    vulnerabilities.extend(valid_results)
-
-                    # Update processed files
-                    new_processed_files.update(batch_files)
-
-                    # Save checkpoint periodically
-                    if len(new_processed_files) % (PROCESSING_BATCH_SIZE * 5) == 0:
-                        save_checkpoint(new_processed_files)
-
-                    pbar.update(len(batch_files))
-                    del results
-                    gc.collect()
+    for idx, record in enumerate(tqdm(records_to_process, desc="Processing vulnerabilities", unit="vulns"), start=1):
+        vulnerabilities.append(record)
+        new_processed_ids.add(record.get("id"))
+        if idx % (PROCESSING_BATCH_SIZE * 5) == 0:
+            save_checkpoint(new_processed_ids, record.get("id"))
+        if idx % PROCESSING_BATCH_SIZE == 0:
+            gc.collect()
 
     # Save final checkpoint
     last_vuln_id = vulnerabilities[-1].get("id") if vulnerabilities else None
-    save_checkpoint(new_processed_files, last_vuln_id)
+    save_checkpoint(new_processed_ids, last_vuln_id)
 
     print(f"Processed {len(vulnerabilities)} new vulnerability records")
     return vulnerabilities
@@ -1622,19 +1608,11 @@ def main():
             print("WARNING: No GitHub token found. Repository operations may be rate-limited.")
             print("Set GITHUB_TOKEN environment variable or update the script with your token.")
 
-        # Skip downloading again if already downloaded and we're continuing from a checkpoint
-        if os.path.exists(OSV_ZIP_CACHE) and CONTINUE_FROM_CHECKPOINT:
-            print(f"Using existing OSV zip file: {OSV_ZIP_CACHE}")
-            with open(OSV_ZIP_CACHE, 'rb') as f:
-                zip_bytes = io.BytesIO(f.read())
-        else:
-            # Download and save for future runs
-            zip_bytes = download_osv_all_zip(OSV_ZIP_URL)
-            with open(OSV_ZIP_CACHE, 'wb') as f:
-                f.write(zip_bytes.getvalue())
+        # Pull vulnerabilities directly from OSV API
+        fetched_vulnerabilities = fetch_osv_vulnerabilities_from_api(max_records=MAX_RECORDS_PER_RUN)
 
         # Process vulnerabilities incrementally
-        all_vulnerabilities = process_vulnerabilities(zip_bytes, max_records=MAX_RECORDS_PER_RUN)
+        all_vulnerabilities = process_vulnerabilities(fetched_vulnerabilities, max_records=MAX_RECORDS_PER_RUN)
 
         if not all_vulnerabilities:
             print("No new vulnerabilities to process. Check if all files have been processed.")

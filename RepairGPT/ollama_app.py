@@ -14,6 +14,31 @@ from dataclasses import dataclass
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError
 
+DEFAULT_ENV_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", ".env.production")
+)
+
+
+def load_env_file(env_file_path: str) -> None:
+    if not os.path.exists(env_file_path):
+        return
+    try:
+        with open(env_file_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        pass
+
+
+load_env_file(os.environ.get("APP_ENV_FILE", DEFAULT_ENV_PATH))
+
 @dataclass
 class VulnerabilityInfo:
     id: str
@@ -51,7 +76,7 @@ class SecurityAnalyzer:
             print(f"Error loading vulnerability data: {e}")
             return []
     
-    def analyze_with_ollama(self, prompt: str, model: str = "llama3") -> str:
+    def analyze_with_ollama(self, prompt: str, model: str = "deepseek-r1:7b") -> str:
         """Generate analysis text using Ollama local model."""
         try:
             url = f"{self.ollama_base_url}/api/generate"
@@ -61,7 +86,7 @@ class SecurityAnalyzer:
                 "stream": False
             }
             
-            response = requests.post(url, json=payload)
+            response = requests.post(url, json=payload, timeout=60)
             if response.status_code == 200:
                 result = response.json()
                 return result.get("response", "No response generated")
@@ -73,14 +98,14 @@ class SecurityAnalyzer:
     def query_nist_nvd(self, cve_id: str) -> Dict[str, Any]:
         """Query the NIST NVD API for CVE details."""
         try:
-            base_url = "https://services.nvd.nist.gov/rest/json/cve/1.0/"
-            url = f"{base_url}{cve_id}"
+            base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+            url = base_url
             
             headers = {}
             if self.api_key:
                 headers["apiKey"] = self.api_key
                 
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, params={"cveId": cve_id}, timeout=30)
             
             if response.status_code == 200:
                 return response.json()
@@ -97,17 +122,17 @@ class SecurityAnalyzer:
         try:
             if ecosystem.lower() == "pypi":
                 url = f"https://pypi.org/pypi/{package_name}/json"
-                response = requests.get(url)
+                response = requests.get(url, timeout=30)
                 if response.status_code == 200:
                     return response.json()
             elif ecosystem.lower() == "npm":
                 url = f"https://registry.npmjs.org/{package_name}"
-                response = requests.get(url)
+                response = requests.get(url, timeout=30)
                 if response.status_code == 200:
                     return response.json()
             elif ecosystem.lower() == "rubygems":
                 url = f"https://rubygems.org/api/v1/gems/{package_name}.json"
-                response = requests.get(url)
+                response = requests.get(url, timeout=30)
                 if response.status_code == 200:
                     return response.json()
                     
@@ -145,13 +170,11 @@ class SecurityAnalyzer:
     def generate_cve_analysis_prompt(self, cve_id: str, cve_data: Dict[str, Any]) -> str:
         """Create a prompt for analyzing a specific CVE."""
         description = "No description available"
-        if cve_data and "result" in cve_data and "CVE_Items" in cve_data["result"]:
-            if cve_data["result"]["CVE_Items"]:
-                cve_item = cve_data["result"]["CVE_Items"][0]
-                if "cve" in cve_item and "description" in cve_item["cve"]:
-                    desc_data = cve_item["cve"]["description"]["description_data"]
-                    if desc_data and len(desc_data) > 0:
-                        description = desc_data[0].get("value", "No description available")
+        if cve_data and "vulnerabilities" in cve_data and cve_data["vulnerabilities"]:
+            cve_item = cve_data["vulnerabilities"][0].get("cve", {})
+            descriptions = cve_item.get("descriptions", [])
+            if descriptions:
+                description = descriptions[0].get("value", "No description available")
         
         prompt = f"""You are a cybersecurity expert specializing in vulnerability analysis.
         
@@ -322,9 +345,9 @@ class SecurityAnalyzer:
 class Neo4jSecurityAnalyzer:
     def __init__(
         self,
-        neo4j_uri: str = "bolt://localhost:7687",
-        neo4j_user: str = "neo4j",
-        neo4j_password: str = "jaguarai",
+        neo4j_uri: str = None,
+        neo4j_user: str = None,
+        neo4j_password: str = None,
         log_level: str = "INFO"
     ):
         """Initialize the security analyzer with connection parameters."""
@@ -339,6 +362,10 @@ class Neo4jSecurityAnalyzer:
         )
         self.logger = logging.getLogger(__name__)
         
+        neo4j_uri = neo4j_uri or os.environ.get("VITE_NEO4J_URI", os.environ.get("NEO4J_URI", "bolt://localhost:7687"))
+        neo4j_user = neo4j_user or os.environ.get("VITE_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j"))
+        neo4j_password = neo4j_password or os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", ""))
+
         # Initialize Neo4j connection
         try:
             self.driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
@@ -1318,9 +1345,9 @@ class CombinedSecurityAnalyzer:
     """
     def __init__(
         self,
-        neo4j_uri: str = "bolt://localhost:7687",
-        neo4j_user: str = "neo4j",
-        neo4j_password: str = "jaguarai",
+        neo4j_uri: str = None,
+        neo4j_user: str = None,
+        neo4j_password: str = None,
         ollama_base_url: str = "http://localhost:11434",
         api_key: str = None,
         log_level: str = "INFO"
@@ -1497,11 +1524,11 @@ def main():
     # Neo4j connection arguments
     parser.add_argument("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j connection URI")
     parser.add_argument("--neo4j-user", default="neo4j", help="Neo4j username")
-    parser.add_argument("--neo4j-password", default="jaguarai", help="Neo4j password")
+    parser.add_argument("--neo4j-password", default=os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", "")), help="Neo4j password")
     
     # Ollama arguments
     parser.add_argument("--ollama-url", default="http://localhost:11434", help="Base URL for Ollama API")
-    parser.add_argument("--model", default="llama3", help="Ollama model to use for analysis")
+    parser.add_argument("--model", default=os.environ.get("VITE_OLLAMA_MODEL", "deepseek-r1:7b"), help="Ollama model to use for analysis")
     
     # API Keys
     parser.add_argument("--nvd-api-key", help="API key for NVD API (optional)")
@@ -1639,7 +1666,7 @@ def main():
     # Neo4j connection arguments
     parser.add_argument("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j connection URI")
     parser.add_argument("--neo4j-user", default="neo4j", help="Neo4j username")
-    parser.add_argument("--neo4j-password", default="jaguarai", help="Neo4j password")
+    parser.add_argument("--neo4j-password", default=os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", "")), help="Neo4j password")
     
     # Optional input file (not required)
     parser.add_argument("--input", help="Input JSON file with vulnerability data (optional)")

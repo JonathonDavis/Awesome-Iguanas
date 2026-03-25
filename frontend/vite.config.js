@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import dotenv from 'dotenv'
 // Load environment variables
-dotenv.config()
+dotenv.config({ path: '.env.production' })
 // Get the API key from environment
 const apiKey = process.env.VITE_NIST_API_KEY
 // https://vite.dev/config/

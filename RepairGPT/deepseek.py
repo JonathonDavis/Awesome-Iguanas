@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 import json
@@ -11,6 +12,30 @@ import requests
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError
+
+
+def load_env_file(env_file_path: str) -> None:
+    if not os.path.exists(env_file_path):
+        return
+    try:
+        with open(env_file_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        pass
+
+
+DEFAULT_ENV_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", ".env.production")
+)
+load_env_file(os.environ.get("APP_ENV_FILE", DEFAULT_ENV_PATH))
 
 @dataclass
 class VulnerabilityInfo:
@@ -36,9 +61,9 @@ class SecurityInsight:
 class Neo4jSecurityAnalyzer:
     def __init__(
         self,
-        neo4j_uri: str = "bolt://localhost:7687",
-        neo4j_user: str = "neo4j",
-        neo4j_password: str = "jaguarai",
+        neo4j_uri: str = None,
+        neo4j_user: str = None,
+        neo4j_password: str = None,
         deepseek_api_key: str = None,
         deepseek_api_url: str = "https://api.deepseek.com/v1/chat/completions",
         log_level: str = "INFO"
@@ -55,6 +80,11 @@ class Neo4jSecurityAnalyzer:
         )
         self.logger = logging.getLogger(__name__)
         
+        neo4j_uri = neo4j_uri or os.environ.get("VITE_NEO4J_URI") or os.environ.get("NEO4J_URI") or "bolt://localhost:7687"
+        neo4j_user = neo4j_user or os.environ.get("VITE_NEO4J_USER") or os.environ.get("NEO4J_USER") or "neo4j"
+        neo4j_password = neo4j_password or os.environ.get("VITE_NEO4J_PASSWORD") or os.environ.get("NEO4J_PASSWORD")
+        deepseek_api_key = deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY")
+
         # Initialize Neo4j connection
         try:
             self.driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
@@ -66,7 +96,7 @@ class Neo4jSecurityAnalyzer:
             
         # DeepSeek API configuration
         self.deepseek_api_key = deepseek_api_key
-        self.deepseek_api_url = deepseek_api_url
+        self.deepseek_api_url = os.environ.get("DEEPSEEK_API_URL", deepseek_api_url)
         
         # Check if DeepSeek API key is provided
         if not self.deepseek_api_key:
@@ -378,7 +408,7 @@ class Neo4jSecurityAnalyzer:
             }
             
             payload = {
-                "model": "deepseek-coder",  # or appropriate model name
+                "model": "deepseek-r1:7b",
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
@@ -388,7 +418,8 @@ class Neo4jSecurityAnalyzer:
             response = requests.post(
                 self.deepseek_api_url,
                 headers=headers,
-                json=payload
+                json=payload,
+                timeout=60
             )
             
             response.raise_for_status()

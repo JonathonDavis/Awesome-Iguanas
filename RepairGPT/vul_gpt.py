@@ -7,6 +7,31 @@ import requests
 import time
 from typing import List, Dict, Any, Optional
 
+DEFAULT_ENV_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", ".env.production")
+)
+
+
+def load_env_file(env_file_path: str) -> None:
+    if not os.path.exists(env_file_path):
+        return
+    try:
+        with open(env_file_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        pass
+
+
+load_env_file(os.environ.get("APP_ENV_FILE", DEFAULT_ENV_PATH))
+
 class VulnerabilityScanner:
     """
     Initialize a VulnerabilityScanner object to interact with the graph database
@@ -384,7 +409,7 @@ class VulnerabilityScanner:
         
         # Prepare the request payload
         payload = {
-            "model": "deepseek-chat",  # or the specific model ID you want to use
+            "model": "deepseek-r1:7b",
             "messages": [
                 {"role": "system", "content": "You are VulGPT, an expert in identifying security vulnerabilities in code."},
                 {"role": "user", "content": prompt}
@@ -1327,12 +1352,12 @@ def main():
     on all repositories in the database. The results are saved to a JSON file.
     """
     # Neo4j connection details (update with actual values)
-    uri = "bolt://localhost:7687"
-    username = "neo4j"
-    password = "jaguarai"
+    uri = os.environ.get("VITE_NEO4J_URI", os.environ.get("NEO4J_URI", "bolt://localhost:7687"))
+    username = os.environ.get("VITE_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j"))
+    password = os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", ""))
     
     # DeepSeek API key (replace with your actual API key)
-    deepseek_api_key = "your_deepseek_api_key_here"
+    deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY", "")
     
     # Results file path
     results_file = "vulnerability_results_debug.json"
