@@ -11,7 +11,7 @@ import nvdService from './nvdService';
 class Neo4jService {
   constructor() {
     this.uri = import.meta.env.VITE_NEO4J_URI
-    this.user = import.meta.env.VITE_NEO4J_USER
+    this.user = import.meta.env.VITE_NEO4J_USER || import.meta.env.VITE_NEO4J_USERNAME
     this.password = import.meta.env.VITE_NEO4J_PASSWORD
     this.database = import.meta.env.VITE_NEO4J_DATABASE
     

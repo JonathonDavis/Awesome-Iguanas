@@ -136,6 +136,12 @@ This frontend currently uses the Neo4j JS driver in the browser. In production, 
 
 Recommended production pattern: move Neo4j access to a backend API (server/serverless) and have the frontend call that API over HTTPS.
 
+When deploying on Vercel, you can set either:
+- `VITE_NEO4J_URI`, `VITE_NEO4J_USER`, `VITE_NEO4J_PASSWORD`, `VITE_NEO4J_DATABASE`
+- or `NEO4J_URI`, `NEO4J_USER` / `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
+
+The Vite config maps `NEO4J_*` values to `VITE_NEO4J_*` at build time.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
