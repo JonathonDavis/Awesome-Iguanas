@@ -127,6 +127,15 @@ npm run build
 
 The built files will be in the `dist` directory, ready to be deployed to your web server or cloud hosting platform.
 
+### Neo4j note (Vercel / browser deployments)
+
+This frontend currently uses the Neo4j JS driver in the browser. In production, that means the user's browser must be able to open a WebSocket connection to your Neo4j Bolt endpoint (typically TCP port `7687`). If `7687` is not publicly reachable (firewall closed) or your domain is proxied by a service that doesn't support that port (e.g., Cloudflare orange-cloud), you'll see errors like:
+
+- `WebSocket connection to 'wss://<host>:7687/' failed`
+- `Failed to establish connection in 30000ms`
+
+Recommended production pattern: move Neo4j access to a backend API (server/serverless) and have the frontend call that API over HTTPS.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

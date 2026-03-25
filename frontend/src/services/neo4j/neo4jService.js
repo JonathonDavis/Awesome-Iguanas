@@ -30,12 +30,12 @@ class Neo4jService {
         'Invalid Neo4j URI. Set VITE_NEO4J_URI to something like neo4j+s://<id>.databases.neo4j.io (do not use placeholders like .env.local.VITE_NEO4J_URI).'
       )
     }
-    
-    const isBrowser = typeof window !== 'undefined';
-    const pageProtocol = isBrowser ? window.location.protocol : null;
+
+      this.isBrowser = typeof window !== 'undefined';
+    const pageProtocol = this.isBrowser ? window.location.protocol : null;
     const usesEncryptedScheme = typeof this.uri === 'string' && /(neo4j\+s(c)?:\/\/|bolt\+s(c)?:\/\/)/i.test(this.uri);
 
-    if (isBrowser && pageProtocol === 'http:' && usesEncryptedScheme) {
+    if (this.isBrowser && pageProtocol === 'http:' && usesEncryptedScheme) {
       console.warn(
         'Neo4j connection is using encryption (wss) from an http page. '
         + 'If your environment blocks this, serve the app over https (recommended) or use a non-encrypted Neo4j URI for local dev.'
@@ -73,12 +73,22 @@ class Neo4jService {
       updateErrors: [],
       totalNodes: 0
     };
-    
-    // Initialize the database with update tracking
-    this.initializeUpdateTracking();
-    
-    // Start the update system
-    this.startUpdateSystem();
+
+    // IMPORTANT:
+    // The update tracking + scheduled/continuous update system should run server-side,
+    // not in end-user browsers (credentials + background timers + network constraints).
+    // For local dev you can opt-in via VITE_ENABLE_CLIENT_UPDATES=true.
+    const enableClientUpdates = String(import.meta.env.VITE_ENABLE_CLIENT_UPDATES || '').toLowerCase() === 'true'
+
+    if (!this.isBrowser || enableClientUpdates) {
+      // Initialize the database with update tracking
+      this.initializeUpdateTracking();
+
+      // Start the update system
+      this.startUpdateSystem();
+    } else {
+      console.info('Neo4jService: skipping client-side update tracking (set VITE_ENABLE_CLIENT_UPDATES=true to opt in).')
+    }
   }
 
   createSession() {
