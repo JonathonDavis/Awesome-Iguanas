@@ -99,13 +99,12 @@ class SecurityAnalyzer:
         """Query the NIST NVD API for CVE details."""
         try:
             base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-            url = base_url
             
             headers = {}
             if self.api_key:
                 headers["apiKey"] = self.api_key
                 
-            response = requests.get(url, headers=headers, params={"cveId": cve_id}, timeout=30)
+            response = requests.get(base_url, headers=headers, params={"cveId": cve_id}, timeout=30)
             
             if response.status_code == 200:
                 return response.json()

@@ -85,6 +85,9 @@ class Neo4jSecurityAnalyzer:
         neo4j_password = neo4j_password or os.environ.get("VITE_NEO4J_PASSWORD") or os.environ.get("NEO4J_PASSWORD")
         deepseek_api_key = deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY")
 
+        if neo4j_password is None:
+            raise ValueError("Neo4j password missing. Set VITE_NEO4J_PASSWORD or NEO4J_PASSWORD.")
+
         # Initialize Neo4j connection
         try:
             self.driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))

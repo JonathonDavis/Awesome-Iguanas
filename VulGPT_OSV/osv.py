@@ -74,7 +74,7 @@ OSV_QUERY_SEED_ALIASES = [
 ]
 
 # GitHub token from environment or set directly
-GITHUB_TOKEN = os.environ.get('VITE_GITHUB_TOKEN', os.environ.get('GITHUB_TOKEN', ''))
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 
 
 # -------------------------
