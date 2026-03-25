@@ -8,6 +8,8 @@ import { getRepositoryStatistics, getCVERepositoryData } from './repositoryServi
 import { startUpdateSystem } from './updateSystem';
 import nvdService from './nvdService';
 
+const BROWSER_ACCESS_DISABLED_ERROR = 'Neo4j browser access is disabled in this environment'
+
 class Neo4jService {
   constructor() {
     this.uri = import.meta.env.VITE_NEO4J_URI
@@ -108,7 +110,7 @@ class Neo4jService {
 
   createSession() {
     if (!this.driver) {
-      throw new Error('Neo4j browser access is disabled in this environment.')
+      throw new Error(BROWSER_ACCESS_DISABLED_ERROR)
     }
     if (this.database) {
       return this.driver.session({ database: this.database });
@@ -120,11 +122,11 @@ class Neo4jService {
   processVulnerability = processVulnerability;
   storeVulnerability = storeVulnerability;
   fetchOSVData = () => {
-    if (!this.osvFetcher) throw new Error('Neo4j browser access is disabled in this environment.')
+    if (!this.osvFetcher) throw new Error(BROWSER_ACCESS_DISABLED_ERROR)
     return this.osvFetcher.fetchOSVData();
   };
   fetchLatestOSVUpdates = () => {
-    if (!this.osvFetcher) throw new Error('Neo4j browser access is disabled in this environment.')
+    if (!this.osvFetcher) throw new Error(BROWSER_ACCESS_DISABLED_ERROR)
     return this.osvFetcher.fetchLatestOSVUpdates();
   };
   getStatistics = getStatistics;
