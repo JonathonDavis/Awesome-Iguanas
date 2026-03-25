@@ -1,17 +1,20 @@
 export async function getRepositoryStatistics() {
-  const session = this.driver.session();
+  const session = this.createSession();
   try {
     console.log('Executing repository statistics query...');
     const result = await session.run(`
       MATCH (r:Repository)-[:HAS_VERSION]->(v:Version)
-      OPTIONAL MATCH (c:CVE)-[:IDENTIFIED_AS]->(vuln:Vulnerability)-[:FOUND_IN]->(r)
+      OPTIONAL MATCH (c1:CVE)-[:IDENTIFIED_AS]->(vuln1:Vulnerability)-[:FOUND_IN]->(r)
+      OPTIONAL MATCH (vuln2:Vulnerability)-[:REFERS_TO]->(ref:Reference)
+      WHERE ref.url CONTAINS r.url
+      OPTIONAL MATCH (c2:CVE)-[:IDENTIFIED_AS]->(vuln2)
       RETURN r.url AS RepositoryURL, 
              v.version AS Version, 
              v.size AS Size, 
              v.primary_language AS PrimaryLanguage,
              v.language_count AS LanguageCount,
              v.language_json AS AllLanguages,
-             collect(DISTINCT c.id) as cves
+             collect(DISTINCT c1.id) + collect(DISTINCT c2.id) as cves
       ORDER BY r.url, v.version
     `);
     
@@ -86,7 +89,7 @@ export async function getRepositoryStatistics() {
         languages: languages,
         primaryLanguage: primaryLanguage,
         languageCount: languageCount ? languageCount.low || 0 : 0,
-        cves: cves || []
+        cves: Array.isArray(cves) ? [...new Set(cves.filter(Boolean))] : []
       });
     });
     
@@ -101,19 +104,57 @@ export async function getRepositoryStatistics() {
 }
 
 export async function getCVERepositoryData() {
-  const session = this.driver.session();
+  const session = this.createSession();
   try {
     console.log('Fetching CVE repository data...');
     const result = await session.run(`
-      MATCH (c:CVE)-[:IDENTIFIED_AS]->(v:Vulnerability)-[:FOUND_IN]->(r:Repository)
-      WITH c, v, collect(DISTINCT r.url) as repositories
-      RETURN 
+      MATCH (c:CVE)-[:IDENTIFIED_AS]->(v:Vulnerability)
+      OPTIONAL MATCH (v)-[:FOUND_IN]->(rFound:Repository)
+      OPTIONAL MATCH (v)-[:REFERS_TO]->(ref:Reference)
+      WHERE ref.url CONTAINS 'github.com/'
+      WITH c, v, collect(DISTINCT rFound.url) AS foundRepoUrls, collect(DISTINCT ref.url) AS refUrls
+
+      WITH c, v, foundRepoUrls,
+        [u IN refUrls |
+          CASE
+            WHEN u IS NULL THEN null
+            ELSE
+              // Strip query and fragment first
+              CASE
+                WHEN size(split(split(u, '?')[0], '#')) = 0 THEN null
+                ELSE
+                  CASE
+                    WHEN (split(split(u, '?')[0], '#')[0] CONTAINS 'github.com/advisories/') THEN null
+                    WHEN (split(split(u, '?')[0], '#')[0] CONTAINS 'github.com/security/advisories/') THEN null
+                    WHEN size(split(split(split(u, '?')[0], '#')[0], 'github.com/')) < 2 THEN null
+                    ELSE
+                      CASE
+                        WHEN size(split(split(split(split(u, '?')[0], '#')[0], 'github.com/')[1], '/')) < 2 THEN null
+                        ELSE
+                          'https://github.com/' +
+                          split(split(split(split(u, '?')[0], '#')[0], 'github.com/')[1], '/')[0] + '/' +
+                            replace(split(split(split(split(u, '?')[0], '#')[0], 'github.com/')[1], '/')[1], '.git', '')
+                      END
+                  END
+              END
+          END
+        ] AS inferredRepoUrls
+
+      WITH c, v, foundRepoUrls + inferredRepoUrls AS repoUrls
+      UNWIND repoUrls AS repoUrl
+      WITH c, v, collect(DISTINCT repoUrl) AS repositories
+      WITH c, v, [url IN repositories WHERE url IS NOT NULL] AS repositories
+      RETURN
         c.id as cveId,
         repositories,
         v.published as publishedDate,
         v.modified as modifiedDate,
         v.summary as summary,
-        v.severity as severity,
+        CASE
+          WHEN v.severity IS NULL THEN 'UNKNOWN'
+          WHEN toUpper(trim(toString(v.severity))) IN ['CRITICAL','HIGH','MEDIUM','LOW','NONE','UNKNOWN'] THEN toUpper(trim(toString(v.severity)))
+          ELSE 'UNKNOWN'
+        END as severity,
         v.withdrawn as withdrawn,
         v.details as details
       ORDER BY c.id DESC

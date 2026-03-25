@@ -1,6 +1,9 @@
 import logging
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
+import os
+import sys
+from pathlib import Path
 import json
 import time
 import argparse
@@ -11,6 +14,17 @@ import requests
 
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable, AuthError
+
+# Attempt to auto-load Neo4j Aura credentials from the repo-root TXT file.
+try:
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from neo4j_aura_config import ensure_neo4j_env_loaded
+
+    ensure_neo4j_env_loaded()
+except Exception:
+    pass
 
 @dataclass
 class VulnerabilityInfo:
@@ -36,9 +50,10 @@ class SecurityInsight:
 class Neo4jSecurityAnalyzer:
     def __init__(
         self,
-        neo4j_uri: str = "bolt://localhost:7687",
-        neo4j_user: str = "neo4j",
-        neo4j_password: str = "jaguarai",
+        neo4j_uri: Optional[str] = None,
+        neo4j_user: Optional[str] = None,
+        neo4j_password: Optional[str] = None,
+        neo4j_database: Optional[str] = None,
         deepseek_api_key: str = None,
         deepseek_api_url: str = "https://api.deepseek.com/v1/chat/completions",
         log_level: str = "INFO"
@@ -54,6 +69,18 @@ class Neo4jSecurityAnalyzer:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(__name__)
+
+        neo4j_uri = neo4j_uri or os.environ.get("NEO4J_URI") or os.environ.get("VITE_NEO4J_URI") or "neo4j://localhost:7687"
+        neo4j_user = (
+            neo4j_user
+            or os.environ.get("NEO4J_USERNAME")
+            or os.environ.get("NEO4J_USER")
+            or os.environ.get("VITE_NEO4J_USER")
+            or "neo4j"
+        )
+        neo4j_password = neo4j_password or os.environ.get("NEO4J_PASSWORD") or os.environ.get("VITE_NEO4J_PASSWORD") or ""
+        neo4j_database = neo4j_database or os.environ.get("NEO4J_DATABASE") or os.environ.get("VITE_NEO4J_DATABASE")
+        self.neo4j_database = neo4j_database
         
         # Initialize Neo4j connection
         try:
@@ -81,7 +108,12 @@ class Neo4jSecurityAnalyzer:
     def query_neo4j(self, query: str, params: Dict = None) -> List[Dict]:
         """Execute a Cypher query against Neo4j."""
         try:
-            with self.driver.session() as session:
+            if self.neo4j_database:
+                session_ctx = self.driver.session(database=self.neo4j_database)
+            else:
+                session_ctx = self.driver.session()
+
+            with session_ctx as session:
                 result = session.run(query, params or {})
                 return result.data()
         except Exception as e:

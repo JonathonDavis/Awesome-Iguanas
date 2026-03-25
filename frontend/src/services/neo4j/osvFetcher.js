@@ -1,8 +1,50 @@
 import { apiClient } from './axiosConfig';
 
+const OSV_API_PROXY_BASE = '/api/proxy/osv';
+
 class OSVFetcher {
-  constructor(driver) {
+  constructor(driver, database) {
     this.driver = driver;
+    this.database = database;
+  }
+
+  createSession() {
+    if (this.database) {
+      return this.driver.session({ database: this.database });
+    }
+    return this.driver.session();
+  }
+
+  getNextPageToken(data) {
+    return data?.next_page_token || data?.nextPageToken || data?.next_pageToken || null;
+  }
+
+  async queryOSVForPackage(pkg, ecosystem) {
+    const vulns = [];
+    let pageToken = null;
+
+    do {
+      const body = {
+        package: { name: pkg, ecosystem }
+      };
+
+      if (pageToken) {
+        // OSV docs use page_token; OpenAPI uses pageToken.
+        body.page_token = pageToken;
+        body.pageToken = pageToken;
+      }
+
+      const response = await apiClient.post(`${OSV_API_PROXY_BASE}/v1/query`, body);
+      const data = response?.data || {};
+
+      if (Array.isArray(data.vulns)) {
+        vulns.push(...data.vulns);
+      }
+
+      pageToken = this.getNextPageToken(data);
+    } while (pageToken);
+
+    return vulns;
   }
 
   processVulnerability(vulnData) {
@@ -22,7 +64,7 @@ class OSVFetcher {
   }
 
   async storeVulnerability(vulnData) {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       await session.run(`
         MERGE (v:Vulnerability {id: $id})
@@ -51,7 +93,7 @@ class OSVFetcher {
   }
 
   async getPopularPackagesForEcosystem(ecosystem) {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (p:Package {ecosystem: $ecosystem})<-[:AFFECTS]-(v:Vulnerability)
@@ -73,7 +115,7 @@ class OSVFetcher {
   }
 
   async getLatestVulnerabilityTimestamp() {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (v:Vulnerability)
@@ -90,22 +132,15 @@ class OSVFetcher {
   }
 
   async fetchOSVData() {
-    const ecosystems = ['npm', 'pypi', 'maven'];
+    const ecosystems = ['npm', 'PyPI', 'Maven'];
     for (const ecosystem of ecosystems) {
       try {
         const packages = await this.getPopularPackagesForEcosystem(ecosystem);
         for (const pkg of packages) {
-          const response = await apiClient.get(`/v1/query`, {
-            data: {
-              package: { name: pkg, ecosystem: ecosystem }
-            }
-          });
-
-          if (response.data.vulns) {
-            for (const vuln of response.data.vulns) {
-              const processedVuln = this.processVulnerability(vuln);
-              await this.storeVulnerability(processedVuln);
-            }
+          const vulns = await this.queryOSVForPackage(pkg, ecosystem);
+          for (const vuln of vulns) {
+            const processedVuln = this.processVulnerability(vuln);
+            await this.storeVulnerability(processedVuln);
           }
 
           // Rate limiting to avoid timeouts
@@ -118,25 +153,25 @@ class OSVFetcher {
   }
 
   async fetchLatestOSVUpdates() {
-    const ecosystems = ['npm', 'pypi', 'maven'];
+    const ecosystems = ['npm', 'PyPI', 'Maven'];
     const lastTimestamp = await this.getLatestVulnerabilityTimestamp();
+    const lastModifiedDate = lastTimestamp ? new Date(lastTimestamp) : null;
     
     for (const ecosystem of ecosystems) {
       try {
         const packages = await this.getPopularPackagesForEcosystem(ecosystem);
         for (const pkg of packages) {
-          const response = await apiClient.get(`/v1/query`, {
-            data: {
-              package: { name: pkg, ecosystem: ecosystem },
-              modified_since: lastTimestamp
+          const vulns = await this.queryOSVForPackage(pkg, ecosystem);
+          for (const vuln of vulns) {
+            if (lastModifiedDate && vuln?.modified) {
+              const vulnModified = new Date(vuln.modified);
+              if (!Number.isNaN(vulnModified.valueOf()) && vulnModified <= lastModifiedDate) {
+                continue;
+              }
             }
-          });
 
-          if (response.data.vulns) {
-            for (const vuln of response.data.vulns) {
-              const processedVuln = this.processVulnerability(vuln);
-              await this.storeVulnerability(processedVuln);
-            }
+            const processedVuln = this.processVulnerability(vuln);
+            await this.storeVulnerability(processedVuln);
           }
 
           // Rate limiting to avoid timeouts
@@ -153,3 +188,7 @@ class OSVFetcher {
 export function createOSVFetcher(driver) {
   return new OSVFetcher(driver);
 } 
+
+export function createOSVFetcherWithDatabase(driver, database) {
+  return new OSVFetcher(driver, database);
+}

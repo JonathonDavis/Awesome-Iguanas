@@ -1,2 +1,8 @@
 frontend/package-lock.json
 frontend/package.json
+.vscode/settings.json
+.venv/
+
+# Neo4j Aura credentials exports
+Neo4j-*-Created-*.txt
+Neo4j-*.txt

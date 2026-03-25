@@ -168,6 +168,7 @@ export default {
     const selectedFinding = ref(null)
     const loading = ref(true)
     const error = ref(null)
+    const generationAttempted = ref(false)
     const githubFilter = ref('')
     const classificationFilter = ref('')
     const headlineFilter = ref('')
@@ -177,42 +178,77 @@ export default {
       error.value = null
       
       try {
-        const session = neo4jService.driver.session()
-        
-        const result = await session.run(`
-          MATCH (n:AIVulnerabilityFinding)
+        const session = neo4jService.createSession()
+        try {
+          const result = await session.run(`
+          MATCH (n)
+          WHERE n:LLMEvaluation OR n:AIVulnerabilityFinding
           RETURN n, properties(n) as props, labels(n) as labels
-        `)
-        
-        console.log('Neo4j query result:', result)
-        console.log('Records count:', result.records.length)
-        
-        if (result.records.length > 0) {
-          console.log('Sample record:', result.records[0].get('n'))
-          console.log('Sample properties:', result.records[0].get('props'))
-          console.log('Sample labels:', result.records[0].get('labels'))
-        }
-        
-        allFindings.value = result.records.map(record => {
-          const finding = record.get('n')
-          const props = record.get('props')
-          const processedFinding = {
-            id: finding.identity.toString(),
-            labels: finding.labels || record.get('labels'),
-            properties: finding.properties || props,
-            ...finding.properties,
-            ...props
+          ORDER BY n.evaluatedAt DESC
+          `)
+          
+          console.log('Neo4j query result:', result)
+          console.log('Records count:', result.records.length)
+          
+          if (result.records.length > 0) {
+            console.log('Sample record:', result.records[0].get('n'))
+            console.log('Sample properties:', result.records[0].get('props'))
+            console.log('Sample labels:', result.records[0].get('labels'))
           }
-          console.log('Processed finding:', processedFinding)
-          return processedFinding
-        })
-        
-        console.log('All findings:', allFindings.value)
-        
-        findings.value = [...allFindings.value]
-        loading.value = false
-        
-        await session.close()
+          
+          allFindings.value = result.records.map(record => {
+            const node = record.get('n')
+            const props = record.get('props')
+            const labels = record.get('labels')
+
+            const processedFinding = {
+              neo4jId: node.identity.toString(),
+              labels: node.labels || labels,
+              properties: node.properties || props,
+              ...(node.properties || {}),
+              ...(props || {})
+            }
+
+            // Preserve semantic ids stored on the node (e.g., LLMEvaluation.id).
+            // Fall back to the internal Neo4j identity for stable list keys.
+            processedFinding.id = processedFinding.id || processedFinding.neo4jId
+
+            console.log('Processed finding:', processedFinding)
+            return processedFinding
+          })
+          
+          console.log('All findings:', allFindings.value)
+          
+          findings.value = [...allFindings.value]
+          loading.value = false
+        } finally {
+          await session.close()
+        }
+
+        // If the DB has no findings yet, kick off generation once.
+        if (!generationAttempted.value && (!allFindings.value || allFindings.value.length === 0)) {
+          generationAttempted.value = true
+          loading.value = true
+          try {
+            const resp = await fetch('/api/repair/evaluate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: 'deepseek-r1:7b', all_repos: true, all_vulns: true, chunk_size: 8 })
+            })
+
+            if (!resp.ok) {
+              const text = await resp.text()
+              throw new Error(`RepairGPT evaluate failed (${resp.status}): ${text}`)
+            }
+
+            // Re-fetch after the job writes nodes
+            await fetchVulnerabilityFindings()
+          } catch (e) {
+            console.error('Error generating vulnerability findings:', e)
+            error.value = e.message || 'Failed to generate vulnerability findings'
+            loading.value = false
+          }
+        }
       } catch (err) {
         console.error('Error fetching vulnerability findings:', err)
         error.value = err.message || 'Failed to fetch vulnerability findings'
@@ -285,9 +321,18 @@ export default {
       if (!classification) return 'unknown'
       
       const classificationLower = classification.toLowerCase()
-      if (classificationLower.includes('very promising') || classificationLower.includes('high')) return 'high'
+
+      // Map requested colors onto existing CSS classes:
+      // - green  => .confidence-badge.low
+      // - orange => .confidence-badge.medium
+      // - red    => .confidence-badge.high
+      if (classificationLower.includes('very promising')) return 'low'
+      if (classificationLower.includes('slightly promising')) return 'high'
+      if (classificationLower.includes('moderate')) return 'medium'
+      if (classificationLower.includes('not promising') || classificationLower.includes('unlikely')) return 'high'
       if (classificationLower.includes('promising') || classificationLower.includes('medium')) return 'medium'
-      if (classificationLower.includes('unlikely') || classificationLower.includes('low')) return 'low'
+      if (classificationLower.includes('high')) return 'high'
+      if (classificationLower.includes('low')) return 'low'
       return 'unknown'
     }
     

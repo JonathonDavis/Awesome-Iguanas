@@ -2,7 +2,7 @@ import neo4j from 'neo4j-driver'
 import { setupAxiosClient } from './axiosConfig';
 import { initializeUpdateTracking } from './updateSystem';
 import { processVulnerability, storeVulnerability } from './vulnerabilityProcessor';
-import { createOSVFetcher } from './osvFetcher';
+import { createOSVFetcherWithDatabase } from './osvFetcher';
 import { getStatistics, getNodeDistribution, getVulnerabilityStatistics } from './statisticsService';
 import { getRepositoryStatistics, getCVERepositoryData } from './repositoryService';
 import { startUpdateSystem } from './updateSystem';
@@ -13,17 +13,42 @@ class Neo4jService {
     this.uri = import.meta.env.VITE_NEO4J_URI
     this.user = import.meta.env.VITE_NEO4J_USER
     this.password = import.meta.env.VITE_NEO4J_PASSWORD
+    this.database = import.meta.env.VITE_NEO4J_DATABASE
     
     console.log('Neo4j URI:', this.uri)
     
     if (!this.uri || !this.user || !this.password) {
-      console.error('Neo4j environment variables missing: VITE_NEO4J_URI, VITE_NEO4J_USER, VITE_NEO4J_PASSWORD must be set in .env file')
+      console.error('Neo4j environment variables missing: VITE_NEO4J_URI, VITE_NEO4J_USER, VITE_NEO4J_PASSWORD must be set (Vite reads from frontend/.env*, e.g. frontend/.env.local)')
       throw new Error('Neo4j configuration missing')
     }
+
+    // The Neo4j JS driver requires a URI with an explicit scheme.
+    // Examples: neo4j+s://... , neo4j://... , bolt+s://... , bolt://...
+    if (typeof this.uri !== 'string' || !/^(neo4j|bolt)(\+s|\+ssc)?:\/\//i.test(this.uri)) {
+      console.error('Invalid VITE_NEO4J_URI value:', this.uri)
+      throw new Error(
+        'Invalid Neo4j URI. Set VITE_NEO4J_URI to something like neo4j+s://<id>.databases.neo4j.io (do not use placeholders like .env.local.VITE_NEO4J_URI).'
+      )
+    }
     
+    const isBrowser = typeof window !== 'undefined';
+    const pageProtocol = isBrowser ? window.location.protocol : null;
+    const usesEncryptedScheme = typeof this.uri === 'string' && /(neo4j\+s(c)?:\/\/|bolt\+s(c)?:\/\/)/i.test(this.uri);
+
+    if (isBrowser && pageProtocol === 'http:' && usesEncryptedScheme) {
+      console.warn(
+        'Neo4j connection is using encryption (wss) from an http page. '
+        + 'If your environment blocks this, serve the app over https (recommended) or use a non-encrypted Neo4j URI for local dev.'
+      );
+    }
+
     this.driver = neo4j.driver(
       this.uri,
-      neo4j.auth.basic(this.user, this.password)
+      neo4j.auth.basic(this.user, this.password),
+      {
+        // Reduce console noise from the driver (e.g., repeated mixed-content warnings).
+        logging: neo4j.logging.console('error')
+      }
     )
     console.log('Neo4j connection established')
     
@@ -31,7 +56,7 @@ class Neo4jService {
     setupAxiosClient();
     
     // Initialize OSV fetcher
-    this.osvFetcher = createOSVFetcher(this.driver);
+    this.osvFetcher = createOSVFetcherWithDatabase(this.driver, this.database);
     
     // Used to track the timers for updates
     this.updateTimer = null;
@@ -55,6 +80,13 @@ class Neo4jService {
     // Start the update system
     this.startUpdateSystem();
   }
+
+  createSession() {
+    if (this.database) {
+      return this.driver.session({ database: this.database });
+    }
+    return this.driver.session();
+  }
   // Re-export methods from other modules
   initializeUpdateTracking = initializeUpdateTracking;
   processVulnerability = processVulnerability;
@@ -69,7 +101,7 @@ class Neo4jService {
   
   // Graph data retrieval methods
   async getGraphData() {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (n)
@@ -109,7 +141,7 @@ class Neo4jService {
   }
 
   async getOSVFiles() {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (v:Vulnerability)
@@ -135,7 +167,7 @@ class Neo4jService {
   }
 
   async getASTGraph() {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (n:AST)
@@ -185,7 +217,7 @@ class Neo4jService {
 
   // Get total node count from the database
   async getTotalNodeCount() {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (n)
@@ -206,7 +238,7 @@ class Neo4jService {
 
   // Update the update tracking with total node count
   async updateTrackingWithNodeCount(nodeCount) {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       // Update the UpdateTracking node with the new count
       await session.run(`
@@ -231,7 +263,7 @@ class Neo4jService {
 
   // Get the timestamp of the most recently modified vulnerability
   async getLatestVulnerabilityTimestamp() {
-    const session = this.driver.session();
+    const session = this.createSession();
     try {
       const result = await session.run(`
         MATCH (v:Vulnerability)
@@ -343,7 +375,7 @@ class Neo4jService {
       }
       
       // Update each CVE in Neo4j database
-      const session = this.driver.session();
+      const session = this.createSession();
       let updatedCount = 0;
       let failedCves = [];
       

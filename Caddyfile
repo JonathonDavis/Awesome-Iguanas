@@ -3,6 +3,16 @@ www.iguanasgpt.space, iguanasgpt.space {
     @nonwww host iguanasgpt.space
     redir @nonwww https://www.iguanasgpt.space{uri}
 
+    # Proxy OSV API (public) through the same origin
+    handle_path /api/proxy/osv/* {
+        reverse_proxy https://api.osv.dev
+    }
+
+    # Proxy Ollama API (local model runtime) through the same origin
+    handle_path /api/proxy/ollama/* {
+        reverse_proxy ollama:11434
+    }
+
     reverse_proxy frontend:8080
 
     # # Route to Neo4j API
@@ -10,11 +20,10 @@ www.iguanasgpt.space, iguanasgpt.space {
     #     reverse_proxy localhost:7687
     # }
 
-    # # Route to RepairGPT API
-    # route /api/repair/* {
-    #     uri strip_prefix /api/repair
-    #     reverse_proxy repairgpt:5000
-    # }
+    # Route to RepairGPT API
+    handle_path /api/repair/* {
+        reverse_proxy repairgpt:5000
+    }
 
     # # Route to VulGPT API
     # route /api/vulgpt/* {
@@ -23,5 +32,23 @@ www.iguanasgpt.space, iguanasgpt.space {
     # }
 
     # Enable compression
+    encode gzip
+}
+
+# Local dev / docker-compose access (http://localhost)
+:80 {
+    handle_path /api/proxy/osv/* {
+        reverse_proxy https://api.osv.dev
+    }
+
+    handle_path /api/proxy/ollama/* {
+        reverse_proxy ollama:11434
+    }
+
+    handle_path /api/repair/* {
+        reverse_proxy repairgpt:5000
+    }
+
+    reverse_proxy frontend:8080
     encode gzip
 }

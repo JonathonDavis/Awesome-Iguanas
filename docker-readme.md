@@ -63,20 +63,21 @@ If you prefer to deploy manually or need more control:
    - frontend
    - repairgpt
    - vulgpt
-   - db (PostgreSQL)
+   - ollama
    - caddy (reverse proxy)
 
 ## Accessing the Application
 
 - **With domain**: Visit https://yourdomain.com
-- **Local deployment**: Visit http://localhost:8080
+- **Local deployment**: Visit http://localhost (served via Caddy)
 
 ## Components
 
 - **Frontend**: Vue.js-based dashboard
 - **RepairGPT**: AI-powered remediation service
 - **VulGPT_OSV**: Vulnerability detection service
-- **Database**: PostgreSQL database for storing vulnerability data
+- **Ollama**: Local model runtime (e.g. DeepSeek via `deepseek-r1:7b`)
+- **Database**: Neo4j graph database (runs separately; not included in this compose file)
 - **Caddy**: Reverse proxy with automatic HTTPS
 
 ## Common Issues

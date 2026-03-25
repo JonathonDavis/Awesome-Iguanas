@@ -50,17 +50,17 @@ services:
     volumes:
       - ./VulGPT_OSV:/app
       - node_modules_vulgpt:/app/node_modules
-    
-  # Database for the application
-  db:
-    image: postgres:14
+
+  # Ollama (local LLM runtime)
+  ollama:
+    image: ollama/ollama:latest
     restart: unless-stopped
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "11434:11434"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=iguanas
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
     networks:
       - awesome-iguana-network
 
@@ -83,9 +83,9 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
   caddy_data:
   caddy_config:
+  ollama_data:
   node_modules_frontend:
   node_modules_repairgpt:
   node_modules_vulgpt:

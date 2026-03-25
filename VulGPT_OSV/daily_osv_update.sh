@@ -1,14 +1,18 @@
 #!/bin/bash
 
-# Set the path to your Python scripts and virtual environment
-SCRIPT_DIR="/mnt/disk-2"
-VENV_PYTHON="/mnt/disk-2/python_venvs/osv_env/bin/python3"
+# Paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Virtual environment Python (override via env var if desired)
+VENV_PYTHON="${VENV_PYTHON:-"${PROJECT_DIR}/python_venvs/osv_env/bin/python3"}"
 
 # Logging
-LOG_FILE="/mnt/disk-2/logs/osv_update_$(date +\%Y-\%m-\%d).log"
+LOG_DIR="${LOG_DIR:-"${PROJECT_DIR}/logs"}"
+LOG_FILE="${LOG_DIR}/osv_update_$(date +\%Y-\%m-\%d).log"
 
 # Ensure log directory exists
-mkdir -p /mnt/disk-2/logs
+mkdir -p "$LOG_DIR"
 
 # Change to the script directory
 cd "$SCRIPT_DIR"
@@ -17,7 +21,7 @@ cd "$SCRIPT_DIR"
 echo "OSV Update started at $(date)" >> "$LOG_FILE"
 
 # Run the OSV update script first
-"$VENV_PYTHON" incrementOSV3.py >> "$LOG_FILE" 2>&1
+"$VENV_PYTHON" osv.py >> "$LOG_FILE" 2>&1
 
 # Then run the tracking timestamp update script
 "$VENV_PYTHON" update_tracking_timestamp.py >> "$LOG_FILE" 2>&1
