@@ -110,7 +110,12 @@ class Neo4jService {
 
   createSession() {
     if (!this.driver) {
-      throw new Error(BROWSER_ACCESS_DISABLED_ERROR)
+      // Return a stub session so existing callers' try/catch blocks around
+      // session.run() continue to drive fallback behavior.
+      return {
+        run: (_query, _params) => Promise.reject(new Error(BROWSER_ACCESS_DISABLED_ERROR)),
+        close: () => Promise.resolve()
+      }
     }
     if (this.database) {
       return this.driver.session({ database: this.database });
