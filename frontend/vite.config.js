@@ -5,9 +5,19 @@ export default defineConfig(({ mode }) => {
   // Load env for the active mode (development/production/etc)
   const env = loadEnv(mode, process.cwd(), '');
   const apiKey = env.VITE_NIST_API_KEY;
+  const neo4jUri = env.VITE_NEO4J_URI || env.NEO4J_URI;
+  const neo4jUser = env.VITE_NEO4J_USER || env.VITE_NEO4J_USERNAME || env.NEO4J_USER || env.NEO4J_USERNAME;
+  const neo4jPassword = env.VITE_NEO4J_PASSWORD || env.NEO4J_PASSWORD;
+  const neo4jDatabase = env.VITE_NEO4J_DATABASE || env.NEO4J_DATABASE;
 
   return {
     plugins: [vue()],
+    define: {
+      'import.meta.env.VITE_NEO4J_URI': JSON.stringify(neo4jUri),
+      'import.meta.env.VITE_NEO4J_USER': JSON.stringify(neo4jUser),
+      'import.meta.env.VITE_NEO4J_PASSWORD': JSON.stringify(neo4jPassword),
+      'import.meta.env.VITE_NEO4J_DATABASE': JSON.stringify(neo4jDatabase)
+    },
     server: {
       proxy: {
         // Proxy requests to NVD API to avoid CORS issues
