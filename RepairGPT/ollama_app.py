@@ -98,13 +98,13 @@ class SecurityAnalyzer:
     def query_nist_nvd(self, cve_id: str) -> Dict[str, Any]:
         """Query the NIST NVD API for CVE details."""
         try:
-            base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+            nvd_api_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
             
             headers = {}
             if self.api_key:
                 headers["apiKey"] = self.api_key
                 
-            response = requests.get(base_url, headers=headers, params={"cveId": cve_id}, timeout=30)
+            response = requests.get(nvd_api_url, headers=headers, params={"cveId": cve_id}, timeout=30)
             
             if response.status_code == 200:
                 return response.json()
@@ -350,6 +350,10 @@ class Neo4jSecurityAnalyzer:
         log_level: str = "INFO"
     ):
         """Initialize the security analyzer with connection parameters."""
+        neo4j_uri = neo4j_uri or os.environ.get("VITE_NEO4J_URI", os.environ.get("NEO4J_URI", "bolt://localhost:7687"))
+        neo4j_user = neo4j_user or os.environ.get("VITE_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j"))
+        neo4j_password = neo4j_password or os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", ""))
+
         # Setup logging
         numeric_level = getattr(logging, log_level.upper(), None)
         if not isinstance(numeric_level, int):
@@ -361,10 +365,6 @@ class Neo4jSecurityAnalyzer:
         )
         self.logger = logging.getLogger(__name__)
         
-        neo4j_uri = neo4j_uri or os.environ.get("VITE_NEO4J_URI", os.environ.get("NEO4J_URI", "bolt://localhost:7687"))
-        neo4j_user = neo4j_user or os.environ.get("VITE_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j"))
-        neo4j_password = neo4j_password or os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", ""))
-
         # Initialize Neo4j connection
         try:
             self.driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))

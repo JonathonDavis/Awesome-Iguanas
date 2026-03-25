@@ -59,7 +59,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/change-me-in-env}
+      - NEO4J_AUTH=${NEO4J_AUTH:?Set NEO4J_AUTH environment variable (e.g., neo4j/strong-password)}
     volumes:
       - neo4j_data:/data
     networks:

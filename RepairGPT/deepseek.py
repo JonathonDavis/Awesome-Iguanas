@@ -86,7 +86,7 @@ class Neo4jSecurityAnalyzer:
         deepseek_api_key = deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY")
 
         if neo4j_password is None:
-            raise ValueError("Neo4j password missing. Set VITE_NEO4J_PASSWORD or NEO4J_PASSWORD.")
+            raise ValueError("Neo4j password missing. Provide via constructor parameter, VITE_NEO4J_PASSWORD, or NEO4J_PASSWORD environment variable (checked in that order).")
 
         # Initialize Neo4j connection
         try:

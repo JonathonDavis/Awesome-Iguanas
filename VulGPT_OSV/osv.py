@@ -51,6 +51,7 @@ load_env_file(os.environ.get("APP_ENV_FILE", DEFAULT_ENV_PATH))
 NEO4J_URI = os.environ.get("VITE_NEO4J_URI", os.environ.get("NEO4J_URI", "neo4j://localhost:7687"))
 NEO4J_USER = os.environ.get("VITE_NEO4J_USER", os.environ.get("NEO4J_USER", "neo4j"))
 NEO4J_PASSWORD = os.environ.get("VITE_NEO4J_PASSWORD", os.environ.get("NEO4J_PASSWORD", ""))
+# Defaults to the public OSV API; override only for custom/private OSV deployments.
 OSV_API_URL = os.environ.get("OSV_API_URL", "https://api.osv.dev/v1/vulns")
 BATCH_SIZE = 100
 PROCESSING_BATCH_SIZE = 100
@@ -587,7 +588,7 @@ def extract_repo_info(vuln):
     # Check all references for GitHub URLs
     for ref in vuln.get("references", []):
         url = ref.get("url", "")
-        if url and "github.com" in url:
+        if is_github_url(url):
             clean_url = clean_github_url(url)
             if clean_url:
                 repos.add(clean_url)
@@ -603,7 +604,7 @@ def extract_repo_info(vuln):
 
         # Check all string fields
         for key, value in db_specific.items():
-            if isinstance(value, str) and "github.com" in value:
+            if isinstance(value, str) and is_github_url(value):
                 clean_url = clean_github_url(value)
                 if clean_url:
                     repos.add(clean_url)
@@ -678,7 +679,8 @@ def safe_clone_repository(repo_url, base_dir=REPO_BASE_DIR, max_retries=3):
 
     # Add GitHub token to URL if it's a GitHub repository and token is available
     authenticated_url = repo_url
-    if 'github.com' in repo_url and GITHUB_TOKEN and not repo_url.startswith('git@'):
+    parsed_repo_url = urlparse(repo_url)
+    if parsed_repo_url.hostname in ("github.com", "www.github.com") and GITHUB_TOKEN and not repo_url.startswith('git@'):
         authenticated_url = repo_url.replace('https://github.com/', f'https://{GITHUB_TOKEN}@github.com/')
 
     # Attempt to clone the repository with retry strategies
@@ -1559,6 +1561,101 @@ def insert_all_vulnerabilities_into_neo4j(vuln_records, selected_versions, repo_
 
                     if not repo_url:
                         continue
+
+                    # Create Repository node only if needed
+                    if repo_url not in existing_repos:
+                        session.run(
+                            """
+                            MERGE (r:Repository {url: $url})
+                            """,
+                            {"url": repo_url}
+                        )
+                        existing_repos.add(repo_url)
+
+                    # Create Version nodes and relationships
+                    for version_info in versions:
+                        version = version_info.get("version")
+                        size = version_info.get("size", "0")
+                        languages = version_info.get("languages", {})
+                        if not version:
+                            continue
+
+                        version_id = f"{repo_url}@{version}"
+                        if version_id not in existing_versions:
+                            # Identify primary language (if any)
+                            primary_language = "Unknown"
+                            max_percentage = 0
+                            for lang, percentage in languages.items():
+                                if percentage > max_percentage:
+                                    max_percentage = percentage
+                                    primary_language = lang
+
+                            session.run(
+                                """
+                                MERGE (v:Version {id: $id})
+                                SET v.version = $version,
+                                    v.size = $size,
+                                    v.language_json = $language_json,
+                                    v.primary_language = $primary_language,
+                                    v.language_count = $language_count
+                                """,
+                                {
+                                    "id": version_id,
+                                    "version": version,
+                                    "size": size,
+                                    "language_json": json.dumps(languages),
+                                    "primary_language": primary_language,
+                                    "language_count": len(languages)
+                                }
+                            )
+                            existing_versions.add(version_id)
+
+                        # Create relationship from Repository to Version
+                        session.run(
+                            """
+                            MATCH (r:Repository {url: $url})
+                            MATCH (v:Version {id: $id})
+                            MERGE (r)-[:HAS_VERSION]->(v)
+                            """,
+                            {"url": repo_url, "id": version_id}
+                        )
+
+                    # Create relationship from Vulnerability to Repository
+                    for vuln_id in vuln_ids:
+                        session.run(
+                            """
+                            MATCH (v:Vulnerability {id: $vuln_id})
+                            MATCH (r:Repository {url: $url})
+                            MERGE (v)-[:FOUND_IN]->(r)
+                            """,
+                            {"vuln_id": vuln_id, "url": repo_url}
+                        )
+
+                    pbar.update(1)
+
+        # Create some useful indices after data insertion
+        print("Creating additional indices for performance...")
+        session.run("CREATE INDEX reference_type IF NOT EXISTS FOR (r:Reference) ON (r.type)")
+
+        # Count statistics for verification
+        stats = session.run("""
+            MATCH (v:Vulnerability) RETURN count(v) as vuln_count
+        """).single()
+        print(f"\nTotal vulnerabilities in Neo4j: {stats['vuln_count']}")
+
+        stats = session.run("""
+            MATCH (p:Package) RETURN count(p) as pkg_count
+        """).single()
+        print(f"Total packages in Neo4j: {stats['pkg_count']}")
+
+        stats = session.run("""
+            MATCH (r:Repository) RETURN count(r) as repo_count
+        """).single()
+        print(f"Total repositories in Neo4j: {stats['repo_count']}")
+
+        print("Neo4j insertion complete!")
+
+    driver.close()
 
 # -------------------------
 # MAIN EXECUTION

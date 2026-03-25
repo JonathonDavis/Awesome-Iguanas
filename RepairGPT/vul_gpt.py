@@ -1359,7 +1359,7 @@ def main():
     # DeepSeek API key (replace with your actual API key)
     deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY", "")
     if not deepseek_api_key:
-        raise ValueError("DeepSeek API key missing. Set DEEPSEEK_API_KEY.")
+        raise ValueError("DeepSeek API key missing. Set the DEEPSEEK_API_KEY environment variable.")
     
     # Results file path
     results_file = "vulnerability_results_debug.json"
