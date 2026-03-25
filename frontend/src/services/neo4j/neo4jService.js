@@ -8,6 +8,8 @@ import { getRepositoryStatistics, getCVERepositoryData } from './repositoryServi
 import { startUpdateSystem } from './updateSystem';
 import nvdService from './nvdService';
 
+const BROWSER_ACCESS_DISABLED_ERROR = 'Neo4j browser access is disabled in this environment'
+
 class Neo4jService {
   constructor() {
     this.uri = import.meta.env.VITE_NEO4J_URI
@@ -31,7 +33,17 @@ class Neo4jService {
       )
     }
 
-      this.isBrowser = typeof window !== 'undefined';
+    this.isBrowser = typeof window !== 'undefined';
+    const enableBrowserNeo4j = String(import.meta.env.VITE_ENABLE_BROWSER_NEO4J || '').toLowerCase() === 'true';
+    this.isBrowserNeo4jDisabled = this.isBrowser && import.meta.env.PROD && !enableBrowserNeo4j;
+
+    if (this.isBrowserNeo4jDisabled) {
+      console.warn(
+        'Neo4jService: direct browser Neo4j access is disabled in production builds. '
+        + 'Set VITE_ENABLE_BROWSER_NEO4J=true only when port 7687 is intentionally reachable from browsers.'
+      );
+    }
+
     const pageProtocol = this.isBrowser ? window.location.protocol : null;
     const usesEncryptedScheme = typeof this.uri === 'string' && /(neo4j\+s(c)?:\/\/|bolt\+s(c)?:\/\/)/i.test(this.uri);
 
@@ -42,21 +54,26 @@ class Neo4jService {
       );
     }
 
-    this.driver = neo4j.driver(
-      this.uri,
-      neo4j.auth.basic(this.user, this.password),
-      {
-        // Reduce console noise from the driver (e.g., repeated mixed-content warnings).
-        logging: neo4j.logging.console('error')
-      }
-    )
-    console.log('Neo4j connection established')
+    this.driver = this.isBrowserNeo4jDisabled
+      ? null
+      : neo4j.driver(
+          this.uri,
+          neo4j.auth.basic(this.user, this.password),
+          {
+            // Reduce console noise from the driver (e.g., repeated mixed-content warnings).
+            logging: neo4j.logging.console('error')
+          }
+        )
+
+    if (!this.isBrowserNeo4jDisabled) {
+      console.log('Neo4j connection established')
+    }
     
     // Setup axios client with retry capability
     setupAxiosClient();
     
     // Initialize OSV fetcher
-    this.osvFetcher = createOSVFetcherWithDatabase(this.driver, this.database);
+    this.osvFetcher = this.driver ? createOSVFetcherWithDatabase(this.driver, this.database) : null;
     
     // Used to track the timers for updates
     this.updateTimer = null;
@@ -92,6 +109,14 @@ class Neo4jService {
   }
 
   createSession() {
+    if (!this.driver) {
+      // Return a stub session so existing callers' try/catch blocks around
+      // session.run() continue to drive fallback behavior.
+      return {
+        run: (_query, _params) => Promise.reject(new Error(BROWSER_ACCESS_DISABLED_ERROR)),
+        close: () => Promise.resolve()
+      }
+    }
     if (this.database) {
       return this.driver.session({ database: this.database });
     }
@@ -101,8 +126,14 @@ class Neo4jService {
   initializeUpdateTracking = initializeUpdateTracking;
   processVulnerability = processVulnerability;
   storeVulnerability = storeVulnerability;
-  fetchOSVData = () => this.osvFetcher.fetchOSVData();
-  fetchLatestOSVUpdates = () => this.osvFetcher.fetchLatestOSVUpdates();
+  fetchOSVData = () => {
+    if (!this.osvFetcher) throw new Error(BROWSER_ACCESS_DISABLED_ERROR)
+    return this.osvFetcher.fetchOSVData();
+  };
+  fetchLatestOSVUpdates = () => {
+    if (!this.osvFetcher) throw new Error(BROWSER_ACCESS_DISABLED_ERROR)
+    return this.osvFetcher.fetchLatestOSVUpdates();
+  };
   getStatistics = getStatistics;
   getNodeDistribution = getNodeDistribution;
   getVulnerabilityStatistics = getVulnerabilityStatistics;

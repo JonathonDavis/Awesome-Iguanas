@@ -142,6 +142,9 @@ When deploying on Vercel, you can set either:
 
 The Vite config maps `NEO4J_*` values to `VITE_NEO4J_*` at build time.
 
+To reduce production browser WebSocket failures, direct browser Neo4j access is disabled by default in production builds. Set `VITE_ENABLE_BROWSER_NEO4J=true` only if your Neo4j Bolt endpoint is intentionally reachable from end-user browsers.
+
+Note: the frontend still expects valid Neo4j configuration at build/runtime (the `Neo4jService` constructor validates `VITE_NEO4J_*`), even when `VITE_ENABLE_BROWSER_NEO4J` is not enabled. In other words, you must still provide the Neo4j environment variables listed above; the flag only controls whether the browser will attempt to open a Bolt/WebSocket connection.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
