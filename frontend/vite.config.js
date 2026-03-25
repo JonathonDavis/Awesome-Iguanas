@@ -1,14 +1,31 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+
+function normalizeEnvValue(value) {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.replace(/^['"]|['"]$/g, '')
+}
+
+function pickEnv(env, ...keys) {
+  for (const key of keys) {
+    const value = normalizeEnvValue(env[key])
+    if (value !== undefined && value !== null && value !== '') {
+      return value
+    }
+  }
+  return undefined
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Load env for the active mode (development/production/etc)
   const env = loadEnv(mode, process.cwd(), '');
   const apiKey = env.VITE_NIST_API_KEY;
-  const neo4jUri = env.VITE_NEO4J_URI || env.NEO4J_URI;
-  const neo4jUser = env.VITE_NEO4J_USER || env.VITE_NEO4J_USERNAME || env.NEO4J_USER || env.NEO4J_USERNAME;
-  const neo4jPassword = env.VITE_NEO4J_PASSWORD || env.NEO4J_PASSWORD;
-  const neo4jDatabase = env.VITE_NEO4J_DATABASE || env.NEO4J_DATABASE;
+  const neo4jUri = pickEnv(env, 'VITE_NEO4J_URI', 'NEO4J_URI');
+  const neo4jUser = pickEnv(env, 'VITE_NEO4J_USER', 'VITE_NEO4J_USERNAME', 'NEO4J_USER', 'NEO4J_USERNAME');
+  const neo4jPassword = pickEnv(env, 'VITE_NEO4J_PASSWORD', 'NEO4J_PASSWORD');
+  const neo4jDatabase = pickEnv(env, 'VITE_NEO4J_DATABASE', 'NEO4J_DATABASE');
 
   return {
     plugins: [vue()],
