@@ -13,10 +13,10 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /app/requirements.txt
 
 # Flask API (RepairGPT) lives at /app/*.py
-COPY RepairGPT/ /app/
+COPY backend/RepairGPT/ /app/
 
 # OSV ingestor lives at /app/vulgpt_osv/
-COPY VulGPT_OSV/ /app/vulgpt_osv/
+COPY backend/VulGPT_OSV/ /app/vulgpt_osv/
 
 # Optional helper used by osv.py to load Aura config
 COPY neo4j_aura_config.py /app/neo4j_aura_config.py

@@ -8,6 +8,11 @@ __pycache__/
 *.pyc
 
 # OSV ingestor clones repositories here (runtime/generated data)
+backend/VulGPT_OSV/repos/
+backend/VulGPT_OSV/__pycache__/
+backend/RepairGPT/__pycache__/
+
+# (Legacy paths)
 VulGPT_OSV/repos/
 VulGPT_OSV/__pycache__/
 RepairGPT/__pycache__/

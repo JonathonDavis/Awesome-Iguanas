@@ -129,22 +129,26 @@ The built files will be in the `dist` directory, ready to be deployed to your we
 
 ### Neo4j note (Vercel / browser deployments)
 
-This frontend currently uses the Neo4j JS driver in the browser. In production, that means the user's browser must be able to open a WebSocket connection to your Neo4j Bolt endpoint (typically TCP port `7687`). If `7687` is not publicly reachable (firewall closed) or your domain is proxied by a service that doesn't support that port (e.g., Cloudflare orange-cloud), you'll see errors like:
+This project supports two Neo4j connection modes:
+
+1) **Production (recommended): server-side API**
+   - The frontend calls `/api/neo4j/*` endpoints.
+   - Those endpoints connect to Neo4j using server env vars (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, optional `NEO4J_DATABASE`).
+   - No browser WebSocket to port `7687` is required and credentials are not shipped to users.
+
+2) **Local development: direct Neo4j driver in the browser**
+   - Uses `VITE_NEO4J_*` values and connects from your browser directly.
+   - This requires the Neo4j Bolt endpoint to be reachable from your machine.
+
+If you use direct browser mode in production, the user's browser must be able to open a WebSocket connection to your Neo4j Bolt endpoint (typically TCP port `7687`). If `7687` is not publicly reachable (firewall closed) or your domain is proxied by a service that doesn't support that port (e.g., Cloudflare orange-cloud), you'll see errors like:
 
 - `WebSocket connection to 'wss://<host>:7687/' failed`
 - `Failed to establish connection in 30000ms`
 
 Recommended production pattern: move Neo4j access to a backend API (server/serverless) and have the frontend call that API over HTTPS.
 
-When deploying on Vercel, you can set either:
-- `VITE_NEO4J_URI`, `VITE_NEO4J_USER`, `VITE_NEO4J_PASSWORD`, `VITE_NEO4J_DATABASE`
-- or `NEO4J_URI`, `NEO4J_USER` / `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
+For local dev, copy `frontend/.env.example` to `frontend/.env.local` and fill in values.
 
-The Vite config maps `NEO4J_*` values to `VITE_NEO4J_*` at build time.
-
-To reduce production browser WebSocket failures, direct browser Neo4j access is disabled by default in production builds. Set `VITE_ENABLE_BROWSER_NEO4J=true` only if your Neo4j Bolt endpoint is intentionally reachable from end-user browsers.
-
-Note: the frontend still expects valid Neo4j configuration at build/runtime (the `Neo4jService` constructor validates `VITE_NEO4J_*`), even when `VITE_ENABLE_BROWSER_NEO4J` is not enabled. In other words, you must still provide the Neo4j environment variables listed above; the flag only controls whether the browser will attempt to open a Bolt/WebSocket connection.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

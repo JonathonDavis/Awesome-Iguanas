@@ -9,70 +9,102 @@ import { startUpdateSystem } from './updateSystem';
 import nvdService from './nvdService';
 
 const BROWSER_ACCESS_DISABLED_ERROR = 'Neo4j browser access is disabled in this environment'
+const API_ACCESS_ERROR = 'Neo4j API access failed'
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    method: options.method || 'GET',
+    headers: {
+      'Accept': 'application/json',
+      ...(options.headers || {})
+    },
+    body: options.body,
+    credentials: 'same-origin'
+  })
+
+  const text = await response.text()
+  let data
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = text
+  }
+
+  if (!response.ok) {
+    const message = (data && typeof data === 'object' && data.error) ? data.error : `${API_ACCESS_ERROR} (${response.status})`
+    const err = new Error(message)
+    err.status = response.status
+    err.data = data
+    throw err
+  }
+
+  return data
+}
 
 class Neo4jService {
   constructor() {
-    this.uri = import.meta.env.VITE_NEO4J_URI
-    this.user = import.meta.env.VITE_NEO4J_USER || import.meta.env.VITE_NEO4J_USERNAME
-    this.password = import.meta.env.VITE_NEO4J_PASSWORD
-    this.database = import.meta.env.VITE_NEO4J_DATABASE
-    
-    console.log('Neo4j URI:', this.uri)
-    
-    if (!this.uri || !this.user || !this.password) {
-      console.error('Neo4j environment variables missing: VITE_NEO4J_URI, VITE_NEO4J_USER, VITE_NEO4J_PASSWORD must be set (Vite reads from frontend/.env*, e.g. frontend/.env.local)')
-      throw new Error('Neo4j configuration missing')
-    }
-
-    // The Neo4j JS driver requires a URI with an explicit scheme.
-    // Examples: neo4j+s://... , neo4j://... , bolt+s://... , bolt://...
-    if (typeof this.uri !== 'string' || !/^(neo4j|bolt)(\+s|\+ssc)?:\/\//i.test(this.uri)) {
-      console.error('Invalid VITE_NEO4J_URI value:', this.uri)
-      throw new Error(
-        'Invalid Neo4j URI. Set VITE_NEO4J_URI to something like neo4j+s://<id>.databases.neo4j.io (do not use placeholders like .env.local.VITE_NEO4J_URI).'
-      )
-    }
-
     this.isBrowser = typeof window !== 'undefined';
-    const enableBrowserNeo4j = String(import.meta.env.VITE_ENABLE_BROWSER_NEO4J || '').toLowerCase() === 'true';
-    this.isBrowserNeo4jDisabled = this.isBrowser && import.meta.env.PROD && !enableBrowserNeo4j;
 
-    if (this.isBrowserNeo4jDisabled) {
-      console.warn(
-        'Neo4jService: direct browser Neo4j access is disabled in production builds. '
-        + 'Set VITE_ENABLE_BROWSER_NEO4J=true only when port 7687 is intentionally reachable from browsers.'
-      );
+    // In production browser deployments (e.g., Vercel), do NOT connect directly to Neo4j from the client.
+    // Use server-side API routes instead to avoid exposing credentials and to avoid browser WebSocket constraints.
+    this.useHttpApi = this.isBrowser && import.meta.env.PROD;
+    this.canWrite = !this.useHttpApi;
+
+    if (!this.useHttpApi) {
+      // Only read VITE_NEO4J_* in direct-driver mode so production builds
+      // don't accidentally embed credentials in the client bundle.
+      this.uri = import.meta.env.VITE_NEO4J_URI
+      this.user = import.meta.env.VITE_NEO4J_USER || import.meta.env.VITE_NEO4J_USERNAME
+      this.password = import.meta.env.VITE_NEO4J_PASSWORD
+      this.database = import.meta.env.VITE_NEO4J_DATABASE
+
+      console.log('Neo4j URI:', this.uri)
+
+      if (!this.uri || !this.user || !this.password) {
+        console.error('Neo4j environment variables missing: VITE_NEO4J_URI, VITE_NEO4J_USER, VITE_NEO4J_PASSWORD must be set (Vite reads from frontend/.env*, e.g. frontend/.env.local)')
+        throw new Error('Neo4j configuration missing')
+      }
     }
 
-    const pageProtocol = this.isBrowser ? window.location.protocol : null;
-    const usesEncryptedScheme = typeof this.uri === 'string' && /(neo4j\+s(c)?:\/\/|bolt\+s(c)?:\/\/)/i.test(this.uri);
-
-    if (this.isBrowser && pageProtocol === 'http:' && usesEncryptedScheme) {
-      console.warn(
-        'Neo4j connection is using encryption (wss) from an http page. '
-        + 'If your environment blocks this, serve the app over https (recommended) or use a non-encrypted Neo4j URI for local dev.'
-      );
-    }
-
-    this.driver = this.isBrowserNeo4jDisabled
-      ? null
-      : neo4j.driver(
-          this.uri,
-          neo4j.auth.basic(this.user, this.password),
-          {
-            // Reduce console noise from the driver (e.g., repeated mixed-content warnings).
-            logging: neo4j.logging.console('error')
-          }
+    if (!this.useHttpApi) {
+      // The Neo4j JS driver requires a URI with an explicit scheme.
+      // Examples: neo4j+s://... , neo4j://... , bolt+s://... , bolt://...
+      if (typeof this.uri !== 'string' || !/^(neo4j|bolt)(\+s|\+ssc)?:\/\//i.test(this.uri)) {
+        console.error('Invalid VITE_NEO4J_URI value:', this.uri)
+        throw new Error(
+          'Invalid Neo4j URI. Set VITE_NEO4J_URI to something like neo4j+s://<id>.databases.neo4j.io (do not use placeholders like .env.local.VITE_NEO4J_URI).'
         )
+      }
 
-    if (!this.isBrowserNeo4jDisabled) {
+      const pageProtocol = this.isBrowser ? window.location.protocol : null;
+      const usesEncryptedScheme = typeof this.uri === 'string' && /(neo4j\+s(c)?:\/\/|bolt\+s(c)?:\/\/)/i.test(this.uri);
+
+      if (this.isBrowser && pageProtocol === 'http:' && usesEncryptedScheme) {
+        console.warn(
+          'Neo4j connection is using encryption (wss) from an http page. '
+          + 'If your environment blocks this, serve the app over https (recommended) or use a non-encrypted Neo4j URI for local dev.'
+        );
+      }
+
+      this.driver = neo4j.driver(
+        this.uri,
+        neo4j.auth.basic(this.user, this.password),
+        {
+          // Reduce console noise from the driver (e.g., repeated mixed-content warnings).
+          logging: neo4j.logging.console('error')
+        }
+      )
+
       console.log('Neo4j connection established')
+    } else {
+      this.driver = null
+      console.info('Neo4jService: using server-side /api/neo4j endpoints (no browser Bolt/WebSocket).')
     }
     
     // Setup axios client with retry capability
     setupAxiosClient();
     
-    // Initialize OSV fetcher
+    // Initialize OSV fetcher (direct driver mode only)
     this.osvFetcher = this.driver ? createOSVFetcherWithDatabase(this.driver, this.database) : null;
     
     // Used to track the timers for updates
@@ -97,7 +129,7 @@ class Neo4jService {
     // For local dev you can opt-in via VITE_ENABLE_CLIENT_UPDATES=true.
     const enableClientUpdates = String(import.meta.env.VITE_ENABLE_CLIENT_UPDATES || '').toLowerCase() === 'true'
 
-    if (!this.isBrowser || enableClientUpdates) {
+    if (!this.useHttpApi && (!this.isBrowser || enableClientUpdates)) {
       // Initialize the database with update tracking
       this.initializeUpdateTracking();
 
@@ -105,6 +137,28 @@ class Neo4jService {
       this.startUpdateSystem();
     } else {
       console.info('Neo4jService: skipping client-side update tracking (set VITE_ENABLE_CLIENT_UPDATES=true to opt in).')
+    }
+
+    if (this.useHttpApi) {
+      this.getRepositoryStatistics = () => fetchJson('/api/neo4j/repository-statistics')
+      this.getCVERepositoryData = () => fetchJson('/api/neo4j/cve-repository-data')
+      this.getVulnerabilityStatistics = () => fetchJson('/api/neo4j/vulnerability-statistics')
+      this.getNodeDistribution = () => fetchJson('/api/neo4j/node-distribution')
+      this.getGraphData = () => fetchJson('/api/neo4j/graph-data')
+      this.getOSVFiles = () => fetchJson('/api/neo4j/osv-files')
+      this.getASTGraph = () => fetchJson('/api/neo4j/ast-graph')
+      this.getLatestVulnerabilityTimestamp = async () => {
+        const data = await fetchJson('/api/neo4j/latest-vulnerability-timestamp')
+        return data?.latestModified || null
+      }
+      this.getTotalNodeCount = async () => {
+        const data = await fetchJson('/api/neo4j/total-node-count')
+        return data?.totalNodes || 0
+      }
+      this.getStatistics = async () => {
+        const data = await fetchJson('/api/neo4j/statistics')
+        return data
+      }
     }
   }
 

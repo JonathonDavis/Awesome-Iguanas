@@ -7,6 +7,7 @@ cd /mnt/disk-2/Awesome-Iguanas
 
 # Create Dockerfiles for each component
 mkdir -p docker-setup
+mkdir -p backend/RepairGPT backend/VulGPT_OSV
 
 # Place Docker Compose file
 cat > docker-compose.yml << 'EOL'
@@ -30,25 +31,25 @@ services:
   # RepairGPT service
   repairgpt:
     build:
-      context: ./RepairGPT
+      context: ./backend/RepairGPT
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
       - awesome-iguana-network
     volumes:
-      - ./RepairGPT:/app
+      - ./backend/RepairGPT:/app
       - node_modules_repairgpt:/app/node_modules
 
   # VulGPT_OSV service
   vulgpt:
     build:
-      context: ./VulGPT_OSV
+      context: ./backend/VulGPT_OSV
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
       - awesome-iguana-network
     volumes:
-      - ./VulGPT_OSV:/app
+      - ./backend/VulGPT_OSV:/app
       - node_modules_vulgpt:/app/node_modules
 
   # Ollama (local LLM runtime)
@@ -114,7 +115,7 @@ CMD ["npm", "start"]
 EOL
 
 # Create RepairGPT Dockerfile
-cat > RepairGPT/Dockerfile << 'EOL'
+cat > backend/RepairGPT/Dockerfile << 'EOL'
 FROM python:3.9-slim
 
 WORKDIR /app
@@ -136,7 +137,7 @@ CMD ["python", "app.py"]
 EOL
 
 # Create VulGPT Dockerfile
-cat > VulGPT_OSV/Dockerfile << 'EOL'
+cat > backend/VulGPT_OSV/Dockerfile << 'EOL'
 FROM python:3.9-slim
 
 WORKDIR /app

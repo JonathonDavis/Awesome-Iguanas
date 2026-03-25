@@ -62,7 +62,7 @@ Combining cutting-edge AI technology with an up-to-date vulnerability database, 
 
 The repository contains three powerful utility scripts that support the main functionality of `IguanaGPT`:
 
-### 1. Database Handler (`VulGPT_OSV/osv.py`)
+### 1. Database Handler (`backend/VulGPT_OSV/osv.py`)
 
 This file handles the bulk of the backend with continuous OSV Database scraping integration, Neo4J compatibility and ingestion via Bolt, and frontend integration.
 
@@ -115,7 +115,7 @@ This file handles the bulk of the backend with continuous OSV Database scraping 
 
 This utility script helps maintain the backend infrastructure that powers `IguanaGPT` vulnerability detection capabilities.
 
-### 2. Update Timestamps (`VulGPT_OSV/daily_osv_update.sh`)
+### 2. Update Timestamps (`backend/VulGPT_OSV/daily_osv_update.sh`)
 
 This shell script logs the node updates for Neo4J. It will run when `daily_osv_update.sh` is executed.
 
@@ -125,7 +125,7 @@ This shell script logs the node updates for Neo4J. It will run when `daily_osv_u
 
 This timestamp script allows us to maintain a detailed log of Neo4J infrastructure updates.
 
-### 3. Daily Update Script (`VulGPT_OSV/daily_osv_update.sh`)
+### 3. Daily Update Script (`backend/VulGPT_OSV/daily_osv_update.sh`)
 
 This shell script handles updating the nodes in Neo4J. It is linked to a cron job scheduled to run at `3:00 AM GMT Daily`
 

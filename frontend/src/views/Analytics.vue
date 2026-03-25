@@ -139,8 +139,8 @@ const fetchData = async () => {
     // Get basic statistics
     const statsResult = await neo4jService.getStatistics()
     statistics.value = {
-      totalNodes: statsResult.get('totalNodes').low,
-      uniqueLabels: statsResult.get('uniqueLabels').low
+      totalNodes: typeof statsResult?.get === 'function' ? statsResult.get('totalNodes').low : statsResult.totalNodes,
+      uniqueLabels: typeof statsResult?.get === 'function' ? statsResult.get('uniqueLabels').low : statsResult.uniqueLabels
     }
     
     // Get vulnerability statistics

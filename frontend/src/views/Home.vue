@@ -524,7 +524,15 @@ async function refreshData() {
   try {
     // Show a loading state
     isLoading.value = true;
-    showNotification('Refreshing data and updating vulnerabilities...', 'info');
+    showNotification('Refreshing data...', 'info');
+
+    // In production/API mode the app is read-only from the browser.
+    // Avoid DB mutations and long-running background updates client-side.
+    if (!neo4jService.canWrite) {
+      await fetchDashboardData();
+      showNotification('Dashboard refreshed.', 'success');
+      return;
+    }
     
     // Get the initial node count before any updates
     const initialNodeCount = await neo4jService.getTotalNodeCount();
