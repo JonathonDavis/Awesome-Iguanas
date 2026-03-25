@@ -1,2 +1,17 @@
 frontend/package-lock.json
 frontend/package.json
+.vscode/settings.json
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# OSV ingestor clones repositories here (runtime/generated data)
+VulGPT_OSV/repos/
+VulGPT_OSV/__pycache__/
+RepairGPT/__pycache__/
+
+# Neo4j Aura credentials exports
+Neo4j-*-Created-*.txt
+Neo4j-*.txt

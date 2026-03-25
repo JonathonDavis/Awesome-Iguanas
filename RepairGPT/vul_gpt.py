@@ -1,11 +1,24 @@
 from neo4j import GraphDatabase
 import mimetypes
 import os
+import sys
 import subprocess
 import json
 import requests
 import time
 from typing import List, Dict, Any, Optional
+from pathlib import Path
+
+# Attempt to auto-load Neo4j Aura credentials from the repo-root TXT file.
+try:
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from neo4j_aura_config import ensure_neo4j_env_loaded
+
+    ensure_neo4j_env_loaded()
+except Exception:
+    pass
 
 class VulnerabilityScanner:
     """
@@ -18,9 +31,16 @@ class VulnerabilityScanner:
     :param deepseek_api_url: URL for the DeepSeek API endpoint
     :param results_file: Path to the file where results will be saved
     """
-    def __init__(self, uri, username, password, deepseek_api_key, 
-                 deepseek_api_url="https://api.deepseek.com/v1/chat/completions",
-                 results_file="vulnerability_results.json"):
+    def __init__(
+        self,
+        uri,
+        username,
+        password,
+        deepseek_api_key,
+        neo4j_database: Optional[str] = None,
+        deepseek_api_url="https://api.deepseek.com/v1/chat/completions",
+        results_file="vulnerability_results.json",
+    ):
         """
         Initialize a VulnerabilityScanner object to interact with the graph database
 
@@ -32,6 +52,7 @@ class VulnerabilityScanner:
         :param results_file: Path to the file where results will be saved
         """
         self.driver = GraphDatabase.driver(uri, auth=(username, password))
+        self.neo4j_database = neo4j_database
         self.deepseek_api_key = deepseek_api_key
         self.deepseek_api_url = deepseek_api_url
         self.results_file = results_file
@@ -120,13 +141,18 @@ class VulnerabilityScanner:
         """
         self.driver.close()
 
+    def _session(self):
+        if self.neo4j_database:
+            return self.driver.session(database=self.neo4j_database)
+        return self.driver.session()
+
     def get_repositories(self):
         """
         Fetch all repositories from the database, excluding the Linux repository
 
         :return: A list of URLs for repositories in the database (excluding Linux)
         """
-        with self.driver.session() as session:
+        with self._session() as session:
             result = session.run("MATCH (r:Repository) RETURN r.url as url")
             repos = [record["url"] for record in result]
             
@@ -141,7 +167,7 @@ class VulnerabilityScanner:
 
 
     def get_repository_versions(self, repo_url):
-        with self.driver.session() as session:
+        with self._session() as session:
             # Query the database for all versions of the given repository
             query = """
             MATCH (r:Repository {url: $repo_url})-[:HAS_VERSION]->(v:Version)
@@ -174,7 +200,7 @@ class VulnerabilityScanner:
         list
             A list of dictionaries containing the ID, details, severity, and severity score of each vulnerability
         """
-        with self.driver.session() as session:
+        with self._session() as session:
             # Query the database for all vulnerabilities associated with the given repository
             query = """
             MATCH (v:Vulnerability)-[:FOUND_IN]->(r:Repository {url: $repo_url})
@@ -201,7 +227,7 @@ class VulnerabilityScanner:
         list
             A list of CVE IDs related to the given vulnerability
         """
-        with self.driver.session() as session:
+        with self._session() as session:
             query = """
             MATCH (v:Vulnerability {id: $vuln_id})-[:RELATED_TO]->(cve:CVE)
             RETURN cve.id as id
@@ -619,7 +645,7 @@ class VulnerabilityScanner:
         print(f"    Saving DeepSeek output to Neo4j for {repo_url}, version {version_id}")
         
         try:
-            with self.driver.session() as session:
+            with self._session() as session:
                 # Generate a unique ID for the DeepSeek output
                 output_id = f"{repo_url.replace('/', '_')}_{version_id}_deepseek_output"
                 
@@ -808,7 +834,7 @@ class VulnerabilityScanner:
         print(f"    Found {len(findings)} vulnerabilities")
         count = 0
         
-        with self.driver.session() as session:
+        with self._session() as session:
             for i, finding in enumerate(findings):
                 try:
                     # Generate a unique ID for the finding
@@ -1326,10 +1352,16 @@ def main():
     This function connects to Neo4j, creates a VulnerabilityScanner object, and runs it
     on all repositories in the database. The results are saved to a JSON file.
     """
-    # Neo4j connection details (update with actual values)
-    uri = "bolt://localhost:7687"
-    username = "neo4j"
-    password = "jaguarai"
+    # Neo4j connection details (prefer env/Aura TXT)
+    uri = os.environ.get("NEO4J_URI") or os.environ.get("VITE_NEO4J_URI") or "neo4j://localhost:7687"
+    username = (
+        os.environ.get("NEO4J_USERNAME")
+        or os.environ.get("NEO4J_USER")
+        or os.environ.get("VITE_NEO4J_USER")
+        or "neo4j"
+    )
+    password = os.environ.get("NEO4J_PASSWORD") or os.environ.get("VITE_NEO4J_PASSWORD") or ""
+    neo4j_database = os.environ.get("NEO4J_DATABASE") or os.environ.get("VITE_NEO4J_DATABASE")
     
     # DeepSeek API key (replace with your actual API key)
     deepseek_api_key = "your_deepseek_api_key_here"
@@ -1343,7 +1375,14 @@ def main():
         f.write(f"Starting vulnerability scan at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     
     # Create the scanner with specified results file
-    scanner = VulnerabilityScanner(uri, username, password, deepseek_api_key, results_file=results_file)
+    scanner = VulnerabilityScanner(
+        uri,
+        username,
+        password,
+        deepseek_api_key,
+        neo4j_database=neo4j_database,
+        results_file=results_file,
+    )
     evaluator = EvaluationMetrics()
     
     try:

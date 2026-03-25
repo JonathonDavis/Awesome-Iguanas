@@ -10,7 +10,7 @@ docker-compose build
 echo "Starting services..."
 
 # First start/update backend services
-docker-compose up -d --no-deps db repairgpt vulgpt
+docker-compose up -d --no-deps repairgpt vulgpt ollama
 
 # Then update the frontend with scale for zero-downtime
 echo "Starting frontend with zero-downtime deployment..."

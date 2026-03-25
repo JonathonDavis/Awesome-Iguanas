@@ -1,5 +1,5 @@
 export async function getStatistics() {
-  const session = this.driver.session()
+  const session = this.createSession()
   try {
     const result = await session.run(`
       MATCH (n)
@@ -17,7 +17,7 @@ export async function getStatistics() {
 }
 
 export async function getNodeDistribution() {
-  const session = this.driver.session()
+  const session = this.createSession()
   try {
     // First, let's get all unique labels in the database and log them
     const labelsResult = await session.run(`
@@ -59,7 +59,7 @@ export async function getNodeDistribution() {
 }
 
 export async function getVulnerabilityStatistics() {
-  const session = this.driver.session()
+  const session = this.createSession()
   try {
     const result = await session.run(`
       MATCH (v:Vulnerability)

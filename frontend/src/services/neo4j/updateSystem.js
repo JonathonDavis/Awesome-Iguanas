@@ -1,5 +1,5 @@
 export async function initializeUpdateTracking() {
-  const session = this.driver.session();
+  const session = this.createSession();
   try {
     // Create update tracking node if it doesn't exist
     await session.run(`
